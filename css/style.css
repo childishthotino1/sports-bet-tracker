@@ -912,3 +912,172 @@ input:focus, select:focus { border-color: var(--purple); }
   color: var(--text-muted);
   margin-top: 2px;
 }
+
+/* ── Performance Card (Pool View) ────────────────────── */
+.perf-card {
+  background: linear-gradient(135deg, #12112a 0%, #0e0e1c 100%);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--purple);
+  border-radius: var(--r);
+  padding: 14px 16px 10px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.perf-card:active { border-color: var(--purple); background: #161630; }
+
+.perf-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.perf-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.perf-growth {
+  font-size: 13px;
+  color: var(--purple);
+  color: #9b6fd0;
+  font-weight: 500;
+}
+
+.perf-caret {
+  font-size: 20px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.perf-chart-wrap {
+  height: 64px;
+  position: relative;
+}
+
+/* ── Chart Modal ──────────────────────────────────────── */
+.chart-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.chart-modal-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.chart-modal-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.btn-add-snap-sm {
+  background: var(--purple-dim);
+  border: 1px solid var(--purple);
+  border-radius: 8px;
+  color: #9b6fd0;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-add-snap-sm:active { background: var(--purple); color: white; }
+
+.chart-stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.chart-stat {
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.chart-stat-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.chart-stat-val {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.full-chart-wrap {
+  height: 240px;
+  position: relative;
+  margin-bottom: 4px;
+}
+
+/* ── Snapshot History Table ───────────────────────────── */
+.snap-table-wrap {
+  margin-bottom: 8px;
+}
+
+.snap-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.snap-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 540px;
+  font-size: 12px;
+}
+
+.snap-table th {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.snap-table th:first-child { text-align: left; position: sticky; left: 0; background: var(--bg-card2); }
+
+.snap-table td {
+  padding: 9px 10px;
+  text-align: right;
+  border-bottom: 1px solid rgba(28,28,50,0.6);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.snap-table tbody tr:last-child td { border-bottom: none; }
+.snap-table td:first-child { text-align: left; position: sticky; left: 0; background: var(--bg-card); }
+
+.snap-date {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.snap-cash {
+  font-weight: 700;
+  color: var(--green);
+}

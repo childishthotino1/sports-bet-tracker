@@ -6,8 +6,12 @@ const App = {
     bets: [],
     transactions: [],
     settings: {},
+    snapshots: [],
     loaded: false,
   },
+
+  _miniChart: null,
+  _fullChart: null,
 
   pinEntry: '',
 
@@ -24,16 +28,18 @@ const App = {
   },
 
   async loadData() {
-    const [sportsbooks, bets, transactions, settings] = await Promise.all([
+    const [sportsbooks, bets, transactions, settings, snapshots] = await Promise.all([
       DB.getSportsbooks(),
       DB.getBets(),
       DB.getTransactions(),
       DB.getSettings(),
+      DB.getSnapshots(),
     ]);
     this.state.sportsbooks  = sportsbooks;
     this.state.bets         = bets;
     this.state.transactions = transactions;
     this.state.settings     = settings;
+    this.state.snapshots    = snapshots;
   },
 
   // ─── PIN ──────────────────────────────────────────────
@@ -149,6 +155,19 @@ const App = {
         </div>
       ` : ''}
 
+      <div class="perf-card" id="perf-card-tap">
+        <div class="perf-card-top">
+          <div>
+            <div class="perf-label">Performance</div>
+            <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
+          </div>
+          <span class="perf-caret">›</span>
+        </div>
+        <div class="perf-chart-wrap">
+          <canvas id="mini-chart"></canvas>
+        </div>
+      </div>
+
       <div class="pool-actions">
         <button class="action-btn" id="pool-log-btn">+ Transaction</button>
         <button class="action-btn" id="pool-books-btn">Manage Books</button>
@@ -173,10 +192,12 @@ const App = {
     `;
 
     this.attachBetCardHandlers();
+    this._renderPerfCard();
 
     document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('pool-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
     document.getElementById('bucket-disburse-btn')?.addEventListener('click', () => this.showLogTransactionModal('disbursement'));
+    document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
   },
 
   // ─── Bet Card HTML ─────────────────────────────────────
@@ -487,6 +508,292 @@ const App = {
         </div>
       </div>
     `;
+  },
+
+  // ─── Charts ────────────────────────────────────────────
+
+  _renderPerfCard() {
+    const { snapshots, transactions } = this.state;
+    if (!snapshots || snapshots.length < 2) {
+      const el = document.getElementById('perf-growth-text');
+      if (el) el.textContent = 'Add snapshots to see chart';
+      return;
+    }
+
+    const first   = parseFloat(snapshots[0].cash);
+    const current = parseFloat(snapshots[snapshots.length - 1].cash);
+    const pct     = ((current - first) / first * 100).toFixed(0);
+    const el      = document.getElementById('perf-growth-text');
+    if (el) el.textContent = `${BetMath.fmt(first)} → ${BetMath.fmt(current)}  ·  +${pct}%`;
+
+    const canvas = document.getElementById('mini-chart');
+    if (!canvas) return;
+
+    if (this._miniChart) { this._miniChart.destroy(); this._miniChart = null; }
+
+    const ctx      = canvas.getContext('2d');
+    const cashLine = snapshots.map(s => parseFloat(s.cash));
+    const grad     = ctx.createLinearGradient(0, 0, 0, 70);
+    grad.addColorStop(0, 'rgba(107,47,160,0.55)');
+    grad.addColorStop(1, 'rgba(107,47,160,0)');
+
+    this._miniChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: snapshots.map(() => ''),
+        datasets: [{ data: cashLine, borderColor: '#9b6fd0', backgroundColor: grad, fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 900, easing: 'easeInOutQuart' },
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { display: false }, y: { display: false } },
+      },
+    });
+  },
+
+  showChartModal() {
+    const { snapshots, transactions } = this.state;
+
+    if (!snapshots || snapshots.length === 0) {
+      this.showModal(`
+        <div class="modal-header">Performance</div>
+        <div class="empty-state">No snapshots yet. Add one to start tracking.</div>
+        <button class="btn-orange-full" id="add-snap-btn">+ Add Snapshot</button>
+        <button class="btn-cancel-modal" id="modal-cancel">Close</button>
+      `);
+      document.getElementById('add-snap-btn').addEventListener('click', () => { this.hideModal(); setTimeout(() => this.showAddSnapshotModal(), 120); });
+      document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
+      return;
+    }
+
+    const peak     = Math.max(...snapshots.map(s => parseFloat(s.cash)));
+    const first    = parseFloat(snapshots[0].cash);
+    const last     = parseFloat(snapshots[snapshots.length - 1].cash);
+    const totalDep = transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + parseFloat(t.amount), 0);
+    const totalWdr = transactions.filter(t => t.type === 'withdrawal').reduce((s, t) => s + parseFloat(t.amount), 0);
+    const pct      = ((last - first) / first * 100).toFixed(0);
+
+    this.showModal(`
+      <div class="modal-drag"></div>
+      <div class="chart-modal-header">
+        <div>
+          <div class="chart-modal-title">Pool Performance</div>
+          <div class="chart-modal-sub">Sep 2025 – Today</div>
+        </div>
+        <button class="btn-add-snap-sm" id="add-snap-btn">+ Snapshot</button>
+      </div>
+
+      <div class="chart-stats-row">
+        <div class="chart-stat">
+          <div class="chart-stat-label">Peak</div>
+          <div class="chart-stat-val text-gold">${BetMath.fmt(peak)}</div>
+        </div>
+        <div class="chart-stat">
+          <div class="chart-stat-label">Growth</div>
+          <div class="chart-stat-val text-green">+${pct}%</div>
+        </div>
+        <div class="chart-stat">
+          <div class="chart-stat-label">Deposited</div>
+          <div class="chart-stat-val">${BetMath.fmt(totalDep)}</div>
+        </div>
+        <div class="chart-stat">
+          <div class="chart-stat-label">Withdrawn</div>
+          <div class="chart-stat-val text-red">${BetMath.fmt(totalWdr)}</div>
+        </div>
+      </div>
+
+      <div class="full-chart-wrap">
+        <canvas id="full-chart"></canvas>
+      </div>
+
+      <div class="section-label" style="margin-top:16px">Book Breakdown</div>
+      <div class="snap-table-wrap">
+        ${this._buildSnapshotTable(snapshots)}
+      </div>
+
+      <button class="btn-cancel-modal" id="modal-cancel">Close</button>
+    `);
+
+    // Remove the auto-injected drag handle (showModal adds one, we have our own layout)
+    document.querySelector('.modal-drag')?.remove();
+
+    document.getElementById('add-snap-btn').addEventListener('click', () => {
+      this.hideModal();
+      setTimeout(() => this.showAddSnapshotModal(), 120);
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
+
+    requestAnimationFrame(() => this._renderFullChart(snapshots, transactions));
+  },
+
+  _buildSnapshotTable(snapshots) {
+    const books = [...new Set(snapshots.flatMap(s => Object.keys(s.book_balances || {})))];
+    const rows  = [...snapshots].reverse().map(s => {
+      const d    = new Date(s.snapshot_date + 'T12:00:00');
+      const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const cols = books.map(b => {
+        const val = s.book_balances?.[b];
+        return `<td>${val != null ? BetMath.fmt(val) : '—'}</td>`;
+      }).join('');
+      return `<tr><td class="snap-date">${date}</td>${cols}<td class="snap-cash">${BetMath.fmt(s.cash)}</td></tr>`;
+    }).join('');
+
+    const headers = books.map(b => `<th>${b.replace('theScore Bet', 'Score')}</th>`).join('');
+    return `
+      <div class="snap-table-scroll">
+        <table class="snap-table">
+          <thead><tr><th>Date</th>${headers}<th>Cash</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  _renderFullChart(snapshots, transactions) {
+    const canvas = document.getElementById('full-chart');
+    if (!canvas || !window.Chart) return;
+    if (this._fullChart) { this._fullChart.destroy(); this._fullChart = null; }
+
+    const ctx      = canvas.getContext('2d');
+    const labels   = snapshots.map(s => {
+      const d = new Date(s.snapshot_date + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    });
+    const cashLine = snapshots.map(s => parseFloat(s.cash));
+
+    // Deposits + withdrawals per period
+    const depositBars = [], withdrawalBars = [];
+    for (let i = 0; i < snapshots.length; i++) {
+      const from = i === 0 ? new Date('2025-09-01') : new Date(snapshots[i-1].snapshot_date + 'T23:59:59');
+      const to   = new Date(snapshots[i].snapshot_date + 'T23:59:59');
+      const deps = transactions.filter(t => t.type === 'deposit'    && new Date(t.created_at) >= from && new Date(t.created_at) <= to).reduce((s, t) => s + parseFloat(t.amount), 0);
+      const wdrs = transactions.filter(t => t.type === 'withdrawal' && new Date(t.created_at) >= from && new Date(t.created_at) <= to).reduce((s, t) => s + parseFloat(t.amount), 0);
+      depositBars.push(deps);
+      withdrawalBars.push(wdrs);
+    }
+
+    const grad = ctx.createLinearGradient(0, 0, 0, 260);
+    grad.addColorStop(0, 'rgba(107,47,160,0.6)');
+    grad.addColorStop(1, 'rgba(107,47,160,0.02)');
+
+    this._fullChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            type: 'line', label: 'Pool Balance',
+            data: cashLine,
+            borderColor: '#9b6fd0', backgroundColor: grad,
+            fill: true, tension: 0.4, borderWidth: 2.5,
+            pointBackgroundColor: '#c9a44a', pointBorderColor: '#c9a44a',
+            pointRadius: 5, pointHoverRadius: 7,
+            yAxisID: 'y', order: 0,
+          },
+          {
+            type: 'bar', label: 'Deposits',
+            data: depositBars,
+            backgroundColor: 'rgba(34,197,94,0.35)', borderColor: 'rgba(34,197,94,0.65)',
+            borderWidth: 1, borderRadius: 4,
+            yAxisID: 'y2', order: 1,
+          },
+          {
+            type: 'bar', label: 'Withdrawn',
+            data: withdrawalBars.map(w => -w),
+            backgroundColor: 'rgba(216,82,0,0.35)', borderColor: 'rgba(216,82,0,0.65)',
+            borderWidth: 1, borderRadius: 4,
+            yAxisID: 'y2', order: 2,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        animation: { duration: 700, easing: 'easeInOutQuart' },
+        scales: {
+          y: {
+            position: 'left',
+            grid: { color: 'rgba(28,28,50,0.9)' },
+            border: { color: '#1c1c32' },
+            ticks: { color: '#6a6880', font: { size: 11 }, callback: v => '$' + (v/1000).toFixed(0) + 'k' },
+          },
+          y2: {
+            position: 'right',
+            grid: { display: false },
+            ticks: { color: '#6a6880', font: { size: 10 }, callback: v => '$' + Math.abs(v/1000).toFixed(1) + 'k' },
+          },
+          x: {
+            grid: { color: 'rgba(28,28,50,0.5)' },
+            border: { color: '#1c1c32' },
+            ticks: { color: '#6a6880', font: { size: 10 }, maxRotation: 35 },
+          },
+        },
+        plugins: {
+          legend: {
+            labels: { color: '#ede9f8', font: { size: 12 }, usePointStyle: true, pointStyle: 'circle', padding: 14 },
+          },
+          tooltip: {
+            backgroundColor: '#0e0e1c', borderColor: '#6b2fa0', borderWidth: 1,
+            titleColor: '#c9a44a', titleFont: { weight: '700' },
+            bodyColor: '#ede9f8', padding: 12,
+            callbacks: {
+              label: c => {
+                const v = Math.abs(c.parsed.y);
+                const sign = c.dataset.label === 'Withdrawn' ? '-' : '';
+                return ` ${c.dataset.label}: ${sign}$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+              },
+            },
+          },
+        },
+      },
+    });
+  },
+
+  showAddSnapshotModal() {
+    const today = new Date().toISOString().split('T')[0];
+    const sbInputs = this.state.sportsbooks.map(sb => `
+      <div class="form-group">
+        <label>${sb.name}</label>
+        <input type="number" class="form-input snap-book-input" data-book="${sb.name}"
+               value="${parseFloat(sb.current_balance).toFixed(2)}" step="0.01" inputmode="decimal">
+      </div>
+    `).join('');
+
+    this.showModal(`
+      <div class="modal-header">Add Snapshot</div>
+      <div class="modal-sub">Records current balances for the performance chart.</div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="snap-date" class="form-input" value="${today}">
+      </div>
+      ${sbInputs}
+      <div class="form-group">
+        <label>At Risk (pending bets total $)</label>
+        <input type="number" id="snap-at-risk" class="form-input" value="0" step="0.01" inputmode="decimal">
+      </div>
+      <button class="btn-primary-full" id="save-snap">Save Snapshot</button>
+      <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
+    `);
+
+    document.getElementById('save-snap').addEventListener('click', async () => {
+      const snapshot_date = document.getElementById('snap-date').value;
+      const at_risk       = parseFloat(document.getElementById('snap-at-risk').value) || 0;
+      const book_balances = {};
+      let cash = 0;
+      document.querySelectorAll('.snap-book-input').forEach(inp => {
+        const val = parseFloat(inp.value) || 0;
+        book_balances[inp.dataset.book] = val;
+        cash += val;
+      });
+      await DB.addSnapshot({ snapshot_date, cash, at_risk, book_balances });
+      await this.loadData();
+      this.hideModal();
+      this.render(this.state.view);
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
   // ─── Modals ────────────────────────────────────────────

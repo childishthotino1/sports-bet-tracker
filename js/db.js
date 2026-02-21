@@ -80,4 +80,22 @@ const DB = {
     if (error) throw error;
     return data;
   },
+
+  async getSnapshots() {
+    const { data, error } = await client()
+      .from('snapshots')
+      .select('*')
+      .order('snapshot_date', { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+
+  async addSnapshot(snap) {
+    const { data, error } = await client()
+      .from('snapshots')
+      .upsert(snap, { onConflict: 'snapshot_date' })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
 };
