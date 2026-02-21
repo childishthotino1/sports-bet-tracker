@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f172a">
+  <title>Bet Tracker</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── PIN Screen ──────────────────────────────────────── -->
+<div id="pin-screen">
+  <div class="pin-container">
+    <div class="pin-title">Bet Tracker</div>
+    <div class="pin-subtitle">Enter PIN to continue</div>
+    <div class="pin-dots">
+      <span class="pin-dot" id="dot-0"></span>
+      <span class="pin-dot" id="dot-1"></span>
+      <span class="pin-dot" id="dot-2"></span>
+      <span class="pin-dot" id="dot-3"></span>
+    </div>
+    <div id="pin-error" class="pin-error hidden">Incorrect PIN — try again</div>
+    <div class="pin-keypad">
+      <button class="pin-key" data-digit="1">1</button>
+      <button class="pin-key" data-digit="2">2</button>
+      <button class="pin-key" data-digit="3">3</button>
+      <button class="pin-key" data-digit="4">4</button>
+      <button class="pin-key" data-digit="5">5</button>
+      <button class="pin-key" data-digit="6">6</button>
+      <button class="pin-key" data-digit="7">7</button>
+      <button class="pin-key" data-digit="8">8</button>
+      <button class="pin-key" data-digit="9">9</button>
+      <button class="pin-key pin-key-clear" data-action="clear">⌫</button>
+      <button class="pin-key" data-digit="0">0</button>
+      <button class="pin-key pin-key-empty"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ── App ─────────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <header>
+    <span id="header-title">Dashboard</span>
+  </header>
+
+  <main>
+
+    <!-- Dashboard -->
+    <div id="view-dashboard" class="view active">
+      <div id="dashboard-content">
+        <div class="empty-state">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Bets -->
+    <div id="view-bets" class="view">
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="pending">Open</button>
+        <button class="filter-tab" data-filter="won">Won</button>
+        <button class="filter-tab" data-filter="lost">Lost</button>
+        <button class="filter-tab" data-filter="push">Push</button>
+        <button class="filter-tab" data-filter="all">All</button>
+      </div>
+      <div id="bets-list"></div>
+    </div>
+
+    <!-- Add Bet -->
+    <div id="view-add-bet" class="view">
+      <form id="add-bet-form">
+
+        <div class="form-group">
+          <label>Sportsbook</label>
+          <select id="bet-sportsbook" required></select>
+        </div>
+
+        <div class="form-group">
+          <label>Sport</label>
+          <input type="text" id="bet-sport" placeholder="NBA" required>
+          <div class="chips">
+            <button type="button" class="chip" data-value="NBA">NBA</button>
+            <button type="button" class="chip" data-value="NFL">NFL</button>
+            <button type="button" class="chip" data-value="MLB">MLB</button>
+            <button type="button" class="chip" data-value="NHL">NHL</button>
+            <button type="button" class="chip" data-value="NCAAB">NCAAB</button>
+            <button type="button" class="chip" data-value="NCAAF">NCAAF</button>
+            <button type="button" class="chip" data-value="Soccer">Soccer</button>
+            <button type="button" class="chip" data-value="Golf">Golf</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="bet-description" placeholder="PlayerProp, ML, Spread..." required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Boost %</label>
+            <input type="number" id="bet-boost" value="0" min="0" max="500" step="1" inputmode="numeric">
+          </div>
+          <div class="form-group">
+            <label>Base Odds</label>
+            <div class="odds-input">
+              <button type="button" id="odds-sign" class="odds-sign-btn">+</button>
+              <input type="number" id="bet-odds" placeholder="200" min="1" required inputmode="numeric" style="flex:1">
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Total Wager ($)</label>
+            <input type="number" id="bet-total-wager" placeholder="50.00" min="0.01" step="0.01" required inputmode="decimal">
+          </div>
+          <div class="form-group">
+            <label>His Wager ($)</label>
+            <input type="number" id="bet-his-wager" placeholder="30.00" min="0.01" step="0.01" required inputmode="decimal">
+          </div>
+        </div>
+
+        <!-- Live Preview -->
+        <div id="bet-preview" class="bet-preview hidden">
+          <div class="preview-row">
+            <span class="preview-label">My Wager</span>
+            <span id="preview-my-wager">—</span>
+          </div>
+          <div class="preview-row" id="preview-boost-row">
+            <span class="preview-label">Boosted Odds</span>
+            <span id="preview-boosted-odds">—</span>
+          </div>
+          <div class="preview-row">
+            <span class="preview-label">If Won — His</span>
+            <span id="preview-his-return" class="text-green">—</span>
+          </div>
+          <div class="preview-row">
+            <span class="preview-label">If Won — Mine</span>
+            <span id="preview-my-return" class="text-green">—</span>
+          </div>
+          <div class="preview-row">
+            <span class="preview-label">Total Return</span>
+            <span id="preview-total-return" class="text-green">—</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Notes (optional)</label>
+          <input type="text" id="bet-notes" placeholder="Any extra details">
+        </div>
+
+        <button type="submit" class="btn-submit">Place Bet</button>
+      </form>
+    </div>
+
+    <!-- Sportsbooks -->
+    <div id="view-sportsbooks" class="view">
+      <div id="sportsbooks-list"></div>
+      <button class="btn-add-sb" id="add-sportsbook-btn">+ Add Sportsbook</button>
+    </div>
+
+    <!-- Transactions -->
+    <div id="view-transactions" class="view">
+      <button class="btn-add-tx" id="add-transaction-btn">+ Log Transaction</button>
+      <div id="transactions-list"></div>
+    </div>
+
+  </main>
+
+  <!-- Bottom Nav -->
+  <nav id="bottom-nav">
+
+    <button class="nav-btn active" data-view="dashboard">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/>
+      </svg>
+      <span>Home</span>
+    </button>
+
+    <button class="nav-btn" data-view="bets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+        <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+      </svg>
+      <span>Bets</span>
+    </button>
+
+    <button class="nav-btn nav-btn-add" data-view="add-bet">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    </button>
+
+    <button class="nav-btn" data-view="sportsbooks">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+      </svg>
+      <span>Books</span>
+    </button>
+
+    <button class="nav-btn" data-view="transactions">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="17,1 21,5 17,9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7,23 3,19 7,15"/>
+        <path d="M21 13v2a4 4 0 01-4 4H3"/>
+      </svg>
+      <span>Log</span>
+    </button>
+
+  </nav>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="hidden">
+  <div class="modal-sheet">
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/math.js"></script>
+<script src="js/db.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
