@@ -1,6 +1,6 @@
 const App = {
   state: {
-    view: 'dashboard',
+    view: 'pool',
     betFilter: 'pending',
     sportsbooks: [],
     bets: [],
@@ -10,6 +10,8 @@ const App = {
   },
 
   pinEntry: '',
+
+  // ─── Init ──────────────────────────────────────────────
 
   async init() {
     this.initPin();
@@ -28,13 +30,13 @@ const App = {
       DB.getTransactions(),
       DB.getSettings(),
     ]);
-    this.state.sportsbooks = sportsbooks;
-    this.state.bets = bets;
+    this.state.sportsbooks  = sportsbooks;
+    this.state.bets         = bets;
     this.state.transactions = transactions;
-    this.state.settings = settings;
+    this.state.settings     = settings;
   },
 
-  // ─── PIN ─────────────────────────────────────────────────
+  // ─── PIN ──────────────────────────────────────────────
 
   initPin() {
     document.querySelectorAll('.pin-key[data-digit]').forEach(btn => {
@@ -50,9 +52,7 @@ const App = {
     if (this.pinEntry.length >= 4) return;
     this.pinEntry += digit;
     this.updatePinDots();
-    if (this.pinEntry.length === 4) {
-      setTimeout(() => this.checkPin(), 150);
-    }
+    if (this.pinEntry.length === 4) setTimeout(() => this.checkPin(), 150);
   },
 
   updatePinDots() {
@@ -62,14 +62,11 @@ const App = {
   },
 
   async checkPin() {
-    if (!this.state.loaded) {
-      await this.loadData();
-      this.state.loaded = true;
-    }
+    if (!this.state.loaded) { await this.loadData(); this.state.loaded = true; }
     if (this.pinEntry === this.state.settings.pin) {
       document.getElementById('pin-screen').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
-      this.navigate('dashboard');
+      this.navigate('pool');
     } else {
       const err = document.getElementById('pin-error');
       err.classList.remove('hidden');
@@ -79,7 +76,7 @@ const App = {
     }
   },
 
-  // ─── NAVIGATION ──────────────────────────────────────────
+  // ─── Navigation ────────────────────────────────────────
 
   navigate(view) {
     document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
@@ -88,102 +85,114 @@ const App = {
     const navBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
     if (navBtn) navBtn.classList.add('active');
     this.state.view = view;
-    const titles = { dashboard: 'Dashboard', bets: 'Bets', 'add-bet': 'New Bet', sportsbooks: 'Sportsbooks', transactions: 'Log' };
+    const titles = { pool: 'Baltimore Bets', bets: 'Bets', 'add-bet': 'New Bet', brent: 'Brent', dan: 'Dan' };
     document.getElementById('header-title').textContent = titles[view] || view;
     this.render(view);
   },
 
   render(view) {
     const map = {
-      dashboard: () => this.renderDashboard(),
-      bets: () => this.renderBets(),
-      'add-bet': () => this.renderAddBetForm(),
-      sportsbooks: () => this.renderSportsbooks(),
-      transactions: () => this.renderTransactions(),
+      pool:     () => this.renderPool(),
+      bets:     () => this.renderBets(),
+      'add-bet': () => this.renderAddBet(),
+      brent:    () => this.renderPerson('brent'),
+      dan:      () => this.renderPerson('dan'),
     };
     if (map[view]) map[view]();
   },
 
-  // ─── DASHBOARD ───────────────────────────────────────────
+  // ─── Pool View ─────────────────────────────────────────
 
-  renderDashboard() {
-    const { sportsbooks, bets, transactions, settings } = this.state;
-    const friendEquity = BetMath.friendEquity(transactions, bets);
-    const friendPending = BetMath.friendPendingExposure(bets);
-    const myPending = BetMath.myPendingExposure(bets);
-    const totalBalance = BetMath.totalBalance(sportsbooks);
-    const myEquity = BetMath.myEquity(totalBalance, friendEquity);
-    const pendingBets = bets.filter(b => b.status === 'pending');
-    const myName = settings.my_name || 'Me';
-    const friendName = settings.friend_name || 'Friend';
+  renderPool() {
+    const { sportsbooks, bets, transactions } = this.state;
+    const danEquity    = BetMath.danEquity(transactions, bets);
+    const bucket       = BetMath.bucketBalance(transactions);
+    const totalPool    = BetMath.totalPool(sportsbooks, transactions);
+    const brentEquity  = BetMath.brentEquity(totalPool, danEquity);
+    const danPending   = BetMath.danPending(bets);
+    const brentPending = BetMath.brentPending(bets);
+    const openBets     = bets.filter(b => b.status === 'pending');
+    const sbTotal      = BetMath.sportsbookTotal(sportsbooks);
 
-    document.getElementById('dashboard-content').innerHTML = `
-      <div class="total-bankroll">
-        <div class="total-label">Total Bankroll</div>
-        <div class="total-amount">${BetMath.fmt(totalBalance)}</div>
+    document.getElementById('pool-content').innerHTML = `
+      <div class="pool-hero">
+        <div class="pool-label">Total Pool</div>
+        <div class="pool-amount">${BetMath.fmt(totalPool)}</div>
+        <div class="pool-sub">
+          ${BetMath.fmt(sbTotal)} in books
+          ${bucket > 0 ? ` · ${BetMath.fmt(bucket)} in bucket` : ''}
+          ${openBets.length > 0 ? ` · ${openBets.length} open bet${openBets.length > 1 ? 's' : ''}` : ''}
+        </div>
       </div>
 
       <div class="equity-row">
-        <div class="equity-card">
-          <div class="equity-name">${myName}</div>
-          <div class="equity-amount">${BetMath.fmt(myEquity)}</div>
-          ${myPending > 0 ? `<div class="equity-risk">At risk: ${BetMath.fmt(myPending)}</div>` : '<div class="equity-risk">&nbsp;</div>'}
+        <div class="equity-card equity-card-brent">
+          <div class="equity-name">Brent</div>
+          <div class="equity-amount">${BetMath.fmt(brentEquity)}</div>
+          ${brentPending > 0 ? `<div class="equity-risk">↳ ${BetMath.fmt(brentPending)} at risk</div>` : '<div class="equity-risk"> </div>'}
         </div>
-        <div class="equity-card">
-          <div class="equity-name">${friendName}</div>
-          <div class="equity-amount">${BetMath.fmt(friendEquity)}</div>
-          ${friendPending > 0 ? `<div class="equity-risk">At risk: ${BetMath.fmt(friendPending)}</div>` : '<div class="equity-risk">&nbsp;</div>'}
+        <div class="equity-card equity-card-dan">
+          <div class="equity-name">Dan</div>
+          <div class="equity-amount">${BetMath.fmt(danEquity)}</div>
+          ${danPending > 0 ? `<div class="equity-risk">↳ ${BetMath.fmt(danPending)} at risk</div>` : '<div class="equity-risk"> </div>'}
         </div>
+      </div>
+
+      ${bucket > 0 ? `
+        <div class="bucket-card">
+          <div>
+            <div class="bucket-label">Bucket</div>
+            <div class="bucket-amount">${BetMath.fmt(bucket)}</div>
+            <div class="bucket-sub">Withdrawn · not yet distributed</div>
+          </div>
+          <button class="bucket-disburse-btn" id="bucket-disburse-btn">Distribute</button>
+        </div>
+      ` : ''}
+
+      <div class="pool-actions">
+        <button class="action-btn" id="pool-log-btn">+ Transaction</button>
+        <button class="action-btn" id="pool-books-btn">Manage Books</button>
       </div>
 
       <div class="section-label">Sportsbooks</div>
       <div class="card">
-        ${sportsbooks.length === 0 ? '<div class="empty-state">No sportsbooks added</div>' : sportsbooks.map(sb => `
-          <div class="sb-row">
-            <span class="sb-name">${sb.name}</span>
-            <span class="sb-balance">${BetMath.fmt(sb.current_balance)}</span>
-          </div>
-        `).join('')}
+        ${sportsbooks.length === 0
+          ? '<div class="empty-state">No sportsbooks — tap Manage Books</div>'
+          : sportsbooks.map(sb => `
+            <div class="sb-row">
+              <span class="sb-name">${sb.name}</span>
+              <span class="sb-balance">${BetMath.fmt(sb.current_balance)}</span>
+            </div>
+          `).join('')}
       </div>
 
-      <div class="section-label">
-        Open Bets ${pendingBets.length > 0 ? `<span class="badge">${pendingBets.length}</span>` : ''}
-      </div>
-      ${pendingBets.length === 0
-        ? '<div class="empty-state">No open bets</div>'
-        : pendingBets.map(b => this.betCardHTML(b)).join('')}
+      ${openBets.length > 0 ? `
+        <div class="section-label">Open Bets <span class="badge badge-pending">${openBets.length}</span></div>
+        ${openBets.map(b => this.betCardHTML(b)).join('')}
+      ` : ''}
     `;
+
     this.attachBetCardHandlers();
+
+    document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
+    document.getElementById('pool-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
+    document.getElementById('bucket-disburse-btn')?.addEventListener('click', () => this.showLogTransactionModal('disbursement'));
   },
 
-  // ─── BETS LIST ───────────────────────────────────────────
-
-  renderBets() {
-    const filter = this.state.betFilter;
-    document.querySelectorAll('.filter-tab').forEach(t => {
-      t.classList.toggle('active', t.dataset.filter === filter);
-    });
-    const filtered = filter === 'all'
-      ? this.state.bets
-      : this.state.bets.filter(b => b.status === filter);
-    document.getElementById('bets-list').innerHTML = filtered.length === 0
-      ? '<div class="empty-state">No bets</div>'
-      : filtered.map(b => this.betCardHTML(b)).join('');
-    this.attachBetCardHandlers();
-  },
+  // ─── Bet Card HTML ─────────────────────────────────────
 
   betCardHTML(bet) {
     const boosted = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
-    const statusLabels = { won: 'WON', lost: 'LOST', push: 'PUSH', pending: 'OPEN' };
+    const statusLabels  = { won: 'WON', lost: 'LOST', push: 'PUSH', pending: 'OPEN' };
     const statusClasses = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push', pending: 'badge-pending' };
     const isPending = bet.status === 'pending';
 
     let payoutLine = '';
     if (bet.status === 'won') {
-      const totalRet = BetMath.totalReturn(parseFloat(bet.total_wager), boosted);
-      const hisRet = BetMath.splitReturn(totalRet, parseFloat(bet.total_wager), parseFloat(bet.his_wager));
-      const myRet = BetMath.splitReturn(totalRet, parseFloat(bet.total_wager), parseFloat(bet.my_wager));
-      payoutLine = `<div class="bet-payout">His: ${BetMath.fmt(hisRet)} · Mine: ${BetMath.fmt(myRet)}</div>`;
+      const totalRet  = BetMath.totalReturn(parseFloat(bet.total_wager), boosted);
+      const danRet    = BetMath.splitReturn(totalRet, parseFloat(bet.total_wager), parseFloat(bet.his_wager));
+      const brentRet  = BetMath.splitReturn(totalRet, parseFloat(bet.total_wager), parseFloat(bet.my_wager));
+      payoutLine = `<div class="bet-payout"><span>Dan +${BetMath.fmt(danRet - parseFloat(bet.his_wager))}</span><span>Brent +${BetMath.fmt(brentRet - parseFloat(bet.my_wager))}</span></div>`;
     }
 
     return `
@@ -205,11 +214,11 @@ const App = {
         </div>
         <div class="bet-card-bot">
           <span>Total ${BetMath.fmt(bet.total_wager)}</span>
-          <span>His ${BetMath.fmt(bet.his_wager)}</span>
-          <span>Mine ${BetMath.fmt(bet.my_wager)}</span>
+          <span>Dan ${BetMath.fmt(bet.his_wager)}</span>
+          <span>Brent ${BetMath.fmt(bet.my_wager)}</span>
         </div>
         ${payoutLine}
-        ${isPending ? '<div class="tap-hint">Tap to settle</div>' : ''}
+        ${isPending ? '<div class="tap-hint">tap to settle</div>' : ''}
       </div>
     `;
   },
@@ -223,138 +232,267 @@ const App = {
     });
   },
 
-  // ─── ADD BET FORM ────────────────────────────────────────
+  // ─── Bets View ─────────────────────────────────────────
 
-  renderAddBetForm() {
-    const select = document.getElementById('bet-sportsbook');
-    select.innerHTML = this.state.sportsbooks.map(sb =>
-      `<option value="${sb.id}">${sb.name}</option>`
-    ).join('');
+  renderBets() {
+    const filter   = this.state.betFilter;
+    const filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
+    document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
+    document.getElementById('bets-list').innerHTML = filtered.length === 0
+      ? '<div class="empty-state">No bets</div>'
+      : filtered.map(b => this.betCardHTML(b)).join('');
+    this.attachBetCardHandlers();
   },
 
-  updateBetPreview() {
-    const totalWager = parseFloat(document.getElementById('bet-total-wager').value);
-    const hisWager = parseFloat(document.getElementById('bet-his-wager').value);
-    const oddsVal = parseInt(document.getElementById('bet-odds').value);
-    const boostPct = parseFloat(document.getElementById('bet-boost').value) || 0;
-    const sign = document.getElementById('odds-sign').textContent.trim();
-    const preview = document.getElementById('bet-preview');
+  // ─── Add Bet (Dot Notation) ────────────────────────────
 
-    if (!totalWager || !hisWager || !oddsVal || hisWager >= totalWager) {
-      preview.classList.add('hidden');
-      return;
-    }
-
-    const baseOdds = sign === '-' ? -oddsVal : oddsVal;
-    const myWager = totalWager - hisWager;
-    const boosted = BetMath.boostedOdds(baseOdds, boostPct);
-    const totalReturn = BetMath.totalReturn(totalWager, boosted);
-    const hisReturn = BetMath.splitReturn(totalReturn, totalWager, hisWager);
-    const myReturn = BetMath.splitReturn(totalReturn, totalWager, myWager);
-
-    document.getElementById('preview-my-wager').textContent = BetMath.fmt(myWager);
-    document.getElementById('preview-boosted-odds').textContent = BetMath.fmtOdds(boosted);
-    document.getElementById('preview-boost-row').style.display = boostPct > 0 ? 'flex' : 'none';
-    document.getElementById('preview-his-return').textContent = BetMath.fmt(hisReturn);
-    document.getElementById('preview-my-return').textContent = BetMath.fmt(myReturn);
-    document.getElementById('preview-total-return').textContent = BetMath.fmt(totalReturn);
-    preview.classList.remove('hidden');
-  },
-
-  async submitAddBet() {
-    const totalWager = parseFloat(document.getElementById('bet-total-wager').value);
-    const hisWager = parseFloat(document.getElementById('bet-his-wager').value);
-    const oddsVal = parseInt(document.getElementById('bet-odds').value);
-    const sign = document.getElementById('odds-sign').textContent.trim();
-    const baseOdds = sign === '-' ? -oddsVal : oddsVal;
-    const myWager = parseFloat((totalWager - hisWager).toFixed(2));
-
-    if (!totalWager || !hisWager || !oddsVal || hisWager >= totalWager) {
-      alert('Please fill in all fields. His wager must be less than total.');
-      return;
-    }
-
-    const submitBtn = document.querySelector('#add-bet-form .btn-submit');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Saving...';
-
-    try {
-      await DB.addBet({
-        sportsbook_id: document.getElementById('bet-sportsbook').value,
-        sport: document.getElementById('bet-sport').value.trim(),
-        description: document.getElementById('bet-description').value.trim(),
-        boost_pct: parseFloat(document.getElementById('bet-boost').value) || 0,
-        total_wager: totalWager,
-        his_wager: hisWager,
-        my_wager: myWager,
-        base_odds: baseOdds,
-        notes: document.getElementById('bet-notes').value.trim() || null,
-      });
-      await this.loadData();
-      document.getElementById('add-bet-form').reset();
-      document.getElementById('odds-sign').textContent = '+';
-      document.getElementById('bet-boost').value = '0';
-      document.getElementById('bet-preview').classList.add('hidden');
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-      this.navigate('dashboard');
-    } catch (err) {
-      alert('Error saving bet: ' + err.message);
-    } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Place Bet';
-    }
-  },
-
-  // ─── SPORTSBOOKS ─────────────────────────────────────────
-
-  renderSportsbooks() {
-    const list = document.getElementById('sportsbooks-list');
-    list.innerHTML = this.state.sportsbooks.map(sb => `
-      <div class="sb-card" data-sb-id="${sb.id}" data-sb-name="${sb.name}" data-sb-bal="${sb.current_balance}">
-        <div>
-          <div class="sb-card-name">${sb.name}</div>
-          <div class="sb-card-balance">${BetMath.fmt(sb.current_balance)}</div>
-        </div>
-        <button class="btn-update">Update</button>
+  renderAddBet() {
+    const container = document.getElementById('add-bet-view');
+    container.innerHTML = `
+      <div class="code-input-wrapper">
+        <div class="code-label">Bet Code</div>
+        <input
+          type="text"
+          id="bet-code-input"
+          class="code-input"
+          placeholder="ESPN.NBA.PlayerProp.20.50.30.20+413"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="characters"
+          spellcheck="false"
+          inputmode="text"
+        >
+        <div class="code-format-hint">BOOK · SPORT · DESC · BOOST% · TOTAL · DAN · BRENT±ODDS</div>
       </div>
-    `).join('');
+      <div id="bet-parse-result"></div>
+    `;
+    document.getElementById('bet-code-input').addEventListener('input', e => {
+      this.handleBetCodeInput(e.target.value);
+    });
+    document.getElementById('bet-code-input').focus();
+  },
 
-    document.querySelectorAll('.sb-card .btn-update').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const card = btn.closest('.sb-card');
-        this.showUpdateBalanceModal(card.dataset.sbId, card.dataset.sbName, card.dataset.sbBal);
-      });
+  parseBetCode(raw) {
+    const code = raw.trim();
+    if (!code) return null;
+
+    const parts = code.split('.');
+    if (parts.length !== 7) {
+      return { error: `Need 7 segments, got ${parts.length}. Format: BOOK.SPORT.DESC.BOOST.TOTAL.DAN.BRENT±ODDS` };
+    }
+
+    const [book, sport, desc, boostStr, totalStr, danStr, lastPart] = parts;
+
+    const m = lastPart.match(/^([\d.]+)([+-]\d+)$/);
+    if (!m) return { error: 'Last segment must be BrentWager±Odds (e.g. 20+413 or 20-110)' };
+
+    const boost_pct   = parseFloat(boostStr) || 0;
+    const total_wager = parseFloat(totalStr);
+    const his_wager   = parseFloat(danStr);   // Dan
+    const my_wager    = parseFloat(m[1]);     // Brent
+    const base_odds   = parseInt(m[2]);
+
+    if ([total_wager, his_wager, my_wager].some(v => isNaN(v) || v <= 0)) {
+      return { error: 'Wager amounts must be positive numbers' };
+    }
+    if (Math.abs(his_wager + my_wager - total_wager) > 0.02) {
+      return { error: `Wagers don't add up: Dan $${his_wager} + Brent $${my_wager} ≠ $${total_wager}` };
+    }
+
+    // Match sportsbook
+    const bookUpper = book.toUpperCase().replace(/\s/g, '');
+    const matched   = this.state.sportsbooks.find(sb => {
+      const sbKey = sb.name.toUpperCase().replace(/\s/g, '');
+      return sbKey === bookUpper || sbKey.startsWith(bookUpper) || bookUpper.startsWith(sbKey.split('')[0]);
+    }) || this.state.sportsbooks.find(sb =>
+      sb.name.toUpperCase().includes(bookUpper.slice(0, 4))
+    ) || null;
+
+    return { book, sport: sport.toUpperCase(), description: desc, boost_pct, total_wager, his_wager, my_wager, base_odds, sportsbook_id: matched?.id || null, sportsbook_matched: matched?.name || null };
+  },
+
+  handleBetCodeInput(code) {
+    const result = document.getElementById('bet-parse-result');
+    if (!code.trim()) { result.innerHTML = ''; return; }
+
+    const parsed = this.parseBetCode(code);
+    if (!parsed) { result.innerHTML = ''; return; }
+    if (parsed.error) {
+      result.innerHTML = `<div class="parse-error">${parsed.error}</div>`;
+      return;
+    }
+
+    const boosted    = BetMath.boostedOdds(parsed.base_odds, parsed.boost_pct);
+    const totalReturn = BetMath.totalReturn(parsed.total_wager, boosted);
+    const danReturn   = BetMath.splitReturn(totalReturn, parsed.total_wager, parsed.his_wager);
+    const brentReturn = BetMath.splitReturn(totalReturn, parsed.total_wager, parsed.my_wager);
+
+    const sbOptions = this.state.sportsbooks.map(sb =>
+      `<option value="${sb.id}" ${sb.id === parsed.sportsbook_id ? 'selected' : ''}>${sb.name}</option>`
+    ).join('');
+
+    const oddsDisplay = parsed.boost_pct > 0
+      ? `${BetMath.fmtOdds(parsed.base_odds)} <span class="odds-arrow">→</span> <strong>${BetMath.fmtOdds(boosted)}</strong> <span class="boost-tag">+${parsed.boost_pct}%</span>`
+      : `<strong>${BetMath.fmtOdds(parsed.base_odds)}</strong>`;
+
+    result.innerHTML = `
+      <div class="parsed-card">
+        <div class="parsed-header">
+          <span class="parsed-sport">${parsed.sport}</span>
+          <span class="parsed-desc">${parsed.description}</span>
+        </div>
+
+        <div class="parsed-book-row">
+          <span>Sportsbook</span>
+          <select class="parsed-select" id="parsed-sportsbook">
+            ${sbOptions}
+            ${!parsed.sportsbook_id ? '<option value="">— select —</option>' : ''}
+          </select>
+        </div>
+
+        <div class="parsed-odds-row">
+          <span class="text-muted">Odds</span>
+          <span>${oddsDisplay}</span>
+        </div>
+
+        <div class="parsed-wagers">
+          <div class="wager-col">
+            <div class="wager-col-name">Dan</div>
+            <div class="wager-amount">${BetMath.fmt(parsed.his_wager)}</div>
+            <div class="wager-if-won-label">if won</div>
+            <div class="wager-if-won">${BetMath.fmt(danReturn)}</div>
+          </div>
+          <div class="wager-col wager-col-total">
+            <div class="wager-col-name">Total</div>
+            <div class="wager-amount">${BetMath.fmt(parsed.total_wager)}</div>
+            <div class="wager-if-won-label">if won</div>
+            <div class="wager-if-won">${BetMath.fmt(totalReturn)}</div>
+          </div>
+          <div class="wager-col">
+            <div class="wager-col-name">Brent</div>
+            <div class="wager-amount">${BetMath.fmt(parsed.my_wager)}</div>
+            <div class="wager-if-won-label">if won</div>
+            <div class="wager-if-won">${BetMath.fmt(brentReturn)}</div>
+          </div>
+        </div>
+
+        <button class="btn-place-bet" id="btn-place-bet">Place Bet</button>
+      </div>
+    `;
+
+    document.getElementById('btn-place-bet').addEventListener('click', () => {
+      this.submitParsedBet(parsed);
     });
   },
 
-  // ─── TRANSACTIONS ────────────────────────────────────────
+  async submitParsedBet(parsed) {
+    const sbId = document.getElementById('parsed-sportsbook')?.value;
+    if (!sbId) { alert('Select a sportsbook'); return; }
 
-  renderTransactions() {
-    const list = document.getElementById('transactions-list');
-    const { transactions, settings } = this.state;
-    if (transactions.length === 0) {
-      list.innerHTML = '<div class="empty-state">No transactions logged</div>';
-      return;
+    const btn = document.getElementById('btn-place-bet');
+    btn.disabled = true;
+    btn.textContent = 'Placing...';
+
+    try {
+      await DB.addBet({
+        sportsbook_id: sbId,
+        sport:         parsed.sport,
+        description:   parsed.description,
+        boost_pct:     parsed.boost_pct,
+        total_wager:   parsed.total_wager,
+        his_wager:     parsed.his_wager,
+        my_wager:      parsed.my_wager,
+        base_odds:     parsed.base_odds,
+      });
+      await this.loadData();
+      document.getElementById('bet-code-input').value = '';
+      document.getElementById('bet-parse-result').innerHTML = '';
+      this.navigate('pool');
+    } catch (err) {
+      alert('Error: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'Place Bet';
     }
-    list.innerHTML = transactions.map(t => `
-      <div class="tx-card">
-        <div class="tx-left">
-          <div class="tx-type-label">${t.type.charAt(0).toUpperCase() + t.type.slice(1)}</div>
-          <div class="tx-detail">${t.person === 'friend' ? (settings.friend_name || 'Friend') : (settings.my_name || 'Me')} · ${t.sportsbooks?.name || ''}</div>
-          ${t.notes ? `<div class="tx-notes">${t.notes}</div>` : ''}
-        </div>
-        <div class="tx-amount ${t.type === 'deposit' ? 'text-green' : 'text-red'}">
-          ${t.type === 'deposit' ? '+' : '-'}${BetMath.fmt(t.amount)}
-        </div>
-      </div>
-    `).join('');
   },
 
-  // ─── MODALS ──────────────────────────────────────────────
+  // ─── Person View (Brent / Dan) ────────────────────────
+
+  renderPerson(person) {
+    const { sportsbooks, bets, transactions } = this.state;
+    const isPerson = p => p === person;
+
+    const danEquity   = BetMath.danEquity(transactions, bets);
+    const bucket      = BetMath.bucketBalance(transactions);
+    const totalPool   = BetMath.totalPool(sportsbooks, transactions);
+    const equity      = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
+    const pending     = person === 'dan' ? BetMath.danPending(bets) : BetMath.brentPending(bets);
+    const stats       = BetMath.personStats(transactions, bets, person);
+    const name        = person === 'dan' ? 'Dan' : 'Brent';
+
+    const personTxs   = transactions.filter(t => t.person === person);
+    const pnlClass    = stats.sharedPnl >= 0 ? 'stat-positive' : 'stat-negative';
+    const record      = `${stats.sharedWon}W – ${stats.sharedLost}L`;
+
+    const container   = document.getElementById(`${person}-content`);
+
+    container.innerHTML = `
+      <div class="person-hero person-hero-${person}">
+        <div class="person-hero-name">${name}</div>
+        <div class="person-bankroll">${BetMath.fmt(equity)}</div>
+        ${pending > 0 ? `<div class="person-pending">↳ ${BetMath.fmt(pending)} at risk</div>` : ''}
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Deposited</div>
+          <div class="stat-value">${BetMath.fmt(stats.deposited)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Received</div>
+          <div class="stat-value">${BetMath.fmt(stats.received)}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Shared Bet P&L</div>
+          <div class="stat-value ${pnlClass}">${BetMath.fmt(stats.sharedPnl)}</div>
+          <div class="stat-sub record-badge">${record}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">At Risk</div>
+          <div class="stat-value ${stats.pending > 0 ? 'text-gold' : ''}">${BetMath.fmt(stats.pending)}</div>
+          <div class="stat-sub">${bets.filter(b => b.status === 'pending').length} open bet${bets.filter(b => b.status === 'pending').length !== 1 ? 's' : ''}</div>
+        </div>
+      </div>
+
+      <div class="section-label">${name}'s Transactions</div>
+      ${personTxs.length === 0
+        ? '<div class="empty-state">No transactions yet</div>'
+        : personTxs.map(t => this.txCardHTML(t)).join('')}
+    `;
+  },
+
+  txCardHTML(t) {
+    const typeLabels = { deposit: 'Deposit', withdrawal: 'Withdrawal', disbursement: 'Received' };
+    const isIn  = t.type === 'deposit' || t.type === 'disbursement';
+    const book  = t.sportsbooks?.name || '';
+    const sub   = t.type === 'disbursement' ? 'from bucket' : (book ? `· ${book}` : '');
+    return `
+      <div class="tx-card">
+        <div class="tx-left">
+          <div class="tx-type-label">${typeLabels[t.type] || t.type}</div>
+          <div class="tx-detail">${sub}</div>
+          ${t.notes ? `<div class="tx-notes">${t.notes}</div>` : ''}
+        </div>
+        <div class="tx-amount ${isIn ? 'text-green' : 'text-red'}">
+          ${isIn ? '+' : '-'}${BetMath.fmt(t.amount)}
+        </div>
+      </div>
+    `;
+  },
+
+  // ─── Modals ────────────────────────────────────────────
 
   showModal(html) {
-    document.getElementById('modal-content').innerHTML = html;
+    document.getElementById('modal-content').innerHTML = `<div class="modal-drag"></div>` + html;
     document.getElementById('modal').classList.remove('hidden');
   },
 
@@ -364,10 +502,10 @@ const App = {
   },
 
   showSettleModal(bet) {
-    const boosted = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
+    const boosted     = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
     const totalReturn = BetMath.totalReturn(parseFloat(bet.total_wager), boosted);
-    const hisReturn = BetMath.splitReturn(totalReturn, parseFloat(bet.total_wager), parseFloat(bet.his_wager));
-    const myReturn = BetMath.splitReturn(totalReturn, parseFloat(bet.total_wager), parseFloat(bet.my_wager));
+    const danReturn   = BetMath.splitReturn(totalReturn, parseFloat(bet.total_wager), parseFloat(bet.his_wager));
+    const brentReturn = BetMath.splitReturn(totalReturn, parseFloat(bet.total_wager), parseFloat(bet.my_wager));
 
     this.showModal(`
       <div class="modal-header">Settle Bet</div>
@@ -376,23 +514,18 @@ const App = {
         <div class="settle-sub">${bet.sportsbooks?.name} · ${BetMath.fmtOdds(boosted)}${bet.boost_pct > 0 ? ` (+${bet.boost_pct}% boost)` : ''}</div>
         <div class="settle-wagers">
           <span>Total ${BetMath.fmt(bet.total_wager)}</span>
-          <span>His ${BetMath.fmt(bet.his_wager)}</span>
-          <span>Mine ${BetMath.fmt(bet.my_wager)}</span>
+          <span>Dan ${BetMath.fmt(bet.his_wager)}</span>
+          <span>Brent ${BetMath.fmt(bet.my_wager)}</span>
         </div>
       </div>
       <div class="settle-if-won">
         <div class="settle-if-label">If Won</div>
-        <div class="settle-if-row">
-          <span>${this.state.settings.friend_name || 'Friend'}</span>
-          <strong class="text-green">${BetMath.fmt(hisReturn)}</strong>
-        </div>
-        <div class="settle-if-row">
-          <span>${this.state.settings.my_name || 'Me'}</span>
-          <strong class="text-green">${BetMath.fmt(myReturn)}</strong>
-        </div>
+        <div class="settle-if-row"><span>Dan</span><strong class="text-green">${BetMath.fmt(danReturn)}</strong></div>
+        <div class="settle-if-row"><span>Brent</span><strong class="text-green">${BetMath.fmt(brentReturn)}</strong></div>
+        <div class="settle-if-row text-muted" style="font-size:13px"><span>Total return</span><span>${BetMath.fmt(totalReturn)}</span></div>
       </div>
       <div class="settle-btns">
-        <button class="btn-settle btn-won" data-result="won">Won</button>
+        <button class="btn-settle btn-won"  data-result="won">Won</button>
         <button class="btn-settle btn-lost" data-result="lost">Lost</button>
         <button class="btn-settle btn-push" data-result="push">Push</button>
       </div>
@@ -411,22 +544,21 @@ const App = {
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
-  showUpdateBalanceModal(sbId, sbName, currentBalance) {
+  showUpdateBalanceModal(sbId, sbName, currentBal) {
     this.showModal(`
       <div class="modal-header">Update Balance</div>
       <div class="modal-sub">${sbName}</div>
       <div class="form-group">
         <label>Current Balance ($)</label>
-        <input type="number" id="new-balance" value="${parseFloat(currentBalance).toFixed(2)}" step="0.01" inputmode="decimal" class="form-input">
+        <input type="number" id="new-balance" class="form-input" value="${parseFloat(currentBal).toFixed(2)}" step="0.01" inputmode="decimal">
       </div>
       <button class="btn-primary-full" id="save-balance">Save</button>
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
-    document.getElementById('new-balance').focus();
-    document.getElementById('new-balance').select();
-
+    const inp = document.getElementById('new-balance');
+    inp.focus(); inp.select();
     document.getElementById('save-balance').addEventListener('click', async () => {
-      const val = parseFloat(document.getElementById('new-balance').value);
+      const val = parseFloat(inp.value);
       if (isNaN(val)) return;
       await DB.updateSportsbookBalance(sbId, val);
       await this.loadData();
@@ -436,89 +568,139 @@ const App = {
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
+  showManageBooksModal() {
+    const sbRows = this.state.sportsbooks.map(sb => `
+      <div class="sb-card">
+        <div>
+          <div class="sb-card-name">${sb.name}</div>
+          <div class="sb-card-balance">${BetMath.fmt(sb.current_balance)}</div>
+        </div>
+        <button class="btn-update" data-sb-id="${sb.id}" data-sb-name="${sb.name}" data-sb-bal="${sb.current_balance}">Update</button>
+      </div>
+    `).join('');
+
+    this.showModal(`
+      <div class="modal-header">Sportsbooks</div>
+      <div style="margin-bottom:16px">${sbRows}</div>
+      <button class="btn-orange-full" id="add-sb-btn">+ Add Sportsbook</button>
+      <button class="btn-cancel-modal" id="modal-cancel">Done</button>
+    `);
+
+    document.querySelectorAll('[data-sb-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.hideModal();
+        setTimeout(() => this.showUpdateBalanceModal(btn.dataset.sbId, btn.dataset.sbName, btn.dataset.sbBal), 100);
+      });
+    });
+    document.getElementById('add-sb-btn').addEventListener('click', () => {
+      this.hideModal();
+      setTimeout(() => this.showAddSportsbookModal(), 100);
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
+  },
+
   showAddSportsbookModal() {
     this.showModal(`
       <div class="modal-header">Add Sportsbook</div>
       <div class="form-group">
         <label>Name</label>
-        <input type="text" id="new-sb-name" placeholder="ESPN Bet, DraftKings..." class="form-input">
+        <input type="text" id="new-sb-name" class="form-input" placeholder="ESPN Bet, DraftKings…">
       </div>
       <div class="form-group">
         <label>Current Balance ($)</label>
-        <input type="number" id="new-sb-balance" value="0" step="0.01" inputmode="decimal" class="form-input">
+        <input type="number" id="new-sb-balance" class="form-input" value="0" step="0.01" inputmode="decimal">
       </div>
-      <button class="btn-primary-full" id="save-sb">Add Sportsbook</button>
+      <button class="btn-primary-full" id="save-sb">Add</button>
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
     document.getElementById('new-sb-name').focus();
-
     document.getElementById('save-sb').addEventListener('click', async () => {
       const name = document.getElementById('new-sb-name').value.trim();
-      const balance = parseFloat(document.getElementById('new-sb-balance').value) || 0;
+      const bal  = parseFloat(document.getElementById('new-sb-balance').value) || 0;
       if (!name) return;
-      await DB.addSportsbook(name, balance);
+      await DB.addSportsbook(name, bal);
       await this.loadData();
       this.hideModal();
-      this.renderSportsbooks();
+      this.render(this.state.view);
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
-  showAddTransactionModal() {
-    const { sportsbooks, settings } = this.state;
+  // defaultType: 'deposit' | 'withdrawal' | 'disbursement'
+  showLogTransactionModal(defaultType = 'deposit') {
+    const { sportsbooks } = this.state;
+    const sbOptions = sportsbooks.map(sb => `<option value="${sb.id}">${sb.name}</option>`).join('');
+
     this.showModal(`
       <div class="modal-header">Log Transaction</div>
       <div class="form-group">
         <label>Type</label>
         <select id="tx-type" class="form-input">
-          <option value="deposit">Deposit (money in)</option>
-          <option value="withdrawal">Withdrawal (money out)</option>
+          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit (person → sportsbook)</option>
+          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal (sportsbook → bucket)</option>
+          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Distribute (bucket → person)</option>
         </select>
       </div>
-      <div class="form-group">
+      <div class="form-group" id="tx-person-group">
         <label>Person</label>
         <select id="tx-person" class="form-input">
-          <option value="friend">${settings.friend_name || 'Friend'}</option>
-          <option value="me">${settings.my_name || 'Me'}</option>
+          <option value="dan">Dan</option>
+          <option value="brent">Brent</option>
         </select>
       </div>
-      <div class="form-group">
+      <div class="form-group" id="tx-sportsbook-group">
         <label>Sportsbook</label>
-        <select id="tx-sportsbook" class="form-input">
-          ${sportsbooks.map(sb => `<option value="${sb.id}">${sb.name}</option>`).join('')}
-        </select>
+        <select id="tx-sportsbook" class="form-input">${sbOptions}</select>
       </div>
       <div class="form-group">
         <label>Amount ($)</label>
-        <input type="number" id="tx-amount" placeholder="0.00" step="0.01" inputmode="decimal" class="form-input">
+        <input type="number" id="tx-amount" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
       </div>
       <div class="form-group">
         <label>Notes (optional)</label>
-        <input type="text" id="tx-notes" placeholder="" class="form-input">
+        <input type="text" id="tx-notes" class="form-input" placeholder="">
       </div>
       <button class="btn-primary-full" id="save-tx">Save</button>
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
 
+    // Show/hide fields based on type
+    const updateFields = () => {
+      const type = document.getElementById('tx-type').value;
+      const personGroup = document.getElementById('tx-person-group');
+      const sbGroup     = document.getElementById('tx-sportsbook-group');
+      // withdrawal: no person needed (goes to bucket)
+      personGroup.style.display = type === 'withdrawal' ? 'none' : 'block';
+      // disbursement: no sportsbook
+      sbGroup.style.display     = type === 'disbursement' ? 'none' : 'block';
+    };
+    document.getElementById('tx-type').addEventListener('change', updateFields);
+    updateFields();
+
     document.getElementById('save-tx').addEventListener('click', async () => {
+      const type   = document.getElementById('tx-type').value;
+      const person = document.getElementById('tx-person')?.value;
+      const sbId   = document.getElementById('tx-sportsbook')?.value;
       const amount = parseFloat(document.getElementById('tx-amount').value);
+      const notes  = document.getElementById('tx-notes').value.trim() || null;
+
       if (!amount || amount <= 0) return;
-      await DB.addTransaction({
-        type: document.getElementById('tx-type').value,
-        person: document.getElementById('tx-person').value,
-        sportsbook_id: document.getElementById('tx-sportsbook').value,
-        amount,
-        notes: document.getElementById('tx-notes').value.trim() || null,
-      });
+
+      const tx = { type, amount, notes };
+      if (type !== 'withdrawal') tx.person = person || 'brent';
+      else tx.person = 'brent'; // default for withdrawals
+      if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
+
+      await DB.addTransaction(tx);
       await this.loadData();
       this.hideModal();
-      this.renderTransactions();
+      this.render(this.state.view);
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 };
 
-// ─── BOOT ─────────────────────────────────────────────────
+// ─── Boot ──────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   App.init();
@@ -536,40 +718,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Add bet form
-  document.getElementById('add-bet-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    App.submitAddBet();
-  });
-
-  // Live preview triggers
-  ['bet-total-wager', 'bet-his-wager', 'bet-odds', 'bet-boost'].forEach(id => {
-    document.getElementById(id).addEventListener('input', () => App.updateBetPreview());
-  });
-
-  // Odds sign toggle
-  document.getElementById('odds-sign').addEventListener('click', () => {
-    const btn = document.getElementById('odds-sign');
-    btn.textContent = btn.textContent.trim() === '+' ? '−' : '+';
-    App.updateBetPreview();
-  });
-
-  // Sport chips
-  document.querySelectorAll('.chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      document.getElementById('bet-sport').value = chip.dataset.value;
-      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      App.updateBetPreview();
-    });
-  });
-
-  // Sportsbook buttons
-  document.getElementById('add-sportsbook-btn').addEventListener('click', () => App.showAddSportsbookModal());
-  document.getElementById('add-transaction-btn').addEventListener('click', () => App.showAddTransactionModal());
-
   // Modal backdrop dismiss
-  document.getElementById('modal').addEventListener('click', (e) => {
+  document.getElementById('modal').addEventListener('click', e => {
     if (e.target.id === 'modal') App.hideModal();
   });
 });

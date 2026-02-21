@@ -14,16 +14,9 @@ const DB = {
     return Object.fromEntries(data.map(s => [s.key, s.value]));
   },
 
-  async updateSetting(key, value) {
-    const { error } = await client().from('settings').update({ value }).eq('key', key);
-    if (error) throw error;
-  },
-
   async getSportsbooks() {
     const { data, error } = await client()
-      .from('sportsbooks')
-      .select('*')
-      .order('name');
+      .from('sportsbooks').select('*').order('name');
     if (error) throw error;
     return data;
   },
@@ -32,8 +25,7 @@ const DB = {
     const { data, error } = await client()
       .from('sportsbooks')
       .insert({ name, current_balance: balance })
-      .select()
-      .single();
+      .select().single();
     if (error) throw error;
     return data;
   },
@@ -57,10 +49,7 @@ const DB = {
 
   async addBet(bet) {
     const { data, error } = await client()
-      .from('bets')
-      .insert(bet)
-      .select()
-      .single();
+      .from('bets').insert(bet).select().single();
     if (error) throw error;
     return data;
   },
@@ -82,12 +71,12 @@ const DB = {
     return data;
   },
 
+  // type: 'deposit' | 'withdrawal' | 'disbursement'
+  // person: 'brent' | 'dan'
+  // sportsbook_id: required for deposit/withdrawal, null for disbursement
   async addTransaction(tx) {
     const { data, error } = await client()
-      .from('transactions')
-      .insert(tx)
-      .select()
-      .single();
+      .from('transactions').insert(tx).select().single();
     if (error) throw error;
     return data;
   },
