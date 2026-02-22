@@ -9,6 +9,7 @@ const App = {
     settings: {},
     snapshots: [],
     loaded: false,
+    undoStack: [],          // [{type, bet, result}] — last 3 actions
   },
 
   _miniChart: null,
@@ -262,6 +263,13 @@ const App = {
   },
 
   async handleInlineSettle(betId, result) {
+    const bet = this.state.bets.find(b => b.id === betId);
+    if (!bet) return;
+
+    // Push to undo stack (cap at 3)
+    this.state.undoStack.unshift({ type: result === 'delete' ? 'delete' : 'settle', bet, result });
+    if (this.state.undoStack.length > 3) this.state.undoStack.pop();
+
     if (result === 'delete') {
       await DB.deleteBet(betId);
     } else {
@@ -269,6 +277,60 @@ const App = {
     }
     await this.loadData();
     this.render(this.state.view);
+    this._showUndoToast();
+  },
+
+  _showUndoToast() {
+    if (this.state.undoStack.length === 0) return;
+    clearTimeout(this._undoTimer);
+
+    let toast = document.getElementById('undo-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'undo-toast';
+      document.body.appendChild(toast);
+    }
+
+    const top    = this.state.undoStack[0];
+    const labels = { won: 'Won', lost: 'Lost', push: 'Push', delete: 'Deleted' };
+    const action = top.type === 'delete' ? 'delete' : top.result;
+    const count  = this.state.undoStack.length;
+
+    toast.innerHTML = `
+      <span class="undo-msg">${labels[action] || action}</span>
+      <button class="undo-action-btn">Undo${count > 1 ? ` (${count})` : ''}</button>
+    `;
+    toast.classList.add('visible');
+    toast.querySelector('.undo-action-btn').addEventListener('click', () => this._handleUndo());
+
+    this._undoTimer = setTimeout(() => {
+      toast.classList.remove('visible');
+      this.state.undoStack = []; // clear stack when window expires
+    }, 5000);
+  },
+
+  async _handleUndo() {
+    const entry = this.state.undoStack.shift();
+    if (!entry) return;
+
+    try {
+      if (entry.type === 'delete') {
+        await DB.restoreBet(entry.bet);
+      } else {
+        await DB.unsettleBet(entry.bet.id);
+      }
+      await this.loadData();
+      this.render(this.state.view);
+
+      if (this.state.undoStack.length > 0) {
+        this._showUndoToast(); // show next undo if available
+      } else {
+        clearTimeout(this._undoTimer);
+        document.getElementById('undo-toast')?.classList.remove('visible');
+      }
+    } catch (err) {
+      alert('Undo failed: ' + err.message);
+    }
   },
 
   // ─── Bets View ─────────────────────────────────────────

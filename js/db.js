@@ -59,6 +59,20 @@ const DB = {
     if (error) throw error;
   },
 
+  async unsettleBet(id) {
+    const { error } = await client()
+      .from('bets')
+      .update({ status: 'pending', settled_at: null })
+      .eq('id', id);
+    if (error) throw error;
+  },
+
+  async restoreBet(bet) {
+    const { sportsbooks, ...betData } = bet; // strip joined field
+    const { error } = await client().from('bets').insert(betData);
+    if (error) throw error;
+  },
+
   async settleBet(id, status) {
     const { error } = await client()
       .from('bets')

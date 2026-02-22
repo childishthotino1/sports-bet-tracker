@@ -601,6 +601,46 @@ main {
 .settle-del:active { opacity: 1; color: var(--red); }
 .settle-btn:disabled { opacity: 0.25; cursor: not-allowed; }
 
+/* ── Undo Toast ───────────────────────────────────────── */
+#undo-toast {
+  position: fixed;
+  bottom: calc(64px + env(safe-area-inset-bottom) + 10px);
+  left: 50%;
+  transform: translateX(-50%) translateY(12px);
+  background: #1e1e30;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 10px 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--text);
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: nowrap;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+#undo-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: all;
+}
+.undo-msg { color: var(--text-muted); font-size: 13px; }
+.undo-action-btn {
+  background: var(--orange);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.undo-action-btn:active { opacity: 0.8; }
+
 .bets-table td {
   padding: 9px 12px;
   vertical-align: middle;
