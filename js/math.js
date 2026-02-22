@@ -8,6 +8,7 @@ const BetMath = {
   },
 
   totalReturn(wager, odds) {
+    if (!odds) return wager; // no odds recorded — return wager (no profit displayed)
     const profit = odds > 0
       ? wager * (odds / 100)
       : wager * (100 / Math.abs(odds));

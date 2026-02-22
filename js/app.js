@@ -91,7 +91,7 @@ const App = {
     const navBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
     if (navBtn) navBtn.classList.add('active');
     this.state.view = view;
-    const titles = { pool: 'Baltimore Bets', bets: 'Bets', 'add-bet': 'New Bet', brent: 'Brent', dan: 'Dan' };
+    const titles = { pool: 'Baltimore Bets', bets: 'Bets', 'add-bet': 'New Bet', brent: 'Brent', dan: 'Dan', stats: 'Stats' };
     document.getElementById('header-title').textContent = titles[view] || view;
     this.render(view);
   },
@@ -103,6 +103,7 @@ const App = {
       'add-bet': () => this.renderAddBet(),
       brent:    () => this.renderPerson('brent'),
       dan:      () => this.renderPerson('dan'),
+      stats:    () => this.renderStats(),
     };
     if (map[view]) map[view]();
   },
@@ -506,6 +507,88 @@ const App = {
         <div class="tx-amount ${isIn ? 'text-green' : 'text-red'}">
           ${isIn ? '+' : '-'}${BetMath.fmt(t.amount)}
         </div>
+      </div>
+    `;
+  },
+
+  // ─── Stats View ────────────────────────────────────────
+
+  renderStats() {
+    const { bets } = this.state;
+    const won    = bets.filter(b => b.status === 'won').length;
+    const lost   = bets.filter(b => b.status === 'lost').length;
+    const push   = bets.filter(b => b.status === 'push').length;
+    const open   = bets.filter(b => b.status === 'pending').length;
+    const settled = won + lost + push;
+    const winPct  = settled > 0 ? Math.round(won / settled * 100) : 0;
+
+    // Group by sport
+    const bySport = {};
+    bets.forEach(b => {
+      const s = b.sport || 'OTHER';
+      if (!bySport[s]) bySport[s] = { total: 0, won: 0, lost: 0 };
+      bySport[s].total++;
+      if (b.status === 'won')  bySport[s].won++;
+      if (b.status === 'lost') bySport[s].lost++;
+    });
+    const sportRows = Object.entries(bySport).sort((a, b) => b[1].total - a[1].total);
+    const maxSport  = sportRows[0]?.[1].total || 1;
+
+    // Group by sportsbook
+    const byBook = {};
+    bets.forEach(b => {
+      const name = b.sportsbooks?.name || 'Unknown';
+      if (!byBook[name]) byBook[name] = { total: 0, won: 0, lost: 0 };
+      byBook[name].total++;
+      if (b.status === 'won')  byBook[name].won++;
+      if (b.status === 'lost') byBook[name].lost++;
+    });
+    const bookRows = Object.entries(byBook).sort((a, b) => b[1].total - a[1].total);
+    const maxBook  = bookRows[0]?.[1].total || 1;
+
+    const barRow = (label, data, max, orange = false) => `
+      <div class="stat-bar-row">
+        <div class="stat-bar-label">${label}</div>
+        <div class="stat-bar-track">
+          <div class="stat-bar-fill ${orange ? 'stat-bar-fill-orange' : ''}" style="width:${Math.round(data.total/max*100)}%"></div>
+        </div>
+        <div class="stat-bar-count">${data.total}</div>
+        <div class="stat-bar-wr">${data.won + data.lost > 0 ? Math.round(data.won/(data.won+data.lost)*100) + '%' : '—'}</div>
+      </div>
+    `;
+
+    document.getElementById('stats-content').innerHTML = `
+      <div class="stats-hero">
+        <div class="sh-stat">
+          <div class="sh-num">${bets.length}</div>
+          <div class="sh-lbl">Total Bets</div>
+        </div>
+        <div class="sh-stat">
+          <div class="sh-num">${won}<span class="sh-w">W</span> ${lost}<span class="sh-l">L</span>${push > 0 ? ` ${push}<span>P</span>` : ''}</div>
+          <div class="sh-lbl">Record</div>
+        </div>
+        <div class="sh-stat">
+          <div class="sh-num ${winPct >= 30 ? 'text-green' : ''}">${winPct}%</div>
+          <div class="sh-lbl">Win Rate</div>
+        </div>
+      </div>
+
+      ${open > 0 ? `<div class="sh-open-row"><span class="badge badge-pending">${open} open</span> bets pending settlement</div>` : ''}
+
+      <div class="section-label">By Sport</div>
+      <div class="card">
+        <div class="stat-bar-header">
+          <span></span><span></span><span class="stat-bar-count">Bets</span><span class="stat-bar-wr">W%</span>
+        </div>
+        ${sportRows.map(([sport, data]) => barRow(sport, data, maxSport)).join('')}
+      </div>
+
+      <div class="section-label mt-12">By Sportsbook</div>
+      <div class="card">
+        <div class="stat-bar-header">
+          <span></span><span></span><span class="stat-bar-count">Bets</span><span class="stat-bar-wr">W%</span>
+        </div>
+        ${bookRows.map(([name, data]) => barRow(name.replace('theScore Bet', 'Score'), data, maxBook, true)).join('')}
       </div>
     `;
   },

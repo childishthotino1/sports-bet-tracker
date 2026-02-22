@@ -1081,3 +1081,105 @@ input:focus, select:focus { border-color: var(--purple); }
   font-weight: 700;
   color: var(--green);
 }
+
+/* ── Stats View ───────────────────────────────────────── */
+.stats-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.sh-stat {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 10px;
+  text-align: center;
+}
+
+.sh-num {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.sh-w { font-size: 13px; color: var(--green); font-weight: 700; margin-left: 1px; }
+.sh-l { font-size: 13px; color: var(--red);   font-weight: 700; margin-left: 2px; }
+
+.sh-lbl {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sh-open-row {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-bar-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.stat-bar-header span { font-size: 9px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); }
+
+.stat-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.stat-bar-row:last-child { border-bottom: none; }
+
+.stat-bar-label {
+  font-size: 12px;
+  font-weight: 600;
+  width: 68px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stat-bar-track {
+  flex: 1;
+  height: 5px;
+  background: var(--bg-card2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.stat-bar-fill {
+  height: 100%;
+  background: var(--purple);
+  border-radius: 3px;
+}
+.stat-bar-fill-orange { background: var(--orange); }
+
+.stat-bar-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.stat-bar-wr {
+  font-size: 11px;
+  color: var(--text-muted);
+  width: 28px;
+  text-align: right;
+  flex-shrink: 0;
+}
