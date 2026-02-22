@@ -152,7 +152,7 @@ const App = {
             <div class="bucket-amount">${BetMath.fmt(bucket)}</div>
             <div class="bucket-sub">Withdrawn · not yet distributed</div>
           </div>
-          <button class="bucket-disburse-btn" id="bucket-disburse-btn">Distribute</button>
+          <button class="bucket-disburse-btn" id="bucket-disburse-btn">Pay Out</button>
         </div>
       ` : ''}
 
@@ -170,7 +170,7 @@ const App = {
       </div>
 
       <div class="pool-actions">
-        <button class="action-btn" id="pool-log-btn">+ Transaction</button>
+        <button class="action-btn" id="pool-log-btn">+ Deposit / Withdrawal / Payout</button>
         <button class="action-btn" id="pool-books-btn">Manage Books</button>
       </div>
 
@@ -1183,9 +1183,9 @@ const App = {
       <div class="form-group">
         <label>Type</label>
         <select id="tx-type" class="form-input">
-          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit (person → sportsbook)</option>
-          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal (sportsbook → bucket)</option>
-          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Distribute (bucket → person)</option>
+          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit — person → sportsbook</option>
+          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → bucket</option>
+          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Payout — bucket → person</option>
         </select>
       </div>
       <div class="form-group" id="tx-person-group">
