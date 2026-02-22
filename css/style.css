@@ -1620,10 +1620,10 @@ input:focus, select:focus { border-color: var(--purple); }
   flex-shrink: 0;
 }
 
-/* 3-metric row */
-.hp-metrics-row {
+/* 2×2 metrics grid */
+.hp-metrics-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-bottom: 10px;
 }

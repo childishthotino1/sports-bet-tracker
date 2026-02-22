@@ -147,6 +147,16 @@ const BetMath = {
     );
   },
 
+  // Net P&L from bets settled within the last N rolling days
+  rollingPnl(bets, days) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setHours(0, 0, 0, 0);
+    return this.poolBetPnl(
+      bets.filter(b => b.settled_at && new Date(b.settled_at) >= cutoff)
+    );
+  },
+
   // ─── Formatting ───────────────────────────────────────────
 
   fmt(n) {

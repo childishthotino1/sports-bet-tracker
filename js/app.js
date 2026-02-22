@@ -134,10 +134,13 @@ const App = {
     const totalWithResult = settledBets.filter(b => b.status !== 'push').length;
     const winRate       = totalWithResult > 0 ? Math.round(totalWon / totalWithResult * 100) : 0;
 
-    // Pool
+    // Pool / rolling
     const totalPool     = BetMath.totalPool(sportsbooks, transactions);
+    const sbTotal       = BetMath.sportsbookTotal(sportsbooks);
     const openBets      = bets.filter(b => b.status === 'pending');
     const openExposure  = openBets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
+    const pnl7          = BetMath.rollingPnl(bets, 7);
+    const pnl30         = BetMath.rollingPnl(bets, 30);
 
     // Today section
     const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
@@ -186,18 +189,22 @@ const App = {
       <div class="section-label">Today</div>
       <div class="hp-today-card">${todayContent}</div>
 
-      <div class="hp-metrics-row">
+      <div class="hp-metrics-grid">
         <div class="hp-metric">
-          <div class="hp-metric-label">All-Time P&amp;L</div>
-          <div class="hp-metric-value ${allTimePnl >= 0 ? 'text-green' : 'text-red'}">${allTimePnl >= 0 ? '+' : ''}${BetMath.fmt(allTimePnl)}</div>
+          <div class="hp-metric-label">In Sportsbooks</div>
+          <div class="hp-metric-value">${BetMath.fmt(sbTotal)}</div>
         </div>
         <div class="hp-metric">
-          <div class="hp-metric-label">Total Pool</div>
-          <div class="hp-metric-value">${BetMath.fmt(totalPool)}</div>
+          <div class="hp-metric-label">At Risk</div>
+          <div class="hp-metric-value ${openExposure > 0 ? 'text-gold' : 'text-muted'}">${BetMath.fmt(openExposure)}</div>
         </div>
         <div class="hp-metric">
-          <div class="hp-metric-label">Win Rate</div>
-          <div class="hp-metric-value">${winRate}%</div>
+          <div class="hp-metric-label">7-Day P&amp;L</div>
+          <div class="hp-metric-value ${pnl7 > 0 ? 'text-green' : pnl7 < 0 ? 'text-red' : ''}">${pnl7 > 0 ? '+' : ''}${BetMath.fmt(pnl7)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">30-Day P&amp;L</div>
+          <div class="hp-metric-value ${pnl30 > 0 ? 'text-green' : pnl30 < 0 ? 'text-red' : ''}">${pnl30 > 0 ? '+' : ''}${BetMath.fmt(pnl30)}</div>
         </div>
       </div>
 
