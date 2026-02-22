@@ -117,8 +117,6 @@ const App = {
     const bucket       = BetMath.bucketBalance(transactions);
     const totalPool    = BetMath.totalPool(sportsbooks, transactions);
     const brentEquity  = BetMath.brentEquity(totalPool, danEquity);
-    const danPending   = BetMath.danPending(bets);
-    const brentPending = BetMath.brentPending(bets);
     const openBets     = bets.filter(b => b.status === 'pending');
     const sbTotal      = BetMath.sportsbookTotal(sportsbooks);
 
@@ -137,12 +135,12 @@ const App = {
         <div class="equity-card equity-card-brent">
           <div class="equity-name">Brent</div>
           <div class="equity-amount">${BetMath.fmt(brentEquity)}</div>
-          ${brentPending > 0 ? `<div class="equity-risk">↳ ${BetMath.fmt(brentPending)} at risk</div>` : '<div class="equity-risk"> </div>'}
+          ${openBets.length > 0 ? `<div class="equity-risk">↳ ${openBets.length} open (est. L)</div>` : '<div class="equity-risk"> </div>'}
         </div>
         <div class="equity-card equity-card-dan">
           <div class="equity-name">Dan</div>
           <div class="equity-amount">${BetMath.fmt(danEquity)}</div>
-          ${danPending > 0 ? `<div class="equity-risk">↳ ${BetMath.fmt(danPending)} at risk</div>` : '<div class="equity-risk"> </div>'}
+          ${openBets.length > 0 ? `<div class="equity-risk">↳ ${openBets.length} open (est. L)</div>` : '<div class="equity-risk"> </div>'}
         </div>
       </div>
 
@@ -340,27 +338,31 @@ const App = {
   // ─── Add Bet (Dot Notation) ────────────────────────────
 
   renderAddBet() {
+    const today = new Date().toISOString().split('T')[0];
     const container = document.getElementById('add-bet-view');
     container.innerHTML = `
       <div class="code-input-wrapper">
-        <div class="code-label">Bet Code</div>
-        <input
-          type="text"
+        <div class="code-label">Date</div>
+        <input type="date" id="bet-date-input" class="form-input" value="${today}">
+      </div>
+      <div class="code-input-wrapper">
+        <div class="code-label">Bet Codes</div>
+        <textarea
           id="bet-code-input"
-          class="code-input"
-          placeholder="ESPN.NBA.PlayerProp.20.50.30.20+413"
+          class="code-input code-textarea"
+          placeholder="ESPN.NBA.PlayerProp.20.50.30.20+413&#10;DK.NFL.BrownsCover.0.25.20.5-110&#10;MGM.NHL.CapsCover.15.30.25.5+180"
           autocomplete="off"
           autocorrect="off"
           autocapitalize="characters"
           spellcheck="false"
-          inputmode="text"
-        >
-        <div class="code-format-hint">BOOK · SPORT · DESC · BOOST% · TOTAL · DAN · BRENT±ODDS</div>
+          rows="5"
+        ></textarea>
+        <div class="code-format-hint">BOOK · SPORT · DESC · BOOST% · TOTAL · DAN · BRENT±ODDS · one per line</div>
       </div>
       <div id="bet-parse-result"></div>
     `;
     document.getElementById('bet-code-input').addEventListener('input', e => {
-      this.handleBetCodeInput(e.target.value);
+      this.handleBetCodesInput(e.target.value);
     });
     document.getElementById('bet-code-input').focus();
   },
@@ -370,20 +372,28 @@ const App = {
     if (!code) return null;
 
     const parts = code.split('.');
-    if (parts.length !== 7) {
-      return { error: `Need 7 segments, got ${parts.length}. Format: BOOK.SPORT.DESC.BOOST.TOTAL.DAN.BRENT±ODDS` };
+
+    let book, sport, desc, boostStr, totalStr, danStr, brentStr, oddsStr;
+
+    if (parts.length === 8) {
+      // 8-segment: BOOK.SPORT.DESC.BOOST.TOTAL.DAN.BRENT.ODDS
+      [book, sport, desc, boostStr, totalStr, danStr, brentStr, oddsStr] = parts;
+    } else if (parts.length === 7) {
+      // 7-segment: BOOK.SPORT.DESC.BOOST.TOTAL.DAN.BRENT±ODDS
+      [book, sport, desc, boostStr, totalStr, danStr] = parts;
+      const m = parts[6].match(/^([\d.]+)([+-]\d+)$/);
+      if (!m) return { error: 'Last segment must be BrentWager±Odds (e.g. 20+413 or 20-110)' };
+      brentStr = m[1];
+      oddsStr  = m[2];
+    } else {
+      return { error: `Need 7 or 8 segments, got ${parts.length}` };
     }
-
-    const [book, sport, desc, boostStr, totalStr, danStr, lastPart] = parts;
-
-    const m = lastPart.match(/^([\d.]+)([+-]\d+)$/);
-    if (!m) return { error: 'Last segment must be BrentWager±Odds (e.g. 20+413 or 20-110)' };
 
     const boost_pct   = parseFloat(boostStr) || 0;
     const total_wager = parseFloat(totalStr);
-    const his_wager   = parseFloat(danStr);   // Dan
-    const my_wager    = parseFloat(m[1]);     // Brent
-    const base_odds   = parseInt(m[2]);
+    const his_wager   = parseFloat(danStr);
+    const my_wager    = parseFloat(brentStr);
+    const base_odds   = parseInt(oddsStr);
 
     if ([total_wager, his_wager, my_wager].some(v => isNaN(v) || v <= 0)) {
       return { error: 'Wager amounts must be positive numbers' };
@@ -401,102 +411,78 @@ const App = {
       sb.name.toUpperCase().includes(bookUpper.slice(0, 4))
     ) || null;
 
-    return { book, sport: sport.toUpperCase(), description: desc, boost_pct, total_wager, his_wager, my_wager, base_odds, sportsbook_id: matched?.id || null, sportsbook_matched: matched?.name || null };
-  },
-
-  handleBetCodeInput(code) {
-    const result = document.getElementById('bet-parse-result');
-    if (!code.trim()) { result.innerHTML = ''; return; }
-
-    const parsed = this.parseBetCode(code);
-    if (!parsed) { result.innerHTML = ''; return; }
-    if (parsed.error) {
-      result.innerHTML = `<div class="parse-error">${parsed.error}</div>`;
-      return;
+    if (!matched) {
+      return { error: `Book "${book}" not recognized` };
     }
 
-    const boosted    = BetMath.boostedOdds(parsed.base_odds, parsed.boost_pct);
-    const totalReturn = BetMath.totalReturn(parsed.total_wager, boosted);
-    const danReturn   = BetMath.splitReturn(totalReturn, parsed.total_wager, parsed.his_wager);
-    const brentReturn = BetMath.splitReturn(totalReturn, parsed.total_wager, parsed.my_wager);
-
-    const sbOptions = this.state.sportsbooks.map(sb =>
-      `<option value="${sb.id}" ${sb.id === parsed.sportsbook_id ? 'selected' : ''}>${sb.name}</option>`
-    ).join('');
-
-    const oddsDisplay = parsed.boost_pct > 0
-      ? `${BetMath.fmtOdds(parsed.base_odds)} <span class="odds-arrow">→</span> <strong>${BetMath.fmtOdds(boosted)}</strong> <span class="boost-tag">+${parsed.boost_pct}%</span>`
-      : `<strong>${BetMath.fmtOdds(parsed.base_odds)}</strong>`;
-
-    result.innerHTML = `
-      <div class="parsed-card">
-        <div class="parsed-header">
-          <span class="parsed-sport">${parsed.sport}</span>
-          <span class="parsed-desc">${parsed.description}</span>
-        </div>
-
-        <div class="parsed-book-row">
-          <span>Sportsbook</span>
-          <select class="parsed-select" id="parsed-sportsbook">
-            ${sbOptions}
-            ${!parsed.sportsbook_id ? '<option value="">— select —</option>' : ''}
-          </select>
-        </div>
-
-        <div class="parsed-odds-row">
-          <span class="text-muted">Odds</span>
-          <span>${oddsDisplay}</span>
-        </div>
-
-        <div class="parsed-wagers">
-          <div class="wager-col">
-            <div class="wager-col-name">Dan</div>
-            <div class="wager-amount">${BetMath.fmt(parsed.his_wager)}</div>
-            <div class="wager-if-won-label">if won</div>
-            <div class="wager-if-won">${BetMath.fmt(danReturn)}</div>
-          </div>
-          <div class="wager-col wager-col-total">
-            <div class="wager-col-name">Total</div>
-            <div class="wager-amount">${BetMath.fmt(parsed.total_wager)}</div>
-            <div class="wager-if-won-label">if won</div>
-            <div class="wager-if-won">${BetMath.fmt(totalReturn)}</div>
-          </div>
-          <div class="wager-col">
-            <div class="wager-col-name">Brent</div>
-            <div class="wager-amount">${BetMath.fmt(parsed.my_wager)}</div>
-            <div class="wager-if-won-label">if won</div>
-            <div class="wager-if-won">${BetMath.fmt(brentReturn)}</div>
-          </div>
-        </div>
-
-        <button class="btn-place-bet" id="btn-place-bet">Place Bet</button>
-      </div>
-    `;
-
-    document.getElementById('btn-place-bet').addEventListener('click', () => {
-      this.submitParsedBet(parsed);
-    });
+    return { book, sport: sport.toUpperCase(), description: desc, boost_pct, total_wager, his_wager, my_wager, base_odds, sportsbook_id: matched.id, sportsbook_matched: matched.name };
   },
 
-  async submitParsedBet(parsed) {
-    const sbId = document.getElementById('parsed-sportsbook')?.value;
-    if (!sbId) { alert('Select a sportsbook'); return; }
+  handleBetCodesInput(raw) {
+    const result = document.getElementById('bet-parse-result');
+    const lines  = raw.split(/\s+/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) { result.innerHTML = ''; return; }
 
+    const rows = lines.map(line => {
+      const p = this.parseBetCode(line);
+      if (!p) return '';
+      if (p.error) {
+        return `<div class="parse-row parse-row-error">
+          <span class="parse-row-label">${line.slice(0, 40)}${line.length > 40 ? '…' : ''}</span>
+          <span class="parse-row-msg">${p.error}</span>
+        </div>`;
+      }
+      const boosted = BetMath.boostedOdds(p.base_odds, p.boost_pct);
+      return `<div class="parse-row parse-row-valid">
+        <span class="parse-row-book">${p.sportsbook_matched.replace('theScore Bet', 'Score')}</span>
+        <span class="parse-row-sport">${p.sport}</span>
+        <span class="parse-row-desc">${p.description}</span>
+        <span class="parse-row-odds">${BetMath.fmtOdds(boosted)}${p.boost_pct > 0 ? ` +${p.boost_pct}%` : ''}</span>
+        <span class="parse-row-wager">${BetMath.fmt(p.total_wager)}</span>
+      </div>`;
+    }).join('');
+
+    const valid   = lines.filter(l => { const p = this.parseBetCode(l); return p && !p.error; });
+    const errored = lines.length - valid.length;
+
+    result.innerHTML = `
+      <div class="parse-summary">${rows}</div>
+      ${valid.length > 0 ? `
+        <button class="btn-place-bet" id="btn-place-bet">
+          Place ${valid.length} Bet${valid.length !== 1 ? 's' : ''}${errored > 0 ? ` · ${errored} skipped` : ''}
+        </button>
+      ` : ''}
+    `;
+
+    if (valid.length > 0) {
+      document.getElementById('btn-place-bet').addEventListener('click', () => {
+        const dateVal  = document.getElementById('bet-date-input')?.value;
+        const placedAt = dateVal ? new Date(dateVal + 'T12:00:00').toISOString() : new Date().toISOString();
+        const parsed   = valid.map(l => this.parseBetCode(l)).filter(p => p && !p.error);
+        this.submitParsedBets(parsed, placedAt);
+      });
+    }
+  },
+
+  async submitParsedBets(parsedBets, placedAt = new Date().toISOString()) {
     const btn = document.getElementById('btn-place-bet');
     btn.disabled = true;
     btn.textContent = 'Placing...';
 
     try {
-      await DB.addBet({
-        sportsbook_id: sbId,
-        sport:         parsed.sport,
-        description:   parsed.description,
-        boost_pct:     parsed.boost_pct,
-        total_wager:   parsed.total_wager,
-        his_wager:     parsed.his_wager,
-        my_wager:      parsed.my_wager,
-        base_odds:     parsed.base_odds,
-      });
+      for (const p of parsedBets) {
+        await DB.addBet({
+          sportsbook_id: p.sportsbook_id,
+          sport:         p.sport,
+          description:   p.description,
+          boost_pct:     p.boost_pct,
+          total_wager:   p.total_wager,
+          his_wager:     p.his_wager,
+          my_wager:      p.my_wager,
+          base_odds:     p.base_odds,
+          placed_at:     placedAt,
+        });
+      }
       await this.loadData();
       document.getElementById('bet-code-input').value = '';
       document.getElementById('bet-parse-result').innerHTML = '';
@@ -504,7 +490,7 @@ const App = {
     } catch (err) {
       alert('Error: ' + err.message);
       btn.disabled = false;
-      btn.textContent = 'Place Bet';
+      btn.textContent = `Place ${parsedBets.length} Bet${parsedBets.length !== 1 ? 's' : ''}`;
     }
   },
 
@@ -518,7 +504,7 @@ const App = {
     const bucket      = BetMath.bucketBalance(transactions);
     const totalPool   = BetMath.totalPool(sportsbooks, transactions);
     const equity      = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
-    const pending     = person === 'dan' ? BetMath.danPending(bets) : BetMath.brentPending(bets);
+    const openCount   = bets.filter(b => b.status === 'pending').length;
     const stats       = BetMath.personStats(transactions, bets, person);
     const name        = person === 'dan' ? 'Dan' : 'Brent';
 
@@ -532,7 +518,7 @@ const App = {
       <div class="person-hero person-hero-${person}">
         <div class="person-hero-name">${name}</div>
         <div class="person-bankroll">${BetMath.fmt(equity)}</div>
-        ${pending > 0 ? `<div class="person-pending">↳ ${BetMath.fmt(pending)} at risk</div>` : ''}
+        ${openCount > 0 ? `<div class="person-pending">↳ ${openCount} open (counted as L)</div>` : ''}
       </div>
 
       <div class="stats-grid">
@@ -550,9 +536,9 @@ const App = {
           <div class="stat-sub record-badge">${record}</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">At Risk</div>
-          <div class="stat-value ${stats.pending > 0 ? 'text-gold' : ''}">${BetMath.fmt(stats.pending)}</div>
-          <div class="stat-sub">${bets.filter(b => b.status === 'pending').length} open bet${bets.filter(b => b.status === 'pending').length !== 1 ? 's' : ''}</div>
+          <div class="stat-label">Open Bets</div>
+          <div class="stat-value ${openCount > 0 ? 'text-gold' : ''}">${openCount}</div>
+          <div class="stat-sub">${stats.pending > 0 ? BetMath.fmt(stats.pending) + ' counted as L' : 'none pending'}</div>
         </div>
       </div>
 

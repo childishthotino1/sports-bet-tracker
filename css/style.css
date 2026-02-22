@@ -671,6 +671,58 @@ main {
   color: var(--red);
 }
 
+.code-textarea {
+  resize: vertical;
+  min-height: 110px;
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.parse-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.parse-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.parse-row-valid {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.parse-row-error {
+  background: var(--red-dim);
+  border: 1px solid var(--red);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.parse-row-label {
+  font-family: 'SF Mono', 'Fira Mono', monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.parse-row-msg { color: var(--red); font-size: 12px; }
+.parse-row-book { color: var(--orange); font-weight: 600; font-size: 12px; min-width: 40px; }
+.parse-row-sport { color: var(--purple-light); font-size: 12px; font-weight: 600; }
+.parse-row-desc { flex: 1; color: var(--text); font-size: 13px; }
+.parse-row-odds { color: var(--gold); font-size: 12px; }
+.parse-row-wager { color: var(--text-muted); font-size: 12px; text-align: right; }
+
 .parsed-header {
   display: flex;
   align-items: center;

@@ -53,17 +53,16 @@ const BetMath = {
     }
 
     for (const bet of bets) {
-      if (bet.status === 'pending') continue;
+      if (bet.status === 'push') continue;
       const boosted   = this.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
       const hisWager  = parseFloat(bet.his_wager);
       const totalW    = parseFloat(bet.total_wager);
       if (bet.status === 'won') {
         const totalRet = this.totalReturn(totalW, boosted);
-        equity += this.splitReturn(totalRet, totalW, hisWager) - hisWager; // net profit
-      } else if (bet.status === 'lost') {
-        equity -= hisWager;
+        equity += this.splitReturn(totalRet, totalW, hisWager) - hisWager;
+      } else {
+        equity -= hisWager; // lost or pending → counted as loss
       }
-      // push: 0 net
     }
 
     return equity;
@@ -101,8 +100,9 @@ const BetMath = {
     let sharedPnl = 0;
     let sharedWon = 0;
     let sharedLost = 0;
+    let pending = 0;
     for (const bet of bets) {
-      if (bet.status === 'pending') continue;
+      if (bet.status === 'push') continue;
       const boosted = this.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
       const wager   = parseFloat(bet[field]);
       const totalW  = parseFloat(bet.total_wager);
@@ -114,11 +114,11 @@ const BetMath = {
       } else if (bet.status === 'lost') {
         sharedPnl  -= wager;
         sharedLost += 1;
+      } else if (bet.status === 'pending') {
+        sharedPnl  -= wager; // counted as loss
+        pending    += wager;
       }
     }
-
-    const pending = bets.filter(b => b.status === 'pending')
-                        .reduce((s, b) => s + parseFloat(b[field]), 0);
 
     return { deposited, received, sharedPnl, sharedWon, sharedLost, pending };
   },
