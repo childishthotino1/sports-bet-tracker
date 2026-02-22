@@ -402,14 +402,18 @@ const App = {
       return { error: `Wagers don't add up: Dan $${his_wager} + Brent $${my_wager} ≠ $${total_wager}` };
     }
 
-    // Match sportsbook
+    // Match sportsbook (ESPN is the old name for theScore Bet)
+    const BOOK_ALIASES = { 'ESPN': 'theScore Bet', 'THESCORE': 'theScore Bet', 'SCORE': 'theScore Bet' };
     const bookUpper = book.toUpperCase().replace(/\s/g, '');
-    const matched   = this.state.sportsbooks.find(sb => {
-      const sbKey = sb.name.toUpperCase().replace(/\s/g, '');
-      return sbKey === bookUpper || sbKey.startsWith(bookUpper) || bookUpper.startsWith(sbKey.split('')[0]);
-    }) || this.state.sportsbooks.find(sb =>
-      sb.name.toUpperCase().includes(bookUpper.slice(0, 4))
-    ) || null;
+    const aliasName = BOOK_ALIASES[bookUpper];
+    const matched   = aliasName
+      ? this.state.sportsbooks.find(sb => sb.name === aliasName)
+      : (this.state.sportsbooks.find(sb => {
+          const sbKey = sb.name.toUpperCase().replace(/\s/g, '');
+          return sbKey === bookUpper || sbKey.startsWith(bookUpper) || bookUpper.startsWith(sbKey.split('')[0]);
+        }) || this.state.sportsbooks.find(sb =>
+          sb.name.toUpperCase().includes(bookUpper.slice(0, 4))
+        ) || null);
 
     if (!matched) {
       return { error: `Book "${book}" not recognized` };
