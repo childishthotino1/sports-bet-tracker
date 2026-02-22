@@ -395,15 +395,21 @@ const App = {
     const my_wager    = parseFloat(brentStr);
     const base_odds   = parseInt(oddsStr);
 
-    if ([total_wager, his_wager, my_wager].some(v => isNaN(v) || v <= 0)) {
-      return { error: 'Wager amounts must be positive numbers' };
+    if (isNaN(total_wager) || total_wager <= 0) {
+      return { error: 'Total wager must be a positive number' };
+    }
+    if (isNaN(his_wager) || his_wager < 0 || isNaN(my_wager) || my_wager < 0) {
+      return { error: 'Wager amounts cannot be negative' };
     }
     if (Math.abs(his_wager + my_wager - total_wager) > 0.02) {
       return { error: `Wagers don't add up: Dan $${his_wager} + Brent $${my_wager} ≠ $${total_wager}` };
     }
 
     // Match sportsbook (ESPN is the old name for theScore Bet)
-    const BOOK_ALIASES = { 'ESPN': 'theScore Bet', 'THESCORE': 'theScore Bet', 'SCORE': 'theScore Bet' };
+    const BOOK_ALIASES = {
+      'ESPN': 'theScore Bet', 'THESCORE': 'theScore Bet', 'SCORE': 'theScore Bet',
+      'FD': 'FanDuel', 'DK': 'DraftKings', 'MGM': 'BetMGM', 'B365': 'Bet365',
+    };
     const bookUpper = book.toUpperCase().replace(/\s/g, '');
     const aliasName = BOOK_ALIASES[bookUpper];
     const matched   = aliasName
