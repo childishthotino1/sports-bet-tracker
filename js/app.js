@@ -221,14 +221,7 @@ const App = {
         </div>
       </div>
 
-      ${openBets.length > 0 ? `
-        <div class="section-label">
-          Open Bets
-          <span class="badge badge-pending">${openBets.length}</span>
-          <span class="hp-exposure">${BetMath.fmt(openExposure)} at risk</span>
-        </div>
-        ${openBets.map(b => this.betCardHTML(b)).join('')}
-      ` : `<div class="hp-no-open">All bets settled ✓</div>`}
+      ${openBets.length === 0 ? `<div class="hp-no-open">All bets settled ✓</div>` : ''}
     `;
 
     this.attachBetCardHandlers();
