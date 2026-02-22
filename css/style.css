@@ -1414,3 +1414,119 @@ input:focus, select:focus { border-color: var(--purple); }
   text-align: right;
   flex-shrink: 0;
 }
+
+/* ── Bet List Rows (list view mode) ──────────────────── */
+.bet-row {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: var(--r);
+  padding: 11px 14px 11px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.bet-row-pending { border-left-color: var(--purple); }
+.bet-row-won     { border-left-color: var(--green); }
+.bet-row-lost    { border-left-color: rgba(239,68,68,0.4); opacity: 0.72; }
+.bet-row-push    { border-left-color: var(--border); opacity: 0.60; }
+
+.bet-row-info { flex: 1; min-width: 0; }
+
+.bet-row-l1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+  min-width: 0;
+}
+
+.bet-row-sport-badge {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.sport-nba   { background: rgba(201,164,74,0.18);  color: var(--gold); }
+.sport-nfl   { background: rgba(34,197,94,0.15);   color: #4ade80; }
+.sport-nhl   { background: rgba(56,189,248,0.15);  color: #38bdf8; }
+.sport-mlb   { background: rgba(251,113,133,0.15); color: #fb7185; }
+.sport-ncaab { background: rgba(167,139,250,0.18); color: #a78bfa; }
+.sport-cfb   { background: rgba(167,139,250,0.18); color: #a78bfa; }
+.sport-other { background: rgba(106,104,128,0.2);  color: var(--text-muted); }
+
+.bet-row-desc {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.bet-row-l2 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.br-sep  { color: var(--border); }
+.br-book { color: var(--text-muted); font-size: 11px; }
+.br-date { color: var(--text-muted); font-size: 11px; }
+
+.br-odds         { display: inline-flex; align-items: center; gap: 3px; }
+.br-odds-base    { color: var(--text-muted); text-decoration: line-through; font-size: 11px; }
+.br-odds-arrow   { color: var(--text-muted); font-size: 10px; }
+.br-odds-boosted { color: var(--gold); font-weight: 700; font-size: 12px; }
+
+.boost-tag-xs {
+  font-size: 9px;
+  color: var(--orange);
+  background: var(--orange-dim);
+  padding: 1px 5px;
+  border-radius: 100px;
+}
+
+.bet-row-l3 {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.br-dan   { color: #9b6fd0; font-weight: 600; }
+.br-brent { color: #e8773a; font-weight: 600; }
+
+.br-payout-row { margin-top: 3px; }
+.br-profit { color: var(--green); font-weight: 600; font-size: 12px; }
+
+.bet-row-action {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.settle-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  width: 66px;
+}
+
+.settle-grid .settle-btn {
+  padding: 5px 0;
+  text-align: center;
+  width: 100%;
+}

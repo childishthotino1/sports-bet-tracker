@@ -2,7 +2,7 @@ const App = {
   state: {
     view: 'pool',
     betFilter: 'pending',
-    betViewMode: 'table',   // 'table' | 'cards'
+    betViewMode: 'list',    // 'list' | 'cards'
     sportsbooks: [],
     bets: [],
     transactions: [],
@@ -257,6 +257,94 @@ const App = {
     `;
   },
 
+  // ─── Bet Row HTML (list view) ──────────────────────────
+
+  betRowHTML(b) {
+    const boosted    = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
+    const isPending  = b.status === 'pending';
+    const baseOdds   = parseInt(b.base_odds);
+    const boostPct   = parseFloat(b.boost_pct);
+    const danWager   = parseFloat(b.his_wager);
+    const brentWager = parseFloat(b.my_wager);
+    const totalW     = parseFloat(b.total_wager);
+
+    const d    = new Date(b.placed_at);
+    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    const sportColors = {
+      NBA: 'sport-nba', NFL: 'sport-nfl', NHL: 'sport-nhl', MLB: 'sport-mlb',
+      NCAAB: 'sport-ncaab', CBB: 'sport-ncaab', CFB: 'sport-cfb', NCAAF: 'sport-cfb',
+    };
+    const sportClass = sportColors[b.sport] || 'sport-other';
+
+    let oddsHtml = '';
+    if (baseOdds !== 0) {
+      if (boostPct > 0) {
+        oddsHtml = `
+          <span class="br-sep">·</span>
+          <span class="br-odds">
+            <span class="br-odds-base">${BetMath.fmtOdds(baseOdds)}</span>
+            <span class="br-odds-arrow">›</span>
+            <span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span>
+            <span class="boost-tag-xs">+${boostPct}%</span>
+          </span>`;
+      } else {
+        oddsHtml = `<span class="br-sep">·</span><span class="br-odds"><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span></span>`;
+      }
+    }
+
+    const wagerParts = [];
+    if (danWager > 0)   wagerParts.push(`<span class="br-dan">D ${BetMath.fmt(danWager)}</span>`);
+    if (brentWager > 0) wagerParts.push(`<span class="br-brent">B ${BetMath.fmt(brentWager)}</span>`);
+    const wagersHtml = wagerParts.join(`<span class="br-sep">·</span>`);
+
+    let payoutHtml = '';
+    if (b.status === 'won') {
+      const totalRet    = BetMath.totalReturn(totalW, boosted);
+      const danProfit   = danWager > 0   ? BetMath.splitReturn(totalRet, totalW, danWager)   - danWager   : 0;
+      const brentProfit = brentWager > 0 ? BetMath.splitReturn(totalRet, totalW, brentWager) - brentWager : 0;
+      const parts = [];
+      if (danWager > 0)   parts.push(`<span class="br-profit">D +${BetMath.fmt(danProfit)}</span>`);
+      if (brentWager > 0) parts.push(`<span class="br-profit">B +${BetMath.fmt(brentProfit)}</span>`);
+      payoutHtml = `<div class="bet-row-l3 br-payout-row">${parts.join(`<span class="br-sep">·</span>`)}</div>`;
+    }
+
+    let actionHtml;
+    if (isPending) {
+      actionHtml = `
+        <div class="settle-grid">
+          <button class="settle-btn settle-w"   data-id="${b.id}" data-result="won">W</button>
+          <button class="settle-btn settle-l"   data-id="${b.id}" data-result="lost">L</button>
+          <button class="settle-btn settle-p"   data-id="${b.id}" data-result="push">P</button>
+          <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete">×</button>
+        </div>`;
+    } else {
+      const cls = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push' }[b.status] || '';
+      const lbl = { won: 'WON', lost: 'LOST', push: 'PUSH' }[b.status] || b.status;
+      actionHtml = `<span class="badge ${cls}">${lbl}</span>`;
+    }
+
+    return `
+      <div class="bet-row bet-row-${b.status}" data-bet-id="${b.id}">
+        <div class="bet-row-info">
+          <div class="bet-row-l1">
+            <span class="bet-row-sport-badge ${sportClass}">${b.sport}</span>
+            <span class="bet-row-desc">${b.description}</span>
+          </div>
+          <div class="bet-row-l2">
+            <span class="br-book">${b.sportsbooks?.name?.replace('theScore Bet', 'Score') || ''}</span>
+            <span class="br-sep">·</span>
+            <span class="br-date">${date}</span>
+            ${oddsHtml}
+          </div>
+          <div class="bet-row-l3">${wagersHtml}</div>
+          ${payoutHtml}
+        </div>
+        <div class="bet-row-action">${actionHtml}</div>
+      </div>
+    `;
+  },
+
   attachBetCardHandlers() {
     document.querySelectorAll('.settle-btn').forEach(btn => {
       btn.addEventListener('click', async e => {
@@ -378,7 +466,7 @@ const App = {
 
     const toggleBtn = document.getElementById('bets-view-toggle');
     if (toggleBtn) {
-      toggleBtn.textContent = mode === 'table' ? '≡ Cards' : '⊞ Table';
+      toggleBtn.textContent = mode === 'list' ? '⊞ Cards' : '≡ List';
     }
 
     const list = document.getElementById('bets-list');
@@ -387,52 +475,9 @@ const App = {
       return;
     }
 
-    if (mode === 'table') {
-      list.innerHTML = `
-        <div class="bets-table-scroll">
-          <table class="bets-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Code</th>
-                <th>Result</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filtered.map(b => {
-                const d = new Date(b.placed_at);
-                const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                const code = this.betCodeFromBet(b);
-                const statusClass = { won: 'text-green', lost: 'text-red', push: 'text-muted', pending: 'text-gold' }[b.status] || '';
-                const statusLabel = { won: 'W', lost: 'L', push: 'P' }[b.status] || '?';
-                const isPending = b.status === 'pending';
-                const resultCell = isPending
-                  ? `<td class="bt-result">
-                      <div class="settle-inline">
-                        <button class="settle-btn settle-w" data-id="${b.id}" data-result="won">W</button>
-                        <button class="settle-btn settle-l" data-id="${b.id}" data-result="lost">L</button>
-                        <button class="settle-btn settle-p" data-id="${b.id}" data-result="push">P</button>
-                        <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete">×</button>
-                      </div>
-                    </td>`
-                  : `<td class="bt-result ${statusClass}">${statusLabel}</td>`;
-                return `<tr class="${isPending ? 'bets-table-pending' : ''}" data-bet-id="${b.id}">
-                  <td class="bt-date">${date}</td>
-                  <td class="bt-code">${code}</td>
-                  ${resultCell}
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>
-        </div>
-      `;
-      list.querySelectorAll('.settle-btn').forEach(btn => {
-        btn.addEventListener('click', async e => {
-          e.stopPropagation();
-          btn.disabled = true;
-          await this.handleInlineSettle(btn.dataset.id, btn.dataset.result);
-        });
-      });
+    if (mode === 'list') {
+      list.innerHTML = filtered.map(b => this.betRowHTML(b)).join('');
+      this.attachBetCardHandlers();
     } else {
       list.innerHTML = filtered.map(b => this.betCardHTML(b)).join('');
       this.attachBetCardHandlers();
@@ -1300,7 +1345,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Bet view mode toggle
   document.getElementById('bets-view-toggle').addEventListener('click', () => {
-    App.state.betViewMode = App.state.betViewMode === 'table' ? 'cards' : 'table';
+    App.state.betViewMode = App.state.betViewMode === 'list' ? 'cards' : 'list';
     App.renderBets();
   });
 
