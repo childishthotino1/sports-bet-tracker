@@ -1530,3 +1530,23 @@ input:focus, select:focus { border-color: var(--purple); }
   text-align: center;
   width: 100%;
 }
+
+.br-action-col {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+}
+
+.br-edit-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 5px;
+  opacity: 0.45;
+  line-height: 1;
+  transition: opacity 0.15s, color 0.15s;
+}
+.br-edit-btn:active { opacity: 1; color: var(--purple); }

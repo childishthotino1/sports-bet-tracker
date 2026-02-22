@@ -309,6 +309,8 @@ const App = {
       payoutHtml = `<div class="bet-row-l3 br-payout-row">${parts.join(`<span class="br-sep">·</span>`)}</div>`;
     }
 
+    const showEdit = this.state.betFilter === 'all';
+
     let actionHtml;
     if (isPending) {
       actionHtml = `
@@ -323,6 +325,10 @@ const App = {
       const lbl = { won: 'WON', lost: 'LOST', push: 'PUSH' }[b.status] || b.status;
       actionHtml = `<span class="badge ${cls}">${lbl}</span>`;
     }
+
+    const editBtn = showEdit
+      ? `<button class="br-edit-btn" data-id="${b.id}" title="Edit bet">✎</button>`
+      : '';
 
     return `
       <div class="bet-row bet-row-${b.status}" data-bet-id="${b.id}">
@@ -340,7 +346,10 @@ const App = {
           <div class="bet-row-l3">${wagersHtml}</div>
           ${payoutHtml}
         </div>
-        <div class="bet-row-action">${actionHtml}</div>
+        <div class="bet-row-action${showEdit ? ' br-action-col' : ''}">
+          ${actionHtml}
+          ${editBtn}
+        </div>
       </div>
     `;
   },
@@ -351,6 +360,13 @@ const App = {
         e.stopPropagation();
         btn.disabled = true;
         await this.handleInlineSettle(btn.dataset.id, btn.dataset.result);
+      });
+    });
+    document.querySelectorAll('.br-edit-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        const bet = this.state.bets.find(b => b.id === btn.dataset.id);
+        if (bet) this.showEditBetModal(bet);
       });
     });
   },
@@ -1232,6 +1248,106 @@ const App = {
       await this.loadData();
       this.hideModal();
       this.render(this.state.view);
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
+  },
+
+  showEditBetModal(bet) {
+    const placedDate = bet.placed_at ? bet.placed_at.split('T')[0] : new Date().toISOString().split('T')[0];
+    const sbOptions  = this.state.sportsbooks.map(sb =>
+      `<option value="${sb.id}" ${sb.id === bet.sportsbook_id ? 'selected' : ''}>${sb.name}</option>`
+    ).join('');
+
+    this.showModal(`
+      <div class="modal-header">Edit Bet</div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" id="edit-date" class="form-input" value="${placedDate}">
+      </div>
+      <div class="form-group">
+        <label>Sport</label>
+        <input type="text" id="edit-sport" class="form-input" value="${bet.sport}" autocapitalize="characters" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="edit-desc" class="form-input" value="${bet.description}" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label>Sportsbook</label>
+        <select id="edit-book" class="form-input">${sbOptions}</select>
+      </div>
+      <div class="form-group">
+        <label>Base Odds (e.g. +150 or -110)</label>
+        <input type="number" id="edit-odds" class="form-input" value="${bet.base_odds}" inputmode="numeric">
+      </div>
+      <div class="form-group">
+        <label>Boost %</label>
+        <input type="number" id="edit-boost" class="form-input" value="${parseFloat(bet.boost_pct)}" step="0.1" inputmode="decimal">
+      </div>
+      <div class="form-group">
+        <label>Total Wager ($)</label>
+        <input type="number" id="edit-total" class="form-input" value="${parseFloat(bet.total_wager).toFixed(2)}" step="0.01" inputmode="decimal">
+      </div>
+      <div class="form-group">
+        <label>Dan Wager ($)</label>
+        <input type="number" id="edit-dan" class="form-input" value="${parseFloat(bet.his_wager).toFixed(2)}" step="0.01" inputmode="decimal">
+      </div>
+      <div class="form-group">
+        <label>Brent Wager ($)</label>
+        <input type="number" id="edit-brent" class="form-input" value="${parseFloat(bet.my_wager).toFixed(2)}" step="0.01" inputmode="decimal">
+      </div>
+      <div id="edit-bet-error" class="parse-error" style="display:none;margin-bottom:12px"></div>
+      <button class="btn-primary-full" id="save-edit-bet">Save Changes</button>
+      <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
+    `);
+
+    document.getElementById('save-edit-bet').addEventListener('click', async () => {
+      const placedAt    = document.getElementById('edit-date').value;
+      const sport       = document.getElementById('edit-sport').value.trim().toUpperCase();
+      const description = document.getElementById('edit-desc').value.trim();
+      const sbId        = document.getElementById('edit-book').value;
+      const base_odds   = parseInt(document.getElementById('edit-odds').value);
+      const boost_pct   = parseFloat(document.getElementById('edit-boost').value) || 0;
+      const total_wager = parseFloat(document.getElementById('edit-total').value);
+      const his_wager   = parseFloat(document.getElementById('edit-dan').value);
+      const my_wager    = parseFloat(document.getElementById('edit-brent').value);
+      const errEl       = document.getElementById('edit-bet-error');
+
+      if (!description || isNaN(total_wager) || total_wager <= 0) {
+        errEl.textContent = 'Description and a valid total wager are required.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (Math.abs(his_wager + my_wager - total_wager) > 0.02) {
+        errEl.textContent = `Wagers don't add up: Dan $${his_wager} + Brent $${my_wager} ≠ $${total_wager}`;
+        errEl.style.display = 'block';
+        return;
+      }
+      errEl.style.display = 'none';
+
+      const btn = document.getElementById('save-edit-bet');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        await DB.updateBet(bet.id, {
+          sport, description, sportsbook_id: sbId,
+          base_odds, boost_pct, total_wager,
+          his_wager, my_wager,
+          placed_at: new Date(placedAt + 'T12:00:00').toISOString(),
+        });
+        DB.logActivity(this.state.currentUser, 'bet_edited', {
+          bet_id: bet.id, sport, description,
+        });
+        await this.loadData();
+        this.hideModal();
+        this.render(this.state.view);
+      } catch (err) {
+        errEl.textContent = 'Save failed: ' + err.message;
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Save Changes';
+      }
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },

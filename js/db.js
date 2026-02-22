@@ -117,6 +117,14 @@ const DB = {
     }
   },
 
+  async updateBet(id, fields) {
+    const { error } = await client()
+      .from('bets')
+      .update(fields)
+      .eq('id', id);
+    if (error) throw error;
+  },
+
   async addSnapshot(snap) {
     const { data, error } = await client()
       .from('snapshots')
