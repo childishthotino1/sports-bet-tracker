@@ -510,6 +510,98 @@ main {
 }
 .filter-tab.active { background: var(--purple-dim); border-color: var(--purple); color: var(--text); }
 
+/* ── Bets View Header ─────────────────────────────────── */
+.bets-view-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.bets-view-header .filter-tabs {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.bets-toggle-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.bets-toggle-btn:active { border-color: var(--purple); color: var(--text); }
+
+/* ── Bets Table ───────────────────────────────────────── */
+.bets-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+
+.bets-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+
+.bets-table thead th {
+  background: var(--bg-card2);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.bets-table tbody tr {
+  border-bottom: 1px solid rgba(28,28,50,0.7);
+}
+.bets-table tbody tr:last-child { border-bottom: none; }
+.bets-table tbody tr:nth-child(even) td { background: rgba(14,14,28,0.5); }
+
+.bets-table-pending { cursor: pointer; }
+.bets-table-pending:active td { background: var(--purple-dim) !important; }
+
+.bets-table td {
+  padding: 9px 12px;
+  vertical-align: middle;
+}
+
+.bt-date {
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 52px;
+}
+
+.bt-code {
+  font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-all;
+  min-width: 200px;
+}
+
+.bt-result {
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+  white-space: nowrap;
+  padding-right: 14px;
+}
+
 /* ── Add Bet (Code Entry) ─────────────────────────────── */
 .code-input-wrapper {
   margin-bottom: 16px;

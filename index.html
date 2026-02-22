@@ -68,12 +68,15 @@
 
     <!-- Bets View -->
     <div id="view-bets" class="view">
-      <div class="filter-tabs">
-        <button class="filter-tab active" data-filter="pending">Open</button>
-        <button class="filter-tab" data-filter="won">Won</button>
-        <button class="filter-tab" data-filter="lost">Lost</button>
-        <button class="filter-tab" data-filter="push">Push</button>
-        <button class="filter-tab" data-filter="all">All</button>
+      <div class="bets-view-header">
+        <div class="filter-tabs">
+          <button class="filter-tab active" data-filter="pending">Open</button>
+          <button class="filter-tab" data-filter="won">Won</button>
+          <button class="filter-tab" data-filter="lost">Lost</button>
+          <button class="filter-tab" data-filter="push">Push</button>
+          <button class="filter-tab" data-filter="all">All</button>
+        </div>
+        <button class="bets-toggle-btn" id="bets-view-toggle">≡ Cards</button>
       </div>
       <div id="bets-list"></div>
     </div>

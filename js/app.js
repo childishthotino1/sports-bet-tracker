@@ -2,6 +2,7 @@ const App = {
   state: {
     view: 'pool',
     betFilter: 'pending',
+    betViewMode: 'table',   // 'table' | 'cards'
     sportsbooks: [],
     bets: [],
     transactions: [],
@@ -256,14 +257,84 @@ const App = {
 
   // ─── Bets View ─────────────────────────────────────────
 
+  betCodeFromBet(b) {
+    const BOOK_SHORT = {
+      'theScore Bet': 'ESPN', 'Bet365': 'B365', 'DraftKings': 'DK',
+      'BetMGM': 'MGM', 'Fanatics': 'Fanatics',
+    };
+    const book  = BOOK_SHORT[b.sportsbooks?.name] || b.sportsbooks?.name || '?';
+    const odds  = parseInt(b.base_odds);
+    const oddsStr = odds !== 0 ? BetMath.fmtOdds(odds) : '';
+    const boost = parseFloat(b.boost_pct);
+    return [
+      book,
+      b.sport,
+      b.description,
+      boost,
+      parseFloat(b.total_wager),
+      parseFloat(b.his_wager),
+      `${parseFloat(b.my_wager)}${oddsStr}`,
+    ].join('.');
+  },
+
   renderBets() {
     const filter   = this.state.betFilter;
+    const mode     = this.state.betViewMode;
     const filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
+
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
-    document.getElementById('bets-list').innerHTML = filtered.length === 0
-      ? '<div class="empty-state">No bets</div>'
-      : filtered.map(b => this.betCardHTML(b)).join('');
-    this.attachBetCardHandlers();
+
+    const toggleBtn = document.getElementById('bets-view-toggle');
+    if (toggleBtn) {
+      toggleBtn.textContent = mode === 'table' ? '≡ Cards' : '⊞ Table';
+    }
+
+    const list = document.getElementById('bets-list');
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="empty-state">No bets</div>';
+      return;
+    }
+
+    if (mode === 'table') {
+      list.innerHTML = `
+        <div class="bets-table-scroll">
+          <table class="bets-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Code</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(b => {
+                const d = new Date(b.placed_at);
+                const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const code = this.betCodeFromBet(b);
+                const statusClass = { won: 'text-green', lost: 'text-red', push: 'text-muted', pending: 'text-gold' }[b.status] || '';
+                const statusLabel = { won: 'W', lost: 'L', push: 'P', pending: '…' }[b.status] || '?';
+                const rowClass = b.status === 'pending' ? 'bets-table-pending' : '';
+                return `<tr class="${rowClass}" data-bet-id="${b.id}">
+                  <td class="bt-date">${date}</td>
+                  <td class="bt-code">${code}</td>
+                  <td class="bt-result ${statusClass}">${statusLabel}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+      // tap pending rows to settle
+      list.querySelectorAll('.bets-table-pending').forEach(row => {
+        row.addEventListener('click', () => {
+          const bet = this.state.bets.find(b => b.id === row.dataset.betId);
+          if (bet) this.showSettleModal(bet);
+        });
+      });
+    } else {
+      list.innerHTML = filtered.map(b => this.betCardHTML(b)).join('');
+      this.attachBetCardHandlers();
+    }
   },
 
   // ─── Add Bet (Dot Notation) ────────────────────────────
@@ -1120,6 +1191,12 @@ document.addEventListener('DOMContentLoaded', () => {
       App.state.betFilter = tab.dataset.filter;
       App.renderBets();
     });
+  });
+
+  // Bet view mode toggle
+  document.getElementById('bets-view-toggle').addEventListener('click', () => {
+    App.state.betViewMode = App.state.betViewMode === 'table' ? 'cards' : 'table';
+    App.renderBets();
   });
 
   // Modal backdrop dismiss
