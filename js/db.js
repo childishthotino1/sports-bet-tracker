@@ -109,6 +109,14 @@ const DB = {
     return data || [];
   },
 
+  async logActivity(userName, action, details = {}) {
+    try {
+      await client().from('activity_log').insert({ user_name: userName, action, details });
+    } catch (e) {
+      console.warn('Activity log failed:', e);
+    }
+  },
+
   async addSnapshot(snap) {
     const { data, error } = await client()
       .from('snapshots')

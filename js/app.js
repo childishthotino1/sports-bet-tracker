@@ -10,6 +10,7 @@ const App = {
     snapshots: [],
     loaded: false,
     undoStack: [],          // [{type, bet, result}] — last 3 actions
+    currentUser: 'brent',  // 'brent' | 'dan' — set on PIN entry
   },
 
   _miniChart: null,
@@ -71,7 +72,11 @@ const App = {
 
   async checkPin() {
     if (!this.state.loaded) { await this.loadData(); this.state.loaded = true; }
-    if (this.pinEntry === this.state.settings.pin) {
+    const isBrent = this.pinEntry === this.state.settings.pin;
+    const isDan   = this.pinEntry === this.state.settings.pin_dan;
+    if (isBrent || isDan) {
+      this.state.currentUser = isBrent ? 'brent' : 'dan';
+      DB.logActivity(this.state.currentUser, 'login');
       document.getElementById('pin-screen').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
       this.navigate('pool');
@@ -272,8 +277,14 @@ const App = {
 
     if (result === 'delete') {
       await DB.deleteBet(betId);
+      DB.logActivity(this.state.currentUser, 'bet_deleted', {
+        bet_id: bet.id, sport: bet.sport, description: bet.description, sportsbook: bet.sportsbooks?.name,
+      });
     } else {
       await DB.settleBet(betId, result);
+      DB.logActivity(this.state.currentUser, 'bet_settled', {
+        bet_id: bet.id, sport: bet.sport, description: bet.description, result, sportsbook: bet.sportsbooks?.name,
+      });
     }
     await this.loadData();
     this.render(this.state.view);
@@ -319,6 +330,9 @@ const App = {
       } else {
         await DB.unsettleBet(entry.bet.id);
       }
+      DB.logActivity(this.state.currentUser, 'undo', {
+        undone: entry.type, bet_id: entry.bet.id, description: entry.bet.description,
+      });
       await this.loadData();
       this.render(this.state.view);
 
@@ -570,6 +584,10 @@ const App = {
     btn.textContent = 'Placing...';
 
     try {
+      DB.logActivity(this.state.currentUser, 'bets_placed', {
+        count: parsedBets.length,
+        bets: parsedBets.map(p => ({ sport: p.sport, description: p.description, total_wager: p.total_wager })),
+      });
       for (const p of parsedBets) {
         await DB.addBet({
           sportsbook_id: p.sportsbook_id,
@@ -1239,6 +1257,7 @@ const App = {
       if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
       await DB.addTransaction(tx);
+      DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
       await this.loadData();
       this.hideModal();
       this.render(this.state.view);
