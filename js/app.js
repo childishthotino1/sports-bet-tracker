@@ -155,24 +155,6 @@ const App = {
     } else {
       const pnlCls = todayPnl >= 0 ? 'text-green' : 'text-red';
       const sign   = todayPnl >= 0 ? '+' : '';
-      const betRows = todaySettled.map(b => {
-        const boosted = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
-        let betPnl = 0;
-        if (b.status === 'won')  betPnl =  BetMath.totalReturn(parseFloat(b.total_wager), boosted) - parseFloat(b.total_wager);
-        if (b.status === 'lost') betPnl = -parseFloat(b.total_wager);
-        const sc  = sportColors[b.sport] || 'sport-other';
-        const rc  = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push' }[b.status] || '';
-        const rl  = { won: 'W', lost: 'L', push: 'P' }[b.status] || '';
-        const pc  = betPnl >= 0 ? 'text-green' : 'text-red';
-        return `
-          <div class="hp-bet-row">
-            <span class="bet-row-sport-badge ${sc}">${b.sport}</span>
-            <span class="hp-bet-desc">${b.description}</span>
-            <span class="badge ${rc}">${rl}</span>
-            ${b.status !== 'push' ? `<span class="hp-bet-pnl ${pc}">${betPnl >= 0 ? '+' : ''}${BetMath.fmt(betPnl)}</span>` : ''}
-          </div>`;
-      }).join('');
-
       todayContent = `
         <div class="hp-today-pnl">
           <div class="hp-today-amount ${pnlCls}">${sign}${BetMath.fmt(todayPnl)}</div>
@@ -181,8 +163,7 @@ const App = {
             ${todayLost > 0 ? `<span class="hp-rec-l">${todayLost}L</span>` : ''}
             ${todayPush > 0 ? `<span class="hp-rec-p">${todayPush}P</span>` : ''}
           </div>
-        </div>
-        <div class="hp-today-bets">${betRows}</div>`;
+        </div>`;
     }
 
     document.getElementById('pool-content').innerHTML = `
