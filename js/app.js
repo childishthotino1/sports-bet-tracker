@@ -239,18 +239,36 @@ const App = {
           <span>Brent ${BetMath.fmt(bet.my_wager)}</span>
         </div>
         ${payoutLine}
-        ${isPending ? '<div class="tap-hint">tap to settle</div>' : ''}
+        ${isPending ? `
+          <div class="settle-inline">
+            <button class="settle-btn settle-w" data-id="${bet.id}" data-result="won">W</button>
+            <button class="settle-btn settle-l" data-id="${bet.id}" data-result="lost">L</button>
+            <button class="settle-btn settle-p" data-id="${bet.id}" data-result="push">P</button>
+            <button class="settle-btn settle-del" data-id="${bet.id}" data-result="delete">×</button>
+          </div>
+        ` : ''}
       </div>
     `;
   },
 
   attachBetCardHandlers() {
-    document.querySelectorAll('.bet-card-pending').forEach(card => {
-      card.addEventListener('click', () => {
-        const bet = this.state.bets.find(b => b.id === card.dataset.betId);
-        if (bet) this.showSettleModal(bet);
+    document.querySelectorAll('.settle-btn').forEach(btn => {
+      btn.addEventListener('click', async e => {
+        e.stopPropagation();
+        btn.disabled = true;
+        await this.handleInlineSettle(btn.dataset.id, btn.dataset.result);
       });
     });
+  },
+
+  async handleInlineSettle(betId, result) {
+    if (result === 'delete') {
+      await DB.deleteBet(betId);
+    } else {
+      await DB.settleBet(betId, result);
+    }
+    await this.loadData();
+    this.render(this.state.view);
   },
 
   // ─── Bets View ─────────────────────────────────────────
@@ -310,23 +328,33 @@ const App = {
                 const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
                 const code = this.betCodeFromBet(b);
                 const statusClass = { won: 'text-green', lost: 'text-red', push: 'text-muted', pending: 'text-gold' }[b.status] || '';
-                const statusLabel = { won: 'W', lost: 'L', push: 'P', pending: '…' }[b.status] || '?';
-                const rowClass = b.status === 'pending' ? 'bets-table-pending' : '';
-                return `<tr class="${rowClass}" data-bet-id="${b.id}">
+                const statusLabel = { won: 'W', lost: 'L', push: 'P' }[b.status] || '?';
+                const isPending = b.status === 'pending';
+                const resultCell = isPending
+                  ? `<td class="bt-result">
+                      <div class="settle-inline">
+                        <button class="settle-btn settle-w" data-id="${b.id}" data-result="won">W</button>
+                        <button class="settle-btn settle-l" data-id="${b.id}" data-result="lost">L</button>
+                        <button class="settle-btn settle-p" data-id="${b.id}" data-result="push">P</button>
+                        <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete">×</button>
+                      </div>
+                    </td>`
+                  : `<td class="bt-result ${statusClass}">${statusLabel}</td>`;
+                return `<tr class="${isPending ? 'bets-table-pending' : ''}" data-bet-id="${b.id}">
                   <td class="bt-date">${date}</td>
                   <td class="bt-code">${code}</td>
-                  <td class="bt-result ${statusClass}">${statusLabel}</td>
+                  ${resultCell}
                 </tr>`;
               }).join('')}
             </tbody>
           </table>
         </div>
       `;
-      // tap pending rows to settle
-      list.querySelectorAll('.bets-table-pending').forEach(row => {
-        row.addEventListener('click', () => {
-          const bet = this.state.bets.find(b => b.id === row.dataset.betId);
-          if (bet) this.showSettleModal(bet);
+      list.querySelectorAll('.settle-btn').forEach(btn => {
+        btn.addEventListener('click', async e => {
+          e.stopPropagation();
+          btn.disabled = true;
+          await this.handleInlineSettle(btn.dataset.id, btn.dataset.result);
         });
       });
     } else {

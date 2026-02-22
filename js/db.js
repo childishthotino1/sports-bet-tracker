@@ -54,6 +54,11 @@ const DB = {
     return data;
   },
 
+  async deleteBet(id) {
+    const { error } = await client().from('bets').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   async settleBet(id, status) {
     const { error } = await client()
       .from('bets')

@@ -571,8 +571,35 @@ main {
 .bets-table tbody tr:last-child { border-bottom: none; }
 .bets-table tbody tr:nth-child(even) td { background: rgba(14,14,28,0.5); }
 
-.bets-table-pending { cursor: pointer; }
-.bets-table-pending:active td { background: var(--purple-dim) !important; }
+.bets-table-pending td { background: rgba(107,47,160,0.06); }
+
+.settle-inline {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.settle-btn {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  background: transparent;
+  line-height: 1.4;
+  transition: background 0.1s;
+}
+.settle-w  { color: var(--green); border-color: var(--green); }
+.settle-l  { color: var(--red);   border-color: var(--red); }
+.settle-p  { color: var(--text-muted); border-color: var(--border); }
+.settle-del { color: var(--text-muted); border-color: transparent; font-size: 14px; opacity: 0.45; }
+
+.settle-w:active  { background: rgba(34,197,94,0.15); }
+.settle-l:active  { background: var(--red-dim); }
+.settle-p:active  { background: var(--bg-card); }
+.settle-del:active { opacity: 1; color: var(--red); }
+.settle-btn:disabled { opacity: 0.25; cursor: not-allowed; }
 
 .bets-table td {
   padding: 9px 12px;
