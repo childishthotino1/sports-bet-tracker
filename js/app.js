@@ -1100,6 +1100,20 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => App.navigate(btn.dataset.view));
   });
 
+  // Header reload button
+  document.getElementById('header-reload').addEventListener('click', async () => {
+    const btn = document.getElementById('header-reload');
+    btn.classList.add('reloading');
+    btn.disabled = true;
+    try {
+      await App.loadData();
+      App.render(App.state.view);
+    } finally {
+      btn.classList.remove('reloading');
+      btn.disabled = false;
+    }
+  });
+
   // Bet filters
   document.querySelectorAll('.filter-tab').forEach(tab => {
     tab.addEventListener('click', () => {

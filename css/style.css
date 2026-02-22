@@ -170,6 +170,26 @@ header {
 
 .header-right { width: 60px; text-align: right; }
 
+.header-reload {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: color 0.15s;
+  padding: 0;
+}
+.header-reload svg { width: 18px; height: 18px; }
+.header-reload:active { color: var(--text); }
+.header-reload:disabled { opacity: 0.4; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.header-reload.reloading svg { animation: spin 0.6s linear infinite; }
+
 main {
   flex: 1;
   margin-top: var(--header-h);
