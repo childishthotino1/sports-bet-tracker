@@ -98,7 +98,7 @@ const App = {
     const navBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
     if (navBtn) navBtn.classList.add('active');
     this.state.view = view;
-    const titles = { pool: 'Baltimore Bets', bets: 'Bets', 'add-bet': 'New Bet', brent: 'Brent', dan: 'Dan', stats: 'Stats' };
+    const titles = { pool: 'Honeypot', bets: 'Bets', 'add-bet': 'New Bet', brent: 'Brent', dan: 'Dan', stats: 'Stats' };
     document.getElementById('header-title').textContent = titles[view] || view;
     this.render(view);
   },
@@ -119,52 +119,92 @@ const App = {
 
   renderPool() {
     const { sportsbooks, bets, transactions } = this.state;
-    const danEquity    = BetMath.danEquity(transactions, bets);
-    const bucket       = BetMath.bucketBalance(transactions);
-    const totalPool    = BetMath.totalPool(sportsbooks, transactions);
-    const brentEquity  = BetMath.brentEquity(totalPool, danEquity);
-    const openBets     = bets.filter(b => b.status === 'pending');
-    const sbTotal      = BetMath.sportsbookTotal(sportsbooks);
+
+    // Today
+    const todaySettled  = BetMath.todayBets(bets);
+    const todayPnl      = BetMath.poolBetPnl(todaySettled);
+    const todayWon      = todaySettled.filter(b => b.status === 'won').length;
+    const todayLost     = todaySettled.filter(b => b.status === 'lost').length;
+    const todayPush     = todaySettled.filter(b => b.status === 'push').length;
+
+    // All-time
+    const settledBets   = bets.filter(b => b.status !== 'pending');
+    const allTimePnl    = BetMath.poolBetPnl(settledBets);
+    const totalWon      = settledBets.filter(b => b.status === 'won').length;
+    const totalWithResult = settledBets.filter(b => b.status !== 'push').length;
+    const winRate       = totalWithResult > 0 ? Math.round(totalWon / totalWithResult * 100) : 0;
+
+    // Pool
+    const totalPool     = BetMath.totalPool(sportsbooks, transactions);
+    const openBets      = bets.filter(b => b.status === 'pending');
+    const openExposure  = openBets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
+
+    // Today section
+    const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
+
+    let todayContent;
+    if (todaySettled.length === 0) {
+      todayContent = `
+        <div class="hp-today-empty">
+          <span class="hp-today-no">No results yet today</span>
+          ${openBets.length > 0 ? `<span class="hp-open-pill">${openBets.length} pending</span>` : ''}
+        </div>`;
+    } else {
+      const pnlCls = todayPnl >= 0 ? 'text-green' : 'text-red';
+      const sign   = todayPnl >= 0 ? '+' : '';
+      const betRows = todaySettled.map(b => {
+        const boosted = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
+        let betPnl = 0;
+        if (b.status === 'won')  betPnl =  BetMath.totalReturn(parseFloat(b.total_wager), boosted) - parseFloat(b.total_wager);
+        if (b.status === 'lost') betPnl = -parseFloat(b.total_wager);
+        const sc  = sportColors[b.sport] || 'sport-other';
+        const rc  = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push' }[b.status] || '';
+        const rl  = { won: 'W', lost: 'L', push: 'P' }[b.status] || '';
+        const pc  = betPnl >= 0 ? 'text-green' : 'text-red';
+        return `
+          <div class="hp-bet-row">
+            <span class="bet-row-sport-badge ${sc}">${b.sport}</span>
+            <span class="hp-bet-desc">${b.description}</span>
+            <span class="badge ${rc}">${rl}</span>
+            ${b.status !== 'push' ? `<span class="hp-bet-pnl ${pc}">${betPnl >= 0 ? '+' : ''}${BetMath.fmt(betPnl)}</span>` : ''}
+          </div>`;
+      }).join('');
+
+      todayContent = `
+        <div class="hp-today-pnl">
+          <div class="hp-today-amount ${pnlCls}">${sign}${BetMath.fmt(todayPnl)}</div>
+          <div class="hp-today-record">
+            ${todayWon  > 0 ? `<span class="hp-rec-w">${todayWon}W</span>`  : ''}
+            ${todayLost > 0 ? `<span class="hp-rec-l">${todayLost}L</span>` : ''}
+            ${todayPush > 0 ? `<span class="hp-rec-p">${todayPush}P</span>` : ''}
+          </div>
+        </div>
+        <div class="hp-today-bets">${betRows}</div>`;
+    }
 
     document.getElementById('pool-content').innerHTML = `
-      <div class="pool-hero">
-        <div class="pool-label">Total Pool</div>
-        <div class="pool-amount">${BetMath.fmt(totalPool)}</div>
-        <div class="pool-sub">
-          ${BetMath.fmt(sbTotal)} in books
-          ${bucket > 0 ? ` · ${BetMath.fmt(bucket)} in bucket` : ''}
-          ${openBets.length > 0 ? ` · ${openBets.length} open bet${openBets.length > 1 ? 's' : ''}` : ''}
+      <div class="section-label">Today</div>
+      <div class="hp-today-card">${todayContent}</div>
+
+      <div class="hp-metrics-row">
+        <div class="hp-metric">
+          <div class="hp-metric-label">All-Time P&amp;L</div>
+          <div class="hp-metric-value ${allTimePnl >= 0 ? 'text-green' : 'text-red'}">${allTimePnl >= 0 ? '+' : ''}${BetMath.fmt(allTimePnl)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Total Pool</div>
+          <div class="hp-metric-value">${BetMath.fmt(totalPool)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Win Rate</div>
+          <div class="hp-metric-value">${winRate}%</div>
         </div>
       </div>
-
-      <div class="equity-row">
-        <div class="equity-card equity-card-brent">
-          <div class="equity-name">Brent</div>
-          <div class="equity-amount">${BetMath.fmt(brentEquity)}</div>
-          ${openBets.length > 0 ? `<div class="equity-risk">↳ ${openBets.length} open (est. L)</div>` : '<div class="equity-risk"> </div>'}
-        </div>
-        <div class="equity-card equity-card-dan">
-          <div class="equity-name">Dan</div>
-          <div class="equity-amount">${BetMath.fmt(danEquity)}</div>
-          ${openBets.length > 0 ? `<div class="equity-risk">↳ ${openBets.length} open (est. L)</div>` : '<div class="equity-risk"> </div>'}
-        </div>
-      </div>
-
-      ${bucket > 0 ? `
-        <div class="bucket-card">
-          <div>
-            <div class="bucket-label">Bucket</div>
-            <div class="bucket-amount">${BetMath.fmt(bucket)}</div>
-            <div class="bucket-sub">Withdrawn · not yet distributed</div>
-          </div>
-          <button class="bucket-disburse-btn" id="bucket-disburse-btn">Pay Out</button>
-        </div>
-      ` : ''}
 
       <div class="perf-card" id="perf-card-tap">
         <div class="perf-card-top">
           <div>
-            <div class="perf-label">Performance</div>
+            <div class="perf-label">Pool Performance</div>
             <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
           </div>
           <span class="perf-caret">›</span>
@@ -174,35 +214,18 @@ const App = {
         </div>
       </div>
 
-      <div class="pool-actions">
-        <button class="action-btn" id="pool-log-btn">+ Deposit / Withdrawal / Payout</button>
-        <button class="action-btn" id="pool-books-btn">Manage Books</button>
-      </div>
-
-      <div class="section-label">Sportsbooks</div>
-      <div class="card">
-        ${sportsbooks.length === 0
-          ? '<div class="empty-state">No sportsbooks — tap Manage Books</div>'
-          : sportsbooks.map(sb => `
-            <div class="sb-row">
-              <span class="sb-name">${sb.name}</span>
-              <span class="sb-balance">${BetMath.fmt(sb.current_balance)}</span>
-            </div>
-          `).join('')}
-      </div>
-
       ${openBets.length > 0 ? `
-        <div class="section-label">Open Bets <span class="badge badge-pending">${openBets.length}</span></div>
+        <div class="section-label">
+          Open Bets
+          <span class="badge badge-pending">${openBets.length}</span>
+          <span class="hp-exposure">${BetMath.fmt(openExposure)} at risk</span>
+        </div>
         ${openBets.map(b => this.betCardHTML(b)).join('')}
-      ` : ''}
+      ` : `<div class="hp-no-open">All bets settled ✓</div>`}
     `;
 
     this.attachBetCardHandlers();
     this._renderPerfCard();
-
-    document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
-    document.getElementById('pool-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
-    document.getElementById('bucket-disburse-btn')?.addEventListener('click', () => this.showLogTransactionModal('disbursement'));
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
   },
 
@@ -677,47 +700,54 @@ const App = {
 
   renderPerson(person) {
     const { sportsbooks, bets, transactions } = this.state;
-    const isPerson = p => p === person;
 
-    const danEquity   = BetMath.danEquity(transactions, bets);
-    const bucket      = BetMath.bucketBalance(transactions);
-    const totalPool   = BetMath.totalPool(sportsbooks, transactions);
-    const equity      = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
-    const openCount   = bets.filter(b => b.status === 'pending').length;
-    const stats       = BetMath.personStats(transactions, bets, person);
-    const name        = person === 'dan' ? 'Dan' : 'Brent';
+    const danEquity  = BetMath.danEquity(transactions, bets);
+    const totalPool  = BetMath.totalPool(sportsbooks, transactions);
+    const equity     = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
+    const stats      = BetMath.personStats(transactions, bets, person);
+    const name       = person === 'dan' ? 'Dan' : 'Brent';
 
-    const personTxs   = transactions.filter(t => t.person === person);
-    const pnlClass    = stats.sharedPnl >= 0 ? 'stat-positive' : 'stat-negative';
-    const record      = `${stats.sharedWon}W – ${stats.sharedLost}L`;
+    const openBets   = bets.filter(b => b.status === 'pending');
+    const exposure   = stats.pending; // their wager amount at risk
+    const netIn      = stats.deposited - stats.received;
+    const pnlClass   = stats.sharedPnl >= 0 ? 'stat-positive' : 'stat-negative';
+    const totalWithResult = stats.sharedWon + stats.sharedLost;
+    const winRate    = totalWithResult > 0 ? Math.round(stats.sharedWon / totalWithResult * 100) : 0;
+    const record     = `${stats.sharedWon}W – ${stats.sharedLost}L · ${winRate}%`;
+    const personTxs  = transactions.filter(t => t.person === person);
 
-    const container   = document.getElementById(`${person}-content`);
-
+    const container  = document.getElementById(`${person}-content`);
     container.innerHTML = `
       <div class="person-hero person-hero-${person}">
-        <div class="person-hero-name">${name}</div>
+        <div class="person-hero-label">Equity</div>
         <div class="person-bankroll">${BetMath.fmt(equity)}</div>
-        ${openCount > 0 ? `<div class="person-pending">↳ ${openCount} open (counted as L)</div>` : ''}
+        <div class="person-hero-sub">
+          ${exposure > 0
+            ? `${BetMath.fmt(exposure)} at risk · ${openBets.length} open bet${openBets.length > 1 ? 's' : ''}`
+            : 'no open bets'}
+        </div>
       </div>
 
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-label">Deposited</div>
           <div class="stat-value">${BetMath.fmt(stats.deposited)}</div>
+          ${stats.received > 0 ? `<div class="stat-sub">${BetMath.fmt(stats.received)} paid out</div>` : '<div class="stat-sub">none paid out</div>'}
         </div>
         <div class="stat-card">
-          <div class="stat-label">Received</div>
-          <div class="stat-value">${BetMath.fmt(stats.received)}</div>
+          <div class="stat-label">Net In</div>
+          <div class="stat-value">${BetMath.fmt(netIn)}</div>
+          <div class="stat-sub">deposits – payouts</div>
         </div>
         <div class="stat-card">
-          <div class="stat-label">Shared Bet P&L</div>
-          <div class="stat-value ${pnlClass}">${BetMath.fmt(stats.sharedPnl)}</div>
-          <div class="stat-sub record-badge">${record}</div>
+          <div class="stat-label">Bet P&amp;L</div>
+          <div class="stat-value ${pnlClass}">${stats.sharedPnl >= 0 ? '+' : ''}${BetMath.fmt(stats.sharedPnl)}</div>
+          <div class="stat-sub">${record}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Open Bets</div>
-          <div class="stat-value ${openCount > 0 ? 'text-gold' : ''}">${openCount}</div>
-          <div class="stat-sub">${stats.pending > 0 ? BetMath.fmt(stats.pending) + ' counted as L' : 'none pending'}</div>
+        <div class="stat-card stat-card-equity">
+          <div class="stat-label">If Cashed Out</div>
+          <div class="stat-value">${BetMath.fmt(equity)}</div>
+          <div class="stat-sub">current equity</div>
         </div>
       </div>
 
@@ -793,6 +823,11 @@ const App = {
       </div>
     `;
 
+    const { sportsbooks, transactions } = this.state;
+    const bucket    = BetMath.bucketBalance(transactions);
+    const sbTotal   = BetMath.sportsbookTotal(sportsbooks);
+    const totalPool = sbTotal + bucket;
+
     document.getElementById('stats-content').innerHTML = `
       <div class="stats-hero">
         <div class="sh-stat">
@@ -826,7 +861,37 @@ const App = {
         </div>
         ${bookRows.map(([name, data]) => barRow(name.replace('theScore Bet', 'Score'), data, maxBook, true)).join('')}
       </div>
+
+      <div class="section-label mt-12">Bankroll</div>
+      <div class="card">
+        ${sportsbooks.map(sb => `
+          <div class="bankroll-row">
+            <span class="bankroll-name">${sb.name}</span>
+            <span class="bankroll-val">${BetMath.fmt(sb.current_balance)}</span>
+          </div>
+        `).join('')}
+        ${bucket > 0 ? `
+          <div class="bankroll-row">
+            <span class="bankroll-name">Bucket <span class="bankroll-sub">(withdrawn, not disbursed)</span></span>
+            <span class="bankroll-val">${BetMath.fmt(bucket)}</span>
+          </div>
+        ` : ''}
+        <div class="bankroll-total-row">
+          <span class="bankroll-total-label">Total Pool</span>
+          <span class="bankroll-total-val">${BetMath.fmt(totalPool)}</span>
+        </div>
+      </div>
+
+      <div class="pool-actions">
+        <button class="action-btn" id="stats-log-btn">+ Log Transaction</button>
+        <button class="action-btn" id="stats-books-btn">Manage Books</button>
+      </div>
+      <button class="action-btn" style="width:100%;margin-bottom:32px" id="stats-snap-btn">+ Add Snapshot</button>
     `;
+
+    document.getElementById('stats-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
+    document.getElementById('stats-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
+    document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
   },
 
   // ─── Charts ────────────────────────────────────────────

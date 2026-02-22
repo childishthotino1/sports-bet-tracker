@@ -1531,6 +1531,213 @@ input:focus, select:focus { border-color: var(--purple); }
   width: 100%;
 }
 
+/* ── Honeypot Dashboard ───────────────────────────────── */
+.hp-today-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--gold);
+  border-radius: var(--r);
+  padding: 16px;
+  margin-bottom: 10px;
+}
+
+.hp-today-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.hp-today-no {
+  font-size: 15px;
+  color: var(--text-muted);
+}
+
+.hp-open-pill {
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(201,164,74,0.12);
+  color: var(--gold);
+  padding: 3px 10px;
+  border-radius: 100px;
+}
+
+.hp-today-pnl {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.hp-today-amount {
+  font-size: 36px;
+  font-weight: 800;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.hp-today-record {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.hp-rec-w, .hp-rec-l, .hp-rec-p {
+  font-size: 13px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 8px;
+}
+.hp-rec-w { background: var(--green-dim);              color: var(--green); }
+.hp-rec-l { background: var(--red-dim);                color: var(--red); }
+.hp-rec-p { background: rgba(106,104,128,0.15);        color: var(--text-muted); }
+
+.hp-today-bets {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.hp-bet-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hp-bet-desc {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.hp-bet-pnl {
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* 3-metric row */
+.hp-metrics-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.hp-metric {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 10px;
+  text-align: center;
+}
+
+.hp-metric-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 5px;
+}
+
+.hp-metric-value {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.hp-exposure {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.hp-no-open {
+  text-align: center;
+  font-size: 13px;
+  color: var(--green);
+  padding: 12px 0 4px;
+  opacity: 0.7;
+}
+
+/* ── Person View ──────────────────────────────────────── */
+.person-hero-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(237,233,248,0.45);
+  margin-bottom: 4px;
+}
+
+.person-hero-sub {
+  font-size: 13px;
+  color: var(--gold);
+  margin-top: 6px;
+  opacity: 0.85;
+}
+
+.stat-card-equity {
+  border-top: 2px solid var(--purple);
+}
+
+/* ── Stats Bankroll Section ───────────────────────────── */
+.bankroll-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.bankroll-row:last-of-type { border-bottom: none; }
+
+.bankroll-name {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.bankroll-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.bankroll-val {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--green);
+}
+
+.bankroll-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 13px 16px;
+  background: var(--bg-card2);
+  border-top: 1px solid var(--border);
+}
+
+.bankroll-total-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.bankroll-total-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--text);
+}
+
 .br-action-col {
   flex-direction: column;
   align-items: flex-end;

@@ -123,6 +123,30 @@ const BetMath = {
     return { deposited, received, sharedPnl, sharedWon, sharedLost, pending };
   },
 
+  // ─── Pool P&L ─────────────────────────────────────────
+
+  // Net profit/loss from a set of bets (pool level, excludes pending)
+  poolBetPnl(bets) {
+    return bets.reduce((sum, b) => {
+      if (b.status === 'push' || b.status === 'pending') return sum;
+      const boosted = this.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
+      if (b.status === 'won') {
+        return sum + this.totalReturn(parseFloat(b.total_wager), boosted) - parseFloat(b.total_wager);
+      }
+      return sum - parseFloat(b.total_wager);
+    }, 0);
+  },
+
+  // Bets settled today (local time)
+  todayBets(bets) {
+    const today = new Date().toDateString();
+    return bets.filter(b =>
+      b.settled_at &&
+      new Date(b.settled_at).toDateString() === today &&
+      b.status !== 'pending'
+    );
+  },
+
   // ─── Formatting ───────────────────────────────────────────
 
   fmt(n) {
