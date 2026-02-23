@@ -244,6 +244,7 @@ main {
   padding: 0;
   margin-top: -6px;
   box-shadow: 0 4px 16px var(--orange-glow);
+  justify-content: center;
 }
 .nav-btn-add svg { width: 26px; height: 26px; }
 
