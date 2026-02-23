@@ -135,8 +135,9 @@ const App = {
     const winRate       = totalWithResult > 0 ? Math.round(totalWon / totalWithResult * 100) : 0;
 
     // Pool / rolling
-    const totalPool     = BetMath.totalPool(sportsbooks, transactions);
     const sbTotal       = BetMath.sportsbookTotal(sportsbooks);
+    const bucket        = BetMath.bucketBalance(transactions);
+    const totalPool     = BetMath.totalPool(sportsbooks, transactions);
     const openBets      = bets.filter(b => b.status === 'pending');
     const openExposure  = openBets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
     const pnl7          = BetMath.rollingPnl(bets, 7);
@@ -174,6 +175,14 @@ const App = {
         <div class="hp-metric">
           <div class="hp-metric-label">In Sportsbooks</div>
           <div class="hp-metric-value">${BetMath.fmt(sbTotal)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Bucket</div>
+          <div class="hp-metric-value">${BetMath.fmt(bucket)}</div>
+        </div>
+        <div class="hp-metric hp-metric-total">
+          <div class="hp-metric-label">Total Equity</div>
+          <div class="hp-metric-value">${BetMath.fmt(totalPool)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">At Risk</div>

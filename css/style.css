@@ -1651,6 +1651,10 @@ input:focus, select:focus { border-color: var(--purple); }
   line-height: 1;
 }
 
+.hp-metric-total {
+  border-top: 2px solid var(--purple);
+}
+
 .hp-exposure {
   font-size: 11px;
   color: var(--text-muted);
