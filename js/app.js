@@ -189,6 +189,10 @@ const App = {
         </div>
       </div>
 
+      <div class="pool-actions">
+        <button class="action-btn" id="pool-log-btn">+ Deposit / Withdrawal / Payout</button>
+      </div>
+
       <div class="perf-card" id="perf-card-tap">
         <div class="perf-card-top">
           <div>
@@ -213,6 +217,7 @@ const App = {
 
     this.attachBetCardHandlers();
     this._renderPerfCard();
+    document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
   },
 
