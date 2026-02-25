@@ -123,8 +123,8 @@ const App = {
   renderPool() {
     const { sportsbooks, bets, transactions } = this.state;
 
-    // Today
-    const todaySettled  = BetMath.todayBets(bets);
+    // Yesterday
+    const todaySettled  = BetMath.yesterdayBets(bets);
     const todayPnl      = BetMath.poolBetPnl(todaySettled);
     const todayWon      = todaySettled.filter(b => b.status === 'won').length;
     const todayLost     = todaySettled.filter(b => b.status === 'lost').length;
@@ -153,7 +153,7 @@ const App = {
     if (todaySettled.length === 0) {
       todayContent = `
         <div class="hp-today-empty">
-          <span class="hp-today-no">No results yet today</span>
+          <span class="hp-today-no">No results yesterday</span>
           ${openBets.length > 0 ? `<span class="hp-open-pill">${openBets.length} pending</span>` : ''}
         </div>`;
     } else {
@@ -171,7 +171,7 @@ const App = {
     }
 
     document.getElementById('pool-content').innerHTML = `
-      <div class="section-label">Today</div>
+      <div class="section-label">Yesterday</div>
       <div class="hp-today-card">${todayContent}</div>
 
       <div class="hp-metrics-grid">

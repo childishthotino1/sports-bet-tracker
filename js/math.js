@@ -137,11 +137,13 @@ const BetMath = {
     }, 0);
   },
 
-  // Bets placed today (local time) that have been settled
-  todayBets(bets) {
-    const today = new Date().toDateString();
+  // Bets placed yesterday (local date) that have been settled
+  yesterdayBets(bets) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toDateString();
     return bets.filter(b =>
-      new Date(b.placed_at).toDateString() === today &&
+      new Date(b.placed_at).toDateString() === yStr &&
       b.status !== 'pending'
     );
   },
