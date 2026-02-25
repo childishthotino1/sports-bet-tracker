@@ -137,23 +137,22 @@ const BetMath = {
     }, 0);
   },
 
-  // Bets settled today (local time)
+  // Bets placed today (local time) that have been settled
   todayBets(bets) {
     const today = new Date().toDateString();
     return bets.filter(b =>
-      b.settled_at &&
-      new Date(b.settled_at).toDateString() === today &&
+      new Date(b.placed_at).toDateString() === today &&
       b.status !== 'pending'
     );
   },
 
-  // Net P&L from bets settled within the last N rolling days
+  // Net P&L from bets placed within the last N rolling days
   rollingPnl(bets, days) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
     cutoff.setHours(0, 0, 0, 0);
     return this.poolBetPnl(
-      bets.filter(b => b.settled_at && new Date(b.settled_at) >= cutoff)
+      bets.filter(b => new Date(b.placed_at) >= cutoff)
     );
   },
 

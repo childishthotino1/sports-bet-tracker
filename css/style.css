@@ -1123,6 +1123,68 @@ input:focus, select:focus { border-color: var(--purple); }
   cursor: pointer;
 }
 
+/* ── Activity Feed ────────────────────────────────────── */
+.activity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.act-user-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 3px 7px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+.act-user-brent { background: var(--purple-dim); color: #b48af7; }
+.act-user-dan   { background: rgba(34,197,94,0.12); color: var(--green); }
+
+.act-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.act-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.act-res {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.act-res-w { background: var(--green-dim);  color: var(--green); }
+.act-res-l { background: var(--red-dim);    color: var(--red); }
+
+.act-book {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.act-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 /* ── Utilities ────────────────────────────────────────── */
 .hidden { display: none !important; }
 .text-green { color: var(--green); }

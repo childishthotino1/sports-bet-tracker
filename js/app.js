@@ -8,6 +8,7 @@ const App = {
     transactions: [],
     settings: {},
     snapshots: [],
+    activityLog: [],
     loaded: false,
     undoStack: [],          // [{type, bet, result}] — last 3 actions
     currentUser: 'brent',  // 'brent' | 'dan' — set on PIN entry
@@ -31,18 +32,20 @@ const App = {
   },
 
   async loadData() {
-    const [sportsbooks, bets, transactions, settings, snapshots] = await Promise.all([
+    const [sportsbooks, bets, transactions, settings, snapshots, activityLog] = await Promise.all([
       DB.getSportsbooks(),
       DB.getBets(),
       DB.getTransactions(),
       DB.getSettings(),
       DB.getSnapshots(),
+      DB.getActivityLog(),
     ]);
     this.state.sportsbooks  = sportsbooks;
     this.state.bets         = bets;
     this.state.transactions = transactions;
     this.state.settings     = settings;
     this.state.snapshots    = snapshots;
+    this.state.activityLog  = activityLog;
   },
 
   // ─── PIN ──────────────────────────────────────────────
@@ -500,16 +503,24 @@ const App = {
   renderBets() {
     const filter   = this.state.betFilter;
     const mode     = this.state.betViewMode;
-    const filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
 
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
 
     const toggleBtn = document.getElementById('bets-view-toggle');
+    const list      = document.getElementById('bets-list');
+
+    if (filter === 'activity') {
+      if (toggleBtn) toggleBtn.style.display = 'none';
+      list.innerHTML = this.renderActivityFeed();
+      return;
+    }
+
     if (toggleBtn) {
+      toggleBtn.style.display = '';
       toggleBtn.textContent = mode === 'list' ? '⊞ Cards' : '≡ List';
     }
 
-    const list = document.getElementById('bets-list');
+    const filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
     if (filtered.length === 0) {
       list.innerHTML = '<div class="empty-state">No bets</div>';
       return;
@@ -522,6 +533,64 @@ const App = {
       list.innerHTML = filtered.map(b => this.betCardHTML(b)).join('');
       this.attachBetCardHandlers();
     }
+  },
+
+  renderActivityFeed() {
+    const log = this.state.activityLog;
+    if (!log.length) return '<div class="empty-state">No recent activity</div>';
+
+    const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
+
+    return log.flatMap(entry => {
+      const user    = entry.user_name === 'brent' ? 'Brent' : 'Dan';
+      const userCls = entry.user_name === 'brent' ? 'act-user-brent' : 'act-user-dan';
+      const d       = entry.details || {};
+      const time    = this.relativeTime(new Date(entry.created_at));
+
+      if (entry.action === 'bets_placed') {
+        return (d.bets || []).map(b => {
+          const sportCls = sportColors[(b.sport || '').toUpperCase()] || 'sport-other';
+          return `<div class="activity-row">
+            <span class="act-user-badge ${userCls}">${user}</span>
+            <div class="act-body">
+              <span class="act-label">Added Bet</span>
+              <span class="bet-row-sport-badge ${sportCls}">${b.sport || ''}</span>
+              ${b.sportsbook ? `<span class="act-book">${b.sportsbook}</span>` : ''}
+            </div>
+            <span class="act-time">${time}</span>
+          </div>`;
+        });
+      }
+
+      if (entry.action === 'bet_settled' && (d.result === 'won' || d.result === 'lost')) {
+        const sportCls  = sportColors[(d.sport || '').toUpperCase()] || 'sport-other';
+        const resCls    = d.result === 'won' ? 'act-res-w' : 'act-res-l';
+        const resLabel  = d.result === 'won' ? 'W' : 'L';
+        return [`<div class="activity-row">
+          <span class="act-user-badge ${userCls}">${user}</span>
+          <div class="act-body">
+            <span class="act-label">Marked Bet <span class="act-res ${resCls}">${resLabel}</span></span>
+            <span class="bet-row-sport-badge ${sportCls}">${d.sport || ''}</span>
+            ${d.sportsbook ? `<span class="act-book">${d.sportsbook}</span>` : ''}
+          </div>
+          <span class="act-time">${time}</span>
+        </div>`];
+      }
+
+      return [];
+    }).join('');
+  },
+
+  relativeTime(date) {
+    const secs = Math.floor((Date.now() - date) / 1000);
+    if (secs < 60)  return 'just now';
+    const mins = Math.floor(secs / 60);
+    if (mins < 60)  return `${mins}m ago`;
+    const hrs  = Math.floor(mins / 60);
+    if (hrs  < 24)  return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days <  7)  return `${days}d ago`;
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   },
 
   // ─── Add Bet (Dot Notation) ────────────────────────────
@@ -671,7 +740,7 @@ const App = {
     try {
       DB.logActivity(this.state.currentUser, 'bets_placed', {
         count: parsedBets.length,
-        bets: parsedBets.map(p => ({ sport: p.sport, description: p.description, total_wager: p.total_wager })),
+        bets: parsedBets.map(p => ({ sport: p.sport, description: p.description, total_wager: p.total_wager, sportsbook: p.sportsbook_matched })),
       });
       for (const p of parsedBets) {
         await DB.addBet({

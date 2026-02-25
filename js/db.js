@@ -109,6 +109,17 @@ const DB = {
     return data || [];
   },
 
+  async getActivityLog(limit = 60) {
+    const { data, error } = await client()
+      .from('activity_log')
+      .select('*')
+      .in('action', ['bets_placed', 'bet_settled'])
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  },
+
   async logActivity(userName, action, details = {}) {
     try {
       await client().from('activity_log').insert({ user_name: userName, action, details });
