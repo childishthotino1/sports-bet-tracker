@@ -156,10 +156,7 @@ const App = {
       <div class="hp-today-card">
         <div class="hp-today-pnl">
           <div class="hp-today-amount">${BetMath.fmt(estBalance)}</div>
-          <div class="hp-today-record">
-            ${sbAsOf ? `<span class="hp-est-base">${BetMath.fmt(sbTotal)} as of ${sbAsOf}</span>` : ''}
-            ${pnlSince !== 0 ? `<span class="${pnlSince > 0 ? 'hp-rec-w' : 'hp-rec-l'}">${pnlSince > 0 ? '+' : ''}${BetMath.fmt(pnlSince)} since</span>` : ''}
-          </div>
+          ${pnlSince !== 0 ? `<div class="hp-today-record"><span class="${pnlSince > 0 ? 'hp-rec-w' : 'hp-rec-l'}">${pnlSince > 0 ? '+' : ''}${BetMath.fmt(pnlSince)} since last update</span></div>` : ''}
         </div>
       </div>
 
