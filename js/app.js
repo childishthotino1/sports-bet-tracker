@@ -139,18 +139,27 @@ const App = {
     const pnl7          = BetMath.rollingPnl(bets, 7);
     const pnl30         = BetMath.rollingPnl(bets, 30);
 
-    // Latest sportsbook update date (most recent deposit or withdrawal)
-    const sbTxn  = transactions.find(t => t.type === 'deposit' || t.type === 'withdrawal');
-    const sbAsOf = sbTxn
-      ? (() => { const d = new Date(sbTxn.created_at); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; })()
+    // Estimated balance: last known sportsbook balance + P&L from bets placed since
+    const sbTxn       = transactions.find(t => t.type === 'deposit' || t.type === 'withdrawal');
+    const sbTxnDate   = sbTxn ? new Date(sbTxn.created_at) : null;
+    const sbAsOf      = sbTxnDate
+      ? `${String(sbTxnDate.getDate()).padStart(2,'0')}/${String(sbTxnDate.getMonth()+1).padStart(2,'0')}`
       : null;
+    const betsSince   = sbTxnDate
+      ? bets.filter(b => new Date(b.placed_at) > sbTxnDate && b.status !== 'pending')
+      : [];
+    const pnlSince    = BetMath.poolBetPnl(betsSince);
+    const estBalance  = sbTotal + pnlSince;
 
     document.getElementById('pool-content').innerHTML = `
-      <div class="section-label">Sportsbook Balance</div>
+      <div class="section-label">Est. Sportsbook Balance</div>
       <div class="hp-today-card">
         <div class="hp-today-pnl">
-          <div class="hp-today-amount">${BetMath.fmt(sbTotal)}</div>
-          ${openBets.length > 0 ? `<div class="hp-today-record"><span class="hp-open-pill">${openBets.length} pending</span></div>` : ''}
+          <div class="hp-today-amount">${BetMath.fmt(estBalance)}</div>
+          <div class="hp-today-record">
+            ${sbAsOf ? `<span class="hp-est-base">${BetMath.fmt(sbTotal)} as of ${sbAsOf}</span>` : ''}
+            ${pnlSince !== 0 ? `<span class="${pnlSince > 0 ? 'hp-rec-w' : 'hp-rec-l'}">${pnlSince > 0 ? '+' : ''}${BetMath.fmt(pnlSince)} since</span>` : ''}
+          </div>
         </div>
       </div>
 
@@ -183,7 +192,7 @@ const App = {
 
       <div class="section-label">Last 5 Days</div>
       <div class="day-strip">${
-        [1,2,3,4,5].map(i => {
+        [5,4,3,2,1].map(i => {
           const d = new Date();
           d.setDate(d.getDate() - i);
           const db   = BetMath.dayBets(bets, i);
@@ -488,23 +497,15 @@ const App = {
   },
 
   renderBets() {
-    const filter   = this.state.betFilter;
-    const mode     = this.state.betViewMode;
+    const filter = this.state.betFilter;
 
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
 
-    const toggleBtn = document.getElementById('bets-view-toggle');
-    const list      = document.getElementById('bets-list');
+    const list = document.getElementById('bets-list');
 
     if (filter === 'activity') {
-      if (toggleBtn) toggleBtn.style.display = 'none';
       list.innerHTML = this.renderActivityFeed();
       return;
-    }
-
-    if (toggleBtn) {
-      toggleBtn.style.display = '';
-      toggleBtn.textContent = mode === 'list' ? '⊞ Cards' : '≡ List';
     }
 
     const filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
@@ -513,13 +514,8 @@ const App = {
       return;
     }
 
-    if (mode === 'list') {
-      list.innerHTML = filtered.map(b => this.betRowHTML(b)).join('');
-      this.attachBetCardHandlers();
-    } else {
-      list.innerHTML = filtered.map(b => this.betCardHTML(b)).join('');
-      this.attachBetCardHandlers();
-    }
+    list.innerHTML = filtered.map(b => this.betRowHTML(b)).join('');
+    this.attachBetCardHandlers();
   },
 
   renderActivityFeed() {
@@ -1596,11 +1592,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  // Bet view mode toggle
-  document.getElementById('bets-view-toggle').addEventListener('click', () => {
-    App.state.betViewMode = App.state.betViewMode === 'list' ? 'cards' : 'list';
-    App.renderBets();
-  });
 
   // Modal backdrop dismiss
   document.getElementById('modal').addEventListener('click', e => {

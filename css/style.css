@@ -1697,6 +1697,12 @@ input:focus, select:focus { border-color: var(--purple); }
 .hp-rec-l { background: var(--red-dim);                color: var(--red); }
 .hp-rec-p { background: rgba(106,104,128,0.15);        color: var(--text-muted); }
 
+.hp-est-base {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .hp-today-bets {
   display: flex;
   flex-direction: column;
