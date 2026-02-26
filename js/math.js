@@ -137,16 +137,19 @@ const BetMath = {
     }, 0);
   },
 
-  // Bets placed yesterday (local date) that have been settled
-  yesterdayBets(bets) {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yStr = yesterday.toDateString();
+  // Bets placed N days ago (local date) that have been settled
+  dayBets(bets, daysAgo) {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    const dStr = d.toDateString();
     return bets.filter(b =>
-      new Date(b.placed_at).toDateString() === yStr &&
+      new Date(b.placed_at).toDateString() === dStr &&
       b.status !== 'pending'
     );
   },
+
+  // Convenience alias
+  yesterdayBets(bets) { return this.dayBets(bets, 1); },
 
   // Net P&L from bets placed within the last N rolling days
   rollingPnl(bets, days) {

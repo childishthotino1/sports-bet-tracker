@@ -201,21 +201,30 @@ const App = {
         </div>
       </div>
 
+      <div class="section-label">Last 5 Days</div>
+      <div class="day-strip">${
+        [1,2,3,4,5].map(i => {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const db   = BetMath.dayBets(bets, i);
+          const pnl  = BetMath.poolBetPnl(db);
+          const won  = db.filter(b => b.status === 'won').length;
+          const lost = db.filter(b => b.status === 'lost').length;
+          const push = db.filter(b => b.status === 'push').length;
+          const hasData = db.length > 0;
+          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+          const pnlCls = pnl > 0 ? 'text-green' : pnl < 0 ? 'text-red' : '';
+          const rec = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
+          return `<div class="day-box">
+            <div class="day-box-label">${label}</div>
+            <div class="day-box-pnl ${pnlCls}">${hasData ? (pnl >= 0 ? '+' : '') + BetMath.fmt(pnl) : '—'}</div>
+            <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
+          </div>`;
+        }).join('')
+      }</div>
+
       <div class="pool-actions">
         <button class="action-btn" id="pool-log-btn">+ Deposit / Withdrawal / Payout</button>
-      </div>
-
-      <div class="perf-card" id="perf-card-tap">
-        <div class="perf-card-top">
-          <div>
-            <div class="perf-label">Pool Performance</div>
-            <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
-          </div>
-          <span class="perf-caret">›</span>
-        </div>
-        <div class="perf-chart-wrap">
-          <canvas id="mini-chart"></canvas>
-        </div>
       </div>
 
       ${openBets.length > 0 ? `
@@ -228,9 +237,7 @@ const App = {
     `;
 
     this.attachBetCardHandlers();
-    this._renderPerfCard();
     document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
-    document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
   },
 
   // ─── Bet Card HTML ─────────────────────────────────────
@@ -956,12 +963,27 @@ const App = {
         <button class="action-btn" id="stats-log-btn">+ Log Transaction</button>
         <button class="action-btn" id="stats-books-btn">Manage Books</button>
       </div>
-      <button class="action-btn" style="width:100%;margin-bottom:32px" id="stats-snap-btn">+ Add Snapshot</button>
+      <button class="action-btn" style="width:100%;margin-bottom:12px" id="stats-snap-btn">+ Add Snapshot</button>
+
+      <div class="perf-card" id="perf-card-tap">
+        <div class="perf-card-top">
+          <div>
+            <div class="perf-label">Pool Performance</div>
+            <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
+          </div>
+          <span class="perf-caret">›</span>
+        </div>
+        <div class="perf-chart-wrap">
+          <canvas id="mini-chart"></canvas>
+        </div>
+      </div>
     `;
 
     document.getElementById('stats-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('stats-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
+    document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
+    this._renderPerfCard();
   },
 
   // ─── Charts ────────────────────────────────────────────
