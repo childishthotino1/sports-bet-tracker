@@ -123,13 +123,6 @@ const App = {
   renderPool() {
     const { sportsbooks, bets, transactions } = this.state;
 
-    // Yesterday
-    const todaySettled  = BetMath.yesterdayBets(bets);
-    const todayPnl      = BetMath.poolBetPnl(todaySettled);
-    const todayWon      = todaySettled.filter(b => b.status === 'won').length;
-    const todayLost     = todaySettled.filter(b => b.status === 'lost').length;
-    const todayPush     = todaySettled.filter(b => b.status === 'push').length;
-
     // All-time
     const settledBets   = bets.filter(b => b.status !== 'pending');
     const allTimePnl    = BetMath.poolBetPnl(settledBets);
@@ -146,37 +139,24 @@ const App = {
     const pnl7          = BetMath.rollingPnl(bets, 7);
     const pnl30         = BetMath.rollingPnl(bets, 30);
 
-    // Today section
-    const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
-
-    let todayContent;
-    if (todaySettled.length === 0) {
-      todayContent = `
-        <div class="hp-today-empty">
-          <span class="hp-today-no">No results yesterday</span>
-          ${openBets.length > 0 ? `<span class="hp-open-pill">${openBets.length} pending</span>` : ''}
-        </div>`;
-    } else {
-      const pnlCls = todayPnl >= 0 ? 'text-green' : 'text-red';
-      const sign   = todayPnl >= 0 ? '+' : '';
-      todayContent = `
-        <div class="hp-today-pnl">
-          <div class="hp-today-amount ${pnlCls}">${sign}${BetMath.fmt(todayPnl)}</div>
-          <div class="hp-today-record">
-            ${todayWon  > 0 ? `<span class="hp-rec-w">${todayWon}W</span>`  : ''}
-            ${todayLost > 0 ? `<span class="hp-rec-l">${todayLost}L</span>` : ''}
-            ${todayPush > 0 ? `<span class="hp-rec-p">${todayPush}P</span>` : ''}
-          </div>
-        </div>`;
-    }
+    // Latest sportsbook update date (most recent deposit or withdrawal)
+    const sbTxn  = transactions.find(t => t.type === 'deposit' || t.type === 'withdrawal');
+    const sbAsOf = sbTxn
+      ? (() => { const d = new Date(sbTxn.created_at); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; })()
+      : null;
 
     document.getElementById('pool-content').innerHTML = `
-      <div class="section-label">Yesterday</div>
-      <div class="hp-today-card">${todayContent}</div>
+      <div class="section-label">Sportsbook Balance</div>
+      <div class="hp-today-card">
+        <div class="hp-today-pnl">
+          <div class="hp-today-amount">${BetMath.fmt(sbTotal)}</div>
+          ${openBets.length > 0 ? `<div class="hp-today-record"><span class="hp-open-pill">${openBets.length} pending</span></div>` : ''}
+        </div>
+      </div>
 
       <div class="hp-metrics-grid">
         <div class="hp-metric">
-          <div class="hp-metric-label">In Sportsbooks</div>
+          <div class="hp-metric-label">${sbAsOf ? `Books as of ${sbAsOf}` : 'In Sportsbooks'}</div>
           <div class="hp-metric-value">${BetMath.fmt(sbTotal)}</div>
         </div>
         <div class="hp-metric">
