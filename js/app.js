@@ -121,7 +121,7 @@ const App = {
   // ─── Pool View ─────────────────────────────────────────
 
   renderPool() {
-    const { sportsbooks, bets, transactions } = this.state;
+    const { sportsbooks, bets, transactions, snapshots } = this.state;
 
     // All-time
     const settledBets   = bets.filter(b => b.status !== 'pending');
@@ -138,6 +138,16 @@ const App = {
     const openExposure  = openBets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
     const pnl7          = BetMath.rollingPnl(bets, 7);
     const pnl30         = BetMath.rollingPnl(bets, 30);
+
+    // Snapshot reminder
+    const lastSnap      = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const daysSinceSnap = lastSnap
+      ? Math.floor((Date.now() - new Date(lastSnap.snapshot_date)) / 864e5)
+      : null;
+    const showSnapReminder = !lastSnap || daysSinceSnap >= 7;
+    const snapMsg = !lastSnap
+      ? 'No snapshots yet — add one to start tracking pool growth'
+      : `Last snapshot ${daysSinceSnap}d ago — add one to keep the chart accurate`;
 
     // Estimated balance: last known sportsbook balance + P&L from bets placed since
     const sbTxn       = transactions.find(t => t.type === 'deposit' || t.type === 'withdrawal');
@@ -213,6 +223,8 @@ const App = {
         <button class="action-btn" id="pool-log-btn">+ Deposit / Withdrawal / Payout</button>
       </div>
 
+      ${showSnapReminder ? `<button class="snap-reminder" id="snap-reminder-btn">${snapMsg}</button>` : ''}
+
       ${openBets.length > 0 ? `
         <div class="section-label">
           Open Bets
@@ -224,6 +236,7 @@ const App = {
 
     this.attachBetCardHandlers();
     document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
+    document.getElementById('snap-reminder-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
   },
 
   // ─── Bet Card HTML ─────────────────────────────────────
