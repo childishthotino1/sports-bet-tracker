@@ -906,6 +906,19 @@ const App = {
     const totalPool = sbTotal + bucket;
 
     document.getElementById('stats-content').innerHTML = `
+      <div class="perf-card" id="perf-card-tap">
+        <div class="perf-card-top">
+          <div>
+            <div class="perf-label">Pool Performance</div>
+            <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
+          </div>
+          <span class="perf-caret">›</span>
+        </div>
+        <div class="perf-chart-wrap">
+          <canvas id="mini-chart"></canvas>
+        </div>
+      </div>
+
       <div class="stats-hero">
         <div class="sh-stat">
           <div class="sh-num">${bets.length}</div>
@@ -963,20 +976,7 @@ const App = {
         <button class="action-btn" id="stats-log-btn">+ Log Transaction</button>
         <button class="action-btn" id="stats-books-btn">Manage Books</button>
       </div>
-      <button class="action-btn" style="width:100%;margin-bottom:12px" id="stats-snap-btn">+ Add Snapshot</button>
-
-      <div class="perf-card" id="perf-card-tap">
-        <div class="perf-card-top">
-          <div>
-            <div class="perf-label">Pool Performance</div>
-            <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
-          </div>
-          <span class="perf-caret">›</span>
-        </div>
-        <div class="perf-chart-wrap">
-          <canvas id="mini-chart"></canvas>
-        </div>
-      </div>
+      <button class="action-btn" style="width:100%;margin-bottom:32px" id="stats-snap-btn">+ Add Snapshot</button>
     `;
 
     document.getElementById('stats-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
