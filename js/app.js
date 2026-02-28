@@ -121,59 +121,54 @@ const App = {
   // ─── Pool View ─────────────────────────────────────────
 
   renderPool() {
-    const { sportsbooks, bets, transactions, snapshots } = this.state;
+    const { sportsbooks, bets, transactions, snapshots, settings } = this.state;
 
-    // All-time
-    const settledBets   = bets.filter(b => b.status !== 'pending');
-    const allTimePnl    = BetMath.poolBetPnl(settledBets);
-    const totalWon      = settledBets.filter(b => b.status === 'won').length;
-    const totalWithResult = settledBets.filter(b => b.status !== 'push').length;
-    const winRate       = totalWithResult > 0 ? Math.round(totalWon / totalWithResult * 100) : 0;
+    // Balances
+    const sbTotal    = BetMath.sportsbookTotal(sportsbooks);
+    const bucket     = BetMath.bucketBalance(transactions);
+    const totalPool  = BetMath.totalPool(sportsbooks, transactions);
 
-    // Pool / rolling
-    const sbTotal       = BetMath.sportsbookTotal(sportsbooks);
-    const bucket        = BetMath.bucketBalance(transactions);
-    const totalPool     = BetMath.totalPool(sportsbooks, transactions);
-    const openBets      = bets.filter(b => b.status === 'pending');
-    const openExposure  = openBets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
-    const pnl7          = BetMath.rollingPnl(bets, 7);
-    const pnl30         = BetMath.rollingPnl(bets, 30);
+    // P&L
+    const settledBets = bets.filter(b => b.status !== 'pending');
+    const allTimePnl  = BetMath.poolBetPnl(settledBets);
+    const pnl7        = BetMath.rollingPnl(bets, 7);
+    const pnl30       = BetMath.rollingPnl(bets, 30);
+    const openBets    = bets.filter(b => b.status === 'pending');
+
+    // Estimated balance
+    const booksUpdatedDate = settings.books_last_updated ? new Date(settings.books_last_updated) : null;
+    const sbAsOf = booksUpdatedDate
+      ? `${String(booksUpdatedDate.getDate()).padStart(2,'0')}/${String(booksUpdatedDate.getMonth()+1).padStart(2,'0')}`
+      : null;
+    const betsSince  = booksUpdatedDate
+      ? bets.filter(b => new Date(b.placed_at) > booksUpdatedDate && b.status !== 'pending')
+      : [];
+    const pnlSince   = BetMath.poolBetPnl(betsSince);
+    const estBalance = sbTotal + pnlSince;
 
     // Snapshot reminder
     const lastSnap      = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const daysSinceSnap = lastSnap
-      ? Math.floor((Date.now() - new Date(lastSnap.snapshot_date)) / 864e5)
-      : null;
+    const daysSinceSnap = lastSnap ? Math.floor((Date.now() - new Date(lastSnap.snapshot_date)) / 864e5) : null;
     const showSnapReminder = !lastSnap || daysSinceSnap >= 7;
     const snapMsg = !lastSnap
       ? 'No snapshots yet — add one to start tracking pool growth'
       : `Last snapshot ${daysSinceSnap}d ago — add one to keep the chart accurate`;
 
-    // Estimated balance: last known balance (at time of last manual update) + P&L from bets placed since
-    const { settings } = this.state;
-    const booksUpdatedRaw = settings.books_last_updated;
-    const booksUpdatedDate = booksUpdatedRaw ? new Date(booksUpdatedRaw) : null;
-    const sbAsOf = booksUpdatedDate
-      ? `${String(booksUpdatedDate.getDate()).padStart(2,'0')}/${String(booksUpdatedDate.getMonth()+1).padStart(2,'0')}`
-      : null;
-    const betsSince = booksUpdatedDate
-      ? bets.filter(b => new Date(b.placed_at) > booksUpdatedDate && b.status !== 'pending')
-      : [];
-    const pnlSince   = BetMath.poolBetPnl(betsSince);
-    const estBalance = sbTotal + pnlSince;
+    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
+    const sign   = v => v > 0 ? '+' : '';
 
     document.getElementById('pool-content').innerHTML = `
       <div class="section-label">Est. Sportsbook Balance</div>
       <div class="hp-today-card">
         <div class="hp-today-pnl">
           <div class="hp-today-amount">${BetMath.fmt(estBalance)}</div>
-          ${pnlSince !== 0 ? `<div class="hp-today-record"><span class="${pnlSince > 0 ? 'hp-rec-w' : 'hp-rec-l'}">${pnlSince > 0 ? '+' : ''}${BetMath.fmt(pnlSince)} since last update</span></div>` : ''}
+          ${pnlSince !== 0 ? `<div class="hp-today-record"><span class="${pnlSince > 0 ? 'hp-rec-w' : 'hp-rec-l'}">${sign(pnlSince)}${BetMath.fmt(pnlSince)} since last update</span></div>` : ''}
         </div>
       </div>
 
       <div class="hp-metrics-grid">
         <div class="hp-metric">
-          <div class="hp-metric-label">${sbAsOf ? `Books as of ${sbAsOf}` : 'In Sportsbooks'}</div>
+          <div class="hp-metric-label">In Sportsbooks${sbAsOf ? `<span class="hp-metric-date"> · ${sbAsOf}</span>` : ''}</div>
           <div class="hp-metric-value">${BetMath.fmt(sbTotal)}</div>
         </div>
         <div class="hp-metric">
@@ -185,16 +180,16 @@ const App = {
           <div class="hp-metric-value">${BetMath.fmt(totalPool)}</div>
         </div>
         <div class="hp-metric">
-          <div class="hp-metric-label">At Risk</div>
-          <div class="hp-metric-value ${openExposure > 0 ? 'text-gold' : 'text-muted'}">${BetMath.fmt(openExposure)}</div>
+          <div class="hp-metric-label">All Time P&amp;L</div>
+          <div class="hp-metric-value ${pnlCls(allTimePnl)}">${sign(allTimePnl)}${BetMath.fmt(allTimePnl)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">7-Day P&amp;L</div>
-          <div class="hp-metric-value ${pnl7 > 0 ? 'text-green' : pnl7 < 0 ? 'text-red' : ''}">${pnl7 > 0 ? '+' : ''}${BetMath.fmt(pnl7)}</div>
+          <div class="hp-metric-value ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">30-Day P&amp;L</div>
-          <div class="hp-metric-value ${pnl30 > 0 ? 'text-green' : pnl30 < 0 ? 'text-red' : ''}">${pnl30 > 0 ? '+' : ''}${BetMath.fmt(pnl30)}</div>
+          <div class="hp-metric-value ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</div>
         </div>
       </div>
 
@@ -203,41 +198,72 @@ const App = {
         [5,4,3,2,1].map(i => {
           const d = new Date();
           d.setDate(d.getDate() - i);
-          const db   = BetMath.dayBets(bets, i);
-          const pnl  = BetMath.poolBetPnl(db);
-          const won  = db.filter(b => b.status === 'won').length;
-          const lost = db.filter(b => b.status === 'lost').length;
-          const push = db.filter(b => b.status === 'push').length;
+          const db     = BetMath.dayBets(bets, i);
+          const pnl    = BetMath.poolBetPnl(db);
+          const won    = db.filter(b => b.status === 'won').length;
+          const lost   = db.filter(b => b.status === 'lost').length;
+          const push   = db.filter(b => b.status === 'push').length;
           const hasData = db.length > 0;
-          const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-          const pnlCls = pnl > 0 ? 'text-green' : pnl < 0 ? 'text-red' : '';
-          const rec = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
+          const label  = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+          const rec    = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
           return `<div class="day-box">
             <div class="day-box-label">${label}</div>
-            <div class="day-box-pnl ${pnlCls}">${hasData ? (pnl >= 0 ? '+' : '') + BetMath.fmt(pnl) : '—'}</div>
+            <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
             <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
           </div>`;
         }).join('')
       }</div>
 
-      <div class="pool-actions">
-        <button class="action-btn" id="pool-log-btn">+ Deposit / Withdrawal / Payout</button>
-      </div>
-
       ${showSnapReminder ? `<button class="snap-reminder" id="snap-reminder-btn">${snapMsg}</button>` : ''}
 
       ${openBets.length > 0 ? `
-        <div class="section-label">
-          Open Bets
-          <span class="badge badge-pending">${openBets.length}</span>
-        </div>
-        ${openBets.map(b => this.betRowHTML(b)).join('')}
+        <div class="section-label">Open Bets <span class="badge badge-pending">${openBets.length}</span></div>
+        ${openBets.map(b => this.hpBetRowHTML(b)).join('')}
       ` : `<div class="hp-no-open">All bets settled ✓</div>`}
     `;
 
     this.attachBetCardHandlers();
-    document.getElementById('pool-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('snap-reminder-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
+  },
+
+  // ─── Honeypot Bet Row ───────────────────────────────────
+
+  hpBetRowHTML(b) {
+    const boosted   = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
+    const baseOdds  = parseInt(b.base_odds);
+    const boostPct  = parseFloat(b.boost_pct);
+    const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
+    const sportCls  = sportColors[b.sport] || 'sport-other';
+    const date      = new Date(b.placed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    const oddsHtml = boostPct > 0
+      ? `<span class="br-odds"><span class="br-odds-base">${BetMath.fmtOdds(baseOdds)}</span><span class="br-odds-arrow">›</span><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span><span class="boost-tag-xs">+${boostPct}%</span></span>`
+      : `<span class="br-odds"><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span></span>`;
+
+    return `
+      <div class="bet-row bet-row-pending" data-bet-id="${b.id}">
+        <div class="bet-row-info">
+          <div class="bet-row-l1">
+            <span class="br-book">${b.sportsbooks?.name?.replace('theScore Bet', 'Score') || ''}</span>
+            <span class="bet-row-sport-badge ${sportCls}">${b.sport}</span>
+            <span class="bet-row-desc">${b.description}</span>
+          </div>
+          <div class="bet-row-l2">
+            <span class="br-date">${date}</span>
+            <span class="br-sep">·</span>
+            ${oddsHtml}
+          </div>
+        </div>
+        <div class="bet-row-action">
+          <div class="settle-grid">
+            <button class="settle-btn settle-w"   data-id="${b.id}" data-result="won">W</button>
+            <button class="settle-btn settle-l"   data-id="${b.id}" data-result="lost">L</button>
+            <button class="settle-btn settle-p"   data-id="${b.id}" data-result="push">P</button>
+            <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete">×</button>
+          </div>
+        </div>
+      </div>
+    `;
   },
 
   // ─── Bet Card HTML ─────────────────────────────────────

@@ -1767,6 +1767,11 @@ input:focus, select:focus { border-color: var(--purple); }
   text-align: center;
 }
 
+.hp-metric-date {
+  font-weight: 500;
+  opacity: 0.7;
+}
+
 .hp-metric-label {
   font-size: 9px;
   font-weight: 700;
