@@ -181,7 +181,7 @@ const App = {
       <div class="hp-metrics-grid">
         <div class="hp-metric">
           <div class="hp-metric-label">In Sportsbooks${sbAsOf ? `<span class="hp-metric-date"> · ${sbAsOf}</span>` : ''}</div>
-          <div class="hp-metric-value">${BetMath.fmt(sbTotal)}</div>
+          <div class="hp-metric-value">${BetMath.fmt(snapTotal)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">Bucket</div>
