@@ -1262,7 +1262,7 @@ const App = {
       await DB.updateSetting('books_last_updated', new Date().toISOString());
       await this.loadData();
       this.hideModal();
-      this.render(this.state.view);
+      this.navigate('pool');
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
