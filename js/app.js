@@ -575,6 +575,11 @@ const App = {
     }).join('');
   },
 
+  // Returns YYYY-MM-DD in local time (not UTC) — used for date pickers
+  localDateStr(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+  },
+
   relativeTime(date) {
     const secs = Math.floor((Date.now() - date) / 1000);
     if (secs < 60)  return 'just now';
@@ -590,7 +595,7 @@ const App = {
   // ─── Add Bet (Dot Notation) ────────────────────────────
 
   renderAddBet() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.localDateStr();
     const container = document.getElementById('add-bet-view');
     container.innerHTML = `
       <div class="code-input-wrapper">
@@ -1216,7 +1221,7 @@ const App = {
   },
 
   showAddSnapshotModal() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = this.localDateStr();
     const sbInputs = this.state.sportsbooks.map(sb => `
       <div class="form-group">
         <label>${sb.name}</label>
@@ -1398,7 +1403,7 @@ const App = {
   },
 
   showEditBetModal(bet) {
-    const placedDate = bet.placed_at ? bet.placed_at.split('T')[0] : new Date().toISOString().split('T')[0];
+    const placedDate = bet.placed_at ? this.localDateStr(new Date(bet.placed_at)) : this.localDateStr();
     const sbOptions  = this.state.sportsbooks.map(sb =>
       `<option value="${sb.id}" ${sb.id === bet.sportsbook_id ? 'selected' : ''}>${sb.name}</option>`
     ).join('');
