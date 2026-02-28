@@ -149,17 +149,18 @@ const App = {
       ? 'No snapshots yet — add one to start tracking pool growth'
       : `Last snapshot ${daysSinceSnap}d ago — add one to keep the chart accurate`;
 
-    // Estimated balance: last known sportsbook balance + P&L from bets placed since
-    const sbTxn       = transactions.find(t => t.type === 'deposit' || t.type === 'withdrawal');
-    const sbTxnDate   = sbTxn ? new Date(sbTxn.created_at) : null;
-    const sbAsOf      = sbTxnDate
-      ? `${String(sbTxnDate.getDate()).padStart(2,'0')}/${String(sbTxnDate.getMonth()+1).padStart(2,'0')}`
+    // Estimated balance: last known balance (at time of last manual update) + P&L from bets placed since
+    const { settings } = this.state;
+    const booksUpdatedRaw = settings.books_last_updated;
+    const booksUpdatedDate = booksUpdatedRaw ? new Date(booksUpdatedRaw) : null;
+    const sbAsOf = booksUpdatedDate
+      ? `${String(booksUpdatedDate.getDate()).padStart(2,'0')}/${String(booksUpdatedDate.getMonth()+1).padStart(2,'0')}`
       : null;
-    const betsSince   = sbTxnDate
-      ? bets.filter(b => new Date(b.placed_at) > sbTxnDate && b.status !== 'pending')
+    const betsSince = booksUpdatedDate
+      ? bets.filter(b => new Date(b.placed_at) > booksUpdatedDate && b.status !== 'pending')
       : [];
-    const pnlSince    = BetMath.poolBetPnl(betsSince);
-    const estBalance  = sbTotal + pnlSince;
+    const pnlSince   = BetMath.poolBetPnl(betsSince);
+    const estBalance = sbTotal + pnlSince;
 
     document.getElementById('pool-content').innerHTML = `
       <div class="section-label">Est. Sportsbook Balance</div>
@@ -1330,6 +1331,7 @@ const App = {
       const val = parseFloat(inp.value);
       if (isNaN(val)) return;
       await DB.updateSportsbookBalance(sbId, val);
+      await DB.updateSetting('books_last_updated', new Date().toISOString());
       await this.loadData();
       this.hideModal();
       this.render(this.state.view);

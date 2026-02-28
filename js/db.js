@@ -120,6 +120,13 @@ const DB = {
     return data || [];
   },
 
+  async updateSetting(key, value) {
+    const { error } = await client()
+      .from('settings')
+      .upsert({ key, value });
+    if (error) throw error;
+  },
+
   async logActivity(userName, action, details = {}) {
     try {
       await client().from('activity_log').insert({ user_name: userName, action, details });
