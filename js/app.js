@@ -121,12 +121,28 @@ const App = {
   // ─── Pool View ─────────────────────────────────────────
 
   renderPool() {
-    const { sportsbooks, bets, transactions, snapshots, settings } = this.state;
+    const { sportsbooks, bets, transactions, snapshots } = this.state;
 
-    // Balances
-    const sbTotal    = BetMath.sportsbookTotal(sportsbooks);
-    const bucket     = BetMath.bucketBalance(transactions);
-    const totalPool  = BetMath.totalPool(sportsbooks, transactions);
+    // Latest snapshot drives "In Sportsbooks" and estimated balance
+    const lastSnap   = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const snapTotal  = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
+    const snapDate   = lastSnap ? lastSnap.snapshot_date : null; // 'YYYY-MM-DD'
+
+    // "In Sportsbooks" date label
+    const sbAsOf = snapDate
+      ? (() => { const d = new Date(snapDate + 'T00:00:00'); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; })()
+      : null;
+
+    // Est. balance = snapshot total + settled bet P&L placed after snapshot date
+    const betsSince  = snapDate
+      ? bets.filter(b => b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
+      : [];
+    const pnlSince   = BetMath.poolBetPnl(betsSince);
+    const estBalance = snapTotal + pnlSince;
+
+    // Bucket & Total Equity (snapshot total + bucket)
+    const bucket    = BetMath.bucketBalance(transactions);
+    const totalPool = snapTotal + bucket;
 
     // P&L
     const settledBets = bets.filter(b => b.status !== 'pending');
@@ -135,20 +151,8 @@ const App = {
     const pnl30       = BetMath.rollingPnl(bets, 30);
     const openBets    = bets.filter(b => b.status === 'pending');
 
-    // Estimated balance
-    const booksUpdatedDate = settings.books_last_updated ? new Date(settings.books_last_updated) : null;
-    const sbAsOf = booksUpdatedDate
-      ? `${String(booksUpdatedDate.getDate()).padStart(2,'0')}/${String(booksUpdatedDate.getMonth()+1).padStart(2,'0')}`
-      : null;
-    const betsSince  = booksUpdatedDate
-      ? bets.filter(b => new Date(b.placed_at) > booksUpdatedDate && b.status !== 'pending')
-      : [];
-    const pnlSince   = BetMath.poolBetPnl(betsSince);
-    const estBalance = sbTotal + pnlSince;
-
     // Snapshot reminder
-    const lastSnap      = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const daysSinceSnap = lastSnap ? Math.floor((Date.now() - new Date(lastSnap.snapshot_date)) / 864e5) : null;
+    const daysSinceSnap = lastSnap ? Math.floor((Date.now() - new Date(snapDate + 'T00:00:00')) / 864e5) : null;
     const showSnapReminder = !lastSnap || daysSinceSnap >= 7;
     const snapMsg = !lastSnap
       ? 'No snapshots yet — add one to start tracking pool growth'
@@ -875,7 +879,7 @@ const App = {
   // ─── Stats View ────────────────────────────────────────
 
   renderStats() {
-    const { bets } = this.state;
+    const { bets, snapshots } = this.state;
     const won    = bets.filter(b => b.status === 'won').length;
     const lost   = bets.filter(b => b.status === 'lost').length;
     const push   = bets.filter(b => b.status === 'push').length;
@@ -918,10 +922,12 @@ const App = {
       </div>
     `;
 
-    const { sportsbooks, transactions } = this.state;
-    const bucket    = BetMath.bucketBalance(transactions);
-    const sbTotal   = BetMath.sportsbookTotal(sportsbooks);
-    const totalPool = sbTotal + bucket;
+    // Latest snapshot
+    const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const snapBookBalances = lastSnap?.book_balances || {};
+    const snapDateStr = lastSnap
+      ? new Date(lastSnap.snapshot_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : null;
 
     document.getElementById('stats-content').innerHTML = `
       <div class="perf-card" id="perf-card-tap">
@@ -954,7 +960,25 @@ const App = {
 
       ${open > 0 ? `<div class="sh-open-row"><span class="badge badge-pending">${open} open</span> bets pending settlement</div>` : ''}
 
-      <div class="section-label">By Sport</div>
+      <div class="section-label">Last Sportsbook Snapshot</div>
+      <div class="card">
+        ${lastSnap ? `
+          <div class="snap-summary-date">${snapDateStr}</div>
+          ${Object.entries(snapBookBalances).map(([book, bal]) => `
+            <div class="bankroll-row">
+              <span class="bankroll-name">${book}</span>
+              <span class="bankroll-val">${BetMath.fmt(bal)}</span>
+            </div>
+          `).join('')}
+          <div class="bankroll-total-row">
+            <span class="bankroll-total-label">Total</span>
+            <span class="bankroll-total-val">${BetMath.fmt(lastSnap.cash)}</span>
+          </div>
+        ` : `<div class="snap-empty">No snapshots yet</div>`}
+        <button class="snap-inline-btn" id="stats-snap-btn">+ Add Snapshot</button>
+      </div>
+
+      <div class="section-label mt-12">By Sport</div>
       <div class="card">
         <div class="stat-bar-header">
           <span></span><span></span><span class="stat-bar-count">Bets</span><span class="stat-bar-wr">W%</span>
@@ -969,34 +993,8 @@ const App = {
         </div>
         ${bookRows.map(([name, data]) => barRow(name.replace('theScore Bet', 'Score'), data, maxBook, true)).join('')}
       </div>
-
-      <div class="section-label mt-12">Bankroll</div>
-      <div class="card">
-        ${sportsbooks.map(sb => `
-          <div class="bankroll-row">
-            <span class="bankroll-name">${sb.name}</span>
-            <span class="bankroll-val">${BetMath.fmt(sb.current_balance)}</span>
-          </div>
-        `).join('')}
-        ${bucket > 0 ? `
-          <div class="bankroll-row">
-            <span class="bankroll-name">Bucket <span class="bankroll-sub">(withdrawn, not disbursed)</span></span>
-            <span class="bankroll-val">${BetMath.fmt(bucket)}</span>
-          </div>
-        ` : ''}
-        <div class="bankroll-total-row">
-          <span class="bankroll-total-label">Total Pool</span>
-          <span class="bankroll-total-val">${BetMath.fmt(totalPool)}</span>
-        </div>
-      </div>
-
-      <div class="pool-actions">
-        <button class="action-btn" id="stats-log-btn">+ Log Transaction</button>
-      </div>
-      <button class="action-btn" style="width:100%;margin-bottom:32px" id="stats-snap-btn">+ Add Snapshot</button>
     `;
 
-    document.getElementById('stats-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
     this._renderPerfCard();
