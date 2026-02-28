@@ -966,13 +966,11 @@ const App = {
 
       <div class="pool-actions">
         <button class="action-btn" id="stats-log-btn">+ Log Transaction</button>
-        <button class="action-btn" id="stats-books-btn">Manage Books</button>
       </div>
       <button class="action-btn" style="width:100%;margin-bottom:32px" id="stats-snap-btn">+ Add Snapshot</button>
     `;
 
     document.getElementById('stats-log-btn')?.addEventListener('click', () => this.showLogTransactionModal());
-    document.getElementById('stats-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
     this._renderPerfCard();
@@ -1225,7 +1223,8 @@ const App = {
     const sbInputs = this.state.sportsbooks.map(sb => `
       <div class="form-group">
         <label>${sb.name}</label>
-        <input type="number" class="form-input snap-book-input" data-book="${sb.name}"
+        <input type="number" class="form-input snap-book-input"
+               data-id="${sb.id}" data-book="${sb.name}"
                value="${parseFloat(sb.current_balance).toFixed(2)}" step="0.01" inputmode="decimal">
       </div>
     `).join('');
@@ -1250,13 +1249,17 @@ const App = {
       const snapshot_date = document.getElementById('snap-date').value;
       const at_risk       = parseFloat(document.getElementById('snap-at-risk').value) || 0;
       const book_balances = {};
+      const bookUpdates   = [];
       let cash = 0;
       document.querySelectorAll('.snap-book-input').forEach(inp => {
         const val = parseFloat(inp.value) || 0;
         book_balances[inp.dataset.book] = val;
         cash += val;
+        bookUpdates.push({ id: inp.dataset.id, val });
       });
       await DB.addSnapshot({ snapshot_date, cash, at_risk, book_balances });
+      await Promise.all(bookUpdates.map(({ id, val }) => DB.updateSportsbookBalance(id, val)));
+      await DB.updateSetting('books_last_updated', new Date().toISOString());
       await this.loadData();
       this.hideModal();
       this.render(this.state.view);
