@@ -806,55 +806,74 @@ const App = {
   // ─── Person View (Brent / Dan) ────────────────────────
 
   renderPerson(person) {
-    const { sportsbooks, bets, transactions } = this.state;
+    const { snapshots, bets, transactions } = this.state;
 
-    const danEquity  = BetMath.danEquity(transactions, bets);
-    const totalPool  = BetMath.totalPool(sportsbooks, transactions);
-    const equity     = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
-    const stats      = BetMath.personStats(transactions, bets, person);
-    const name       = person === 'dan' ? 'Dan' : 'Brent';
+    // Equity from latest snapshot
+    const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : 0;
+    const bucket    = BetMath.bucketBalance(transactions);
+    const totalPool = snapTotal + bucket;
+    const danEquity = BetMath.danEquity(transactions, bets);
+    const equity    = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
 
-    const openBets   = bets.filter(b => b.status === 'pending');
-    const exposure   = stats.pending; // their wager amount at risk
-    const netIn      = stats.deposited - stats.received;
-    const pnlClass   = stats.sharedPnl >= 0 ? 'stat-positive' : 'stat-negative';
-    const totalWithResult = stats.sharedWon + stats.sharedLost;
-    const winRate    = totalWithResult > 0 ? Math.round(stats.sharedWon / totalWithResult * 100) : 0;
-    const record     = `${stats.sharedWon}W – ${stats.sharedLost}L · ${winRate}%`;
-    const personTxs  = transactions.filter(t => t.person === person);
+    const stats     = BetMath.personStats(transactions, bets, person);
+    const name      = person === 'dan' ? 'Dan' : 'Brent';
+    const field     = person === 'dan' ? 'his_wager' : 'my_wager';
+    const netIn     = stats.deposited - stats.received;
+    const personTxs = transactions.filter(t => t.person === person);
 
-    const container  = document.getElementById(`${person}-content`);
+    // Per-person rolling P&L
+    const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
+      if (b.status === 'push' || b.status === 'pending') return sum;
+      const boosted  = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
+      const wager    = parseFloat(b[field]);
+      const totalW   = parseFloat(b.total_wager);
+      if (b.status === 'won') {
+        return sum + BetMath.splitReturn(BetMath.totalReturn(totalW, boosted), totalW, wager) - wager;
+      }
+      return sum - wager;
+    }, 0);
+
+    const cutoff7  = new Date(); cutoff7.setDate(cutoff7.getDate() - 7);   cutoff7.setHours(0,0,0,0);
+    const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30); cutoff30.setHours(0,0,0,0);
+    const pnl7     = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7));
+    const pnl30    = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
+    const pnlAll   = personBetPnl(bets);
+
+    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
+    const sign   = v => v > 0 ? '+' : '';
+
+    const container = document.getElementById(`${person}-content`);
     container.innerHTML = `
       <div class="person-hero person-hero-${person}">
         <div class="person-hero-label">Equity</div>
         <div class="person-bankroll">${BetMath.fmt(equity)}</div>
-        <div class="person-hero-sub">
-          ${exposure > 0
-            ? `${BetMath.fmt(exposure)} at risk · ${openBets.length} open bet${openBets.length > 1 ? 's' : ''}`
-            : 'no open bets'}
-        </div>
       </div>
 
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">Deposited</div>
-          <div class="stat-value">${BetMath.fmt(stats.deposited)}</div>
-          ${stats.received > 0 ? `<div class="stat-sub">${BetMath.fmt(stats.received)} paid out</div>` : '<div class="stat-sub">none paid out</div>'}
+      <div class="hp-metrics-grid">
+        <div class="hp-metric">
+          <div class="hp-metric-label">Deposited</div>
+          <div class="hp-metric-value">${BetMath.fmt(stats.deposited)}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Net In</div>
-          <div class="stat-value">${BetMath.fmt(netIn)}</div>
-          <div class="stat-sub">deposits – payouts</div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Paid Out</div>
+          <div class="hp-metric-value">${BetMath.fmt(stats.received)}</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">Bet P&amp;L</div>
-          <div class="stat-value ${pnlClass}">${stats.sharedPnl >= 0 ? '+' : ''}${BetMath.fmt(stats.sharedPnl)}</div>
-          <div class="stat-sub">${record}</div>
+        <div class="hp-metric hp-metric-total">
+          <div class="hp-metric-label">Net Invested</div>
+          <div class="hp-metric-value">${BetMath.fmt(netIn)}</div>
         </div>
-        <div class="stat-card stat-card-equity">
-          <div class="stat-label">If Cashed Out</div>
-          <div class="stat-value">${BetMath.fmt(equity)}</div>
-          <div class="stat-sub">current equity</div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">7-Day P&amp;L</div>
+          <div class="hp-metric-value ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">30-Day P&amp;L</div>
+          <div class="hp-metric-value ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">All Time P&amp;L</div>
+          <div class="hp-metric-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</div>
         </div>
       </div>
 
