@@ -115,7 +115,15 @@ const App = {
       dan:      () => this.renderPerson('dan'),
       stats:    () => this.renderStats(),
     };
-    if (map[view]) map[view]();
+    if (!map[view]) return;
+    try {
+      map[view]();
+    } catch (e) {
+      console.error(`render(${view}) failed:`, e);
+      const containers = { pool: 'pool-content', bets: 'bets-list', brent: 'brent-content', dan: 'dan-content', stats: 'stats-content' };
+      const el = containers[view] ? document.getElementById(containers[view]) : null;
+      if (el) el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error loading view: ${e.message}</div>`;
+    }
   },
 
   // ─── Pool View ─────────────────────────────────────────
@@ -135,7 +143,7 @@ const App = {
 
     // Est. balance = snapshot total + settled bet P&L placed after snapshot date
     const betsSince  = snapDate
-      ? bets.filter(b => b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
+      ? bets.filter(b => b.placed_at && b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
       : [];
     const pnlSince   = BetMath.poolBetPnl(betsSince);
     const estBalance = snapTotal + pnlSince;
@@ -925,6 +933,7 @@ const App = {
     // Latest snapshot
     const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
     const snapBookBalances = lastSnap?.book_balances || {};
+    const snapBooksSorted = Object.entries(snapBookBalances).sort((a, b) => b[1] - a[1]);
     const snapDateStr = lastSnap
       ? new Date(lastSnap.snapshot_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : null;
@@ -964,7 +973,7 @@ const App = {
       <div class="card">
         ${lastSnap ? `
           <div class="snap-summary-date">${snapDateStr}</div>
-          ${Object.entries(snapBookBalances).map(([book, bal]) => `
+          ${snapBooksSorted.map(([book, bal]) => `
             <div class="bankroll-row">
               <span class="bankroll-name">${book}</span>
               <span class="bankroll-val">${BetMath.fmt(bal)}</span>
