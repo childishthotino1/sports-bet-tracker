@@ -48,8 +48,7 @@ const BetMath = {
 
     for (const t of transactions) {
       if (t.person !== 'dan') continue;
-      if (t.type === 'deposit')      equity += parseFloat(t.amount);
-      if (t.type === 'disbursement') equity -= parseFloat(t.amount);
+      if (t.type === 'deposit') equity += parseFloat(t.amount);
     }
 
     for (const bet of bets) {
