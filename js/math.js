@@ -1,10 +1,16 @@
 const BetMath = {
 
-  // Boost increases the odds by boost% of itself
-  // Positive: +200 + 20% = +240 | Negative: -110 + 20% = -88 (better)
+  // Boost increases the payout by boost% of the profit rate
+  // Positive: +200 + 20% = +240 | Negative: -114 + 30% = +114
   boostedOdds(baseOdds, boostPct) {
     if (!boostPct) return baseOdds;
-    return Math.round(baseOdds + Math.abs(baseOdds) * (boostPct / 100));
+    if (baseOdds >= 0) {
+      return Math.round(baseOdds * (1 + boostPct / 100));
+    } else {
+      const profitPer100 = (10000 / Math.abs(baseOdds)) * (1 + boostPct / 100);
+      if (profitPer100 >= 100) return Math.round(profitPer100);
+      return -Math.round(10000 / profitPer100);
+    }
   },
 
   totalReturn(wager, odds) {
