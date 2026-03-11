@@ -877,10 +877,8 @@ const App = {
         </div>
       </div>
 
-      <div class="section-label-row">
-        <div class="section-label">${name}'s Transactions</div>
-        <button class="btn-add-tx" id="add-tx-btn">+ Add</button>
-      </div>
+      <button class="btn-add-tx" id="add-tx-btn">+ Add Money Moves</button>
+      <div class="section-label">${name}'s Transactions</div>
       ${personTxs.length === 0
         ? '<div class="empty-state">No transactions yet</div>'
         : personTxs.map(t => this.txCardHTML(t)).join('')}

@@ -383,24 +383,20 @@ main {
   gap: 8px;
 }
 
-.section-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.section-label-row .section-label {
-  margin-bottom: 0;
-}
 .btn-add-tx {
-  font-size: 11px;
+  display: block;
+  width: 100%;
+  background: var(--orange);
+  color: white;
+  border: none;
+  border-radius: var(--r);
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  color: var(--accent);
-  background: none;
-  border: none;
+  padding: 14px;
+  margin-bottom: 16px;
   cursor: pointer;
-  padding: 2px 0;
+  box-shadow: 0 4px 16px var(--orange-glow);
 }
 
 .card {
