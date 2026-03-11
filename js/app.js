@@ -877,11 +877,15 @@ const App = {
         </div>
       </div>
 
-      <div class="section-label">${name}'s Transactions</div>
+      <div class="section-label-row">
+        <div class="section-label">${name}'s Transactions</div>
+        <button class="btn-add-tx" id="add-tx-btn">+ Add</button>
+      </div>
       ${personTxs.length === 0
         ? '<div class="empty-state">No transactions yet</div>'
         : personTxs.map(t => this.txCardHTML(t)).join('')}
     `;
+    document.getElementById('add-tx-btn').addEventListener('click', () => this.showLogTransactionModal('deposit', person));
   },
 
   txCardHTML(t) {
@@ -1558,7 +1562,7 @@ const App = {
   },
 
   // defaultType: 'deposit' | 'withdrawal' | 'disbursement'
-  showLogTransactionModal(defaultType = 'deposit') {
+  showLogTransactionModal(defaultType = 'deposit', defaultPerson = 'brent') {
     const { sportsbooks } = this.state;
     const sbOptions = sportsbooks.map(sb => `<option value="${sb.id}">${sb.name}</option>`).join('');
 
@@ -1575,8 +1579,8 @@ const App = {
       <div class="form-group" id="tx-person-group">
         <label>Person</label>
         <select id="tx-person" class="form-input">
-          <option value="dan">Dan</option>
-          <option value="brent">Brent</option>
+          <option value="dan"   ${defaultPerson==='dan'   ?'selected':''}>Dan</option>
+          <option value="brent" ${defaultPerson==='brent' ?'selected':''}>Brent</option>
         </select>
       </div>
       <div class="form-group" id="tx-sportsbook-group">
