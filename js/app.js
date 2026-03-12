@@ -654,10 +654,49 @@ const App = {
         ></textarea>
         <div class="code-format-hint">BOOK · SPORT · DESC · BOOST% · TOTAL · DAN · BRENT±ODDS · one per line</div>
       </div>
+      <button class="btn-scan-slip" id="scan-slip-btn">📷 Scan Bet Slip</button>
+      <input type="file" id="bet-photo-input" accept="image/*" capture="environment" style="display:none">
       <div id="bet-parse-result"></div>
     `;
     document.getElementById('bet-code-input').addEventListener('input', e => {
       this.handleBetCodesInput(e.target.value);
+    });
+    document.getElementById('scan-slip-btn').addEventListener('click', () => {
+      document.getElementById('bet-photo-input').click();
+    });
+    document.getElementById('bet-photo-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const btn = document.getElementById('scan-slip-btn');
+      btn.textContent = 'Scanning…';
+      btn.disabled = true;
+      try {
+        const base64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result.split(',')[1]);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/parse-bet`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({ image: base64, mimeType: file.type }),
+        });
+        const { code, error } = await res.json();
+        if (error) throw new Error(error);
+        const textarea = document.getElementById('bet-code-input');
+        textarea.value = (textarea.value ? textarea.value + '\n' : '') + code;
+        this.handleBetCodesInput(textarea.value);
+      } catch (err) {
+        alert('Scan failed: ' + err.message);
+      } finally {
+        btn.textContent = '📷 Scan Bet Slip';
+        btn.disabled = false;
+        e.target.value = '';
+      }
     });
     document.getElementById('bet-code-input').focus();
   },

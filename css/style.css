@@ -722,6 +722,25 @@ main {
   letter-spacing: 0.3px;
 }
 
+.btn-scan-slip {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 1px dashed var(--orange);
+  border-radius: var(--r);
+  color: var(--orange);
+  font-size: 14px;
+  font-weight: 600;
+  padding: 12px;
+  margin-top: 12px;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+.btn-scan-slip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .code-divider {
   display: flex;
   align-items: center;
