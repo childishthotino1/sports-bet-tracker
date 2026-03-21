@@ -93,8 +93,12 @@ Return ONLY valid JSON. No explanation.`,
 // ── Sportsbook matching ───────────────────────────────────
 
 const BOOK_ALIASES: Record<string, string> = {
-  "ESPN": "theScore Bet", "THESCORE": "theScore Bet", "SCORE": "theScore Bet",
-  "FD": "FanDuel", "DK": "DraftKings", "MGM": "BetMGM", "B365": "Bet365",
+  "ESPN": "theScore Bet", "THESCORE": "theScore Bet", "SCORE": "theScore Bet", "THESCOREBET": "theScore Bet",
+  "FD": "FanDuel", "FANDUEL": "FanDuel",
+  "DK": "DraftKings", "DRAFTKINGS": "DraftKings",
+  "MGM": "BetMGM", "BETMGM": "BetMGM",
+  "B365": "Bet365", "BET365": "Bet365",
+  "FAN": "Fanatics", "FANATICS": "Fanatics",
 };
 
 function matchBook(book: string, sportsbooks: { id: string; name: string }[]) {

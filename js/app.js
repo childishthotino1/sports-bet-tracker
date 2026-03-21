@@ -704,8 +704,12 @@ const App = {
 
     // Match sportsbook (ESPN is the old name for theScore Bet)
     const BOOK_ALIASES = {
-      'ESPN': 'theScore Bet', 'THESCORE': 'theScore Bet', 'SCORE': 'theScore Bet',
-      'FD': 'FanDuel', 'DK': 'DraftKings', 'MGM': 'BetMGM', 'B365': 'Bet365',
+      'ESPN': 'theScore Bet', 'THESCORE': 'theScore Bet', 'SCORE': 'theScore Bet', 'THESCOREBET': 'theScore Bet',
+      'FD': 'FanDuel', 'FANDUEL': 'FanDuel',
+      'DK': 'DraftKings', 'DRAFTKINGS': 'DraftKings',
+      'MGM': 'BetMGM', 'BETMGM': 'BetMGM',
+      'B365': 'Bet365', 'BET365': 'Bet365',
+      'FAN': 'Fanatics', 'FANATICS': 'Fanatics',
     };
     const bookUpper = book.toUpperCase().replace(/\s/g, '');
     const aliasName = BOOK_ALIASES[bookUpper];
