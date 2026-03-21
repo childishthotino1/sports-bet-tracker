@@ -203,6 +203,43 @@ async function sendTodaySummary(chatId: number, supabase: ReturnType<typeof crea
   await reply(chatId, `📊 Today — ${dateStr}\n\n${lines.join("\n")}\n\n─────────────\nTotal: ${totalBets} bets · $${totalWager.toFixed(0)} wagered`);
 }
 
+// ── Queue helper ──────────────────────────────────────────
+
+async function promoteNextQueued(
+  chatId: number,
+  supabase: ReturnType<typeof createClient>,
+): Promise<boolean> {
+  const { data: next } = await supabase
+    .from("pending_bets")
+    .select()
+    .eq("chat_id", String(chatId))
+    .eq("status", "queued")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .single();
+
+  if (!next) return false;
+
+  await supabase.from("pending_bets").update({ status: "pending" }).eq("id", next.id);
+
+  const { count } = await supabase
+    .from("pending_bets")
+    .select("*", { count: "exact", head: true })
+    .eq("chat_id", String(chatId))
+    .eq("status", "queued");
+
+  const pd      = next.parsed_data as ParsedSlip;
+  const odds    = pd.base_odds > 0 ? `+${pd.base_odds}` : String(pd.base_odds);
+  const boostTx = pd.boost_pct > 0 ? ` (${pd.boost_pct}% boost)` : "";
+  const moreTx  = (count ?? 0) > 0 ? ` · ${count} still queued` : "";
+
+  await reply(
+    chatId,
+    `⏭️ Next up${moreTx}:\n📋 ${pd.book} · ${pd.sport}\n${pd.description} ${odds}${boostTx}\n$${pd.total_wager} total\n\nWhat's Dan's cut?`,
+  );
+  return true;
+}
+
 // ── Main handler ──────────────────────────────────────────
 
 serve(async (req) => {
@@ -229,7 +266,8 @@ serve(async (req) => {
       .update({ status: "skipped" })
       .eq("chat_id", String(chatId))
       .eq("status", "pending");
-    await reply(chatId, "🗑️ Dismissed.");
+    const hadNext = await promoteNextQueued(chatId, supabase);
+    if (!hadNext) await reply(chatId, "🗑️ Dismissed.");
     return new Response("ok");
   }
 
@@ -255,13 +293,38 @@ serve(async (req) => {
       return new Response("ok");
     }
 
-    // Dismiss any previous pending for this chat
-    await supabase
+    // Check if there's already an active bet in progress
+    const { data: activePending } = await supabase
       .from("pending_bets")
-      .update({ status: "replaced" })
+      .select("id")
       .eq("chat_id", String(chatId))
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .limit(1)
+      .single();
 
+    if (activePending) {
+      // Queue it — parse now, surface later
+      const { count } = await supabase
+        .from("pending_bets")
+        .select("*", { count: "exact", head: true })
+        .eq("chat_id", String(chatId))
+        .eq("status", "queued");
+
+      await supabase.from("pending_bets").insert({
+        chat_id:             String(chatId),
+        status:              "queued",
+        stage:               "awaiting_splits",
+        parsed_data:         parsed,
+        telegram_message_id: message.message_id,
+        placed_at:           msgDate,
+      });
+
+      const queueLen = (count ?? 0) + 1;
+      await reply(chatId, `📥 Queued (${queueLen} waiting) — ${parsed.book} · ${parsed.sport} · ${parsed.description}`);
+      return new Response("ok");
+    }
+
+    // No active bet — start conversation immediately
     await supabase.from("pending_bets").insert({
       chat_id:             String(chatId),
       stage:               "awaiting_splits",
@@ -275,7 +338,7 @@ serve(async (req) => {
 
     await reply(
       chatId,
-      `📋 ${parsed.book} · ${parsed.sport}\n${parsed.description} ${odds}${boostTx}\n$${parsed.total_wager} total\n\nWhat's Dan's cut? (Brent gets the rest)\nReply with a number, e.g. 25`,
+      `📋 ${parsed.book} · ${parsed.sport}\n${parsed.description} ${odds}${boostTx}\n$${parsed.total_wager} total\n\nWhat's Dan's cut? (Brent gets the rest)`,
     );
     return new Response("ok");
   }
@@ -402,6 +465,8 @@ serve(async (req) => {
       chatId,
       `✅ Saved!\n${matched.name} · ${pd.sport} · ${pd.description}\n${odds} · $${pd.total_wager} total`,
     );
+
+    await promoteNextQueued(chatId, supabase);
     return new Response("ok");
   }
 
