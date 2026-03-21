@@ -109,6 +109,65 @@ function matchBook(book: string, sportsbooks: { id: string; name: string }[]) {
     : sportsbooks.find(sb => sb.name.toUpperCase().replace(/\s/g, "").includes(upper.slice(0, 4)));
 }
 
+// ── Correction parser ─────────────────────────────────────
+// Understands: "book FD", "total 30", "odds +180", "boost 0", "sport NFL", "desc PatsCover"
+
+interface Correction {
+  field: "book" | "total_wager" | "base_odds" | "boost_pct" | "sport" | "description";
+  value: string | number;
+}
+
+function parseCorrection(text: string): Correction | null {
+  const t = text.trim();
+  const lo = t.toLowerCase();
+
+  // Book: "book DK", "book is FanDuel", or just a bare book token
+  const bookKw = t.match(/^(?:book|change book|wrong book)[^\w]*(?:is\s+|to\s+)?(\w+)/i);
+  if (bookKw) return { field: "book", value: bookKw[1].toUpperCase() };
+
+  // Bare book alias (e.g. just "DK" or "FanDuel")
+  const bareUpper = t.toUpperCase().replace(/\s/g, "");
+  if (BOOK_ALIASES[bareUpper] || ["DRAFTKINGS","FANDUEL","BETMGM","BET365","FANATICS","THESCOREBET"].includes(bareUpper)) {
+    return { field: "book", value: bareUpper };
+  }
+
+  // Total: "total 30", "total is 30", "$30"
+  const totalKw = t.match(/^(?:total|wager)[^\d]*(\d+(?:\.\d+)?)/i);
+  if (totalKw) return { field: "total_wager", value: parseFloat(totalKw[1]) };
+  const bareAmt = t.match(/^\$?(\d+(?:\.\d+)?)$/);
+  if (bareAmt) return { field: "total_wager", value: parseFloat(bareAmt[1]) };
+
+  // Odds: "odds +180", "odds -110", bare "+180" or "-110"
+  const oddsKw = t.match(/^(?:odds?)[^\d+-]*([+-]\d+)/i);
+  if (oddsKw) return { field: "base_odds", value: parseInt(oddsKw[1]) };
+  const bareOdds = t.match(/^([+-]\d{2,4})$/);
+  if (bareOdds) return { field: "base_odds", value: parseInt(bareOdds[1]) };
+
+  // Boost: "boost 20", "boost is 20", "no boost", "boost 0"
+  if (/no boost|boost\s*0|boost none/i.test(lo)) return { field: "boost_pct", value: 0 };
+  const boostKw = t.match(/^boost[^\d]*(\d+(?:\.\d+)?)/i);
+  if (boostKw) return { field: "boost_pct", value: parseFloat(boostKw[1]) };
+
+  // Sport: "sport NBA", "sport is NFL"
+  const sportKw = t.match(/^sport[^\w]*(?:is\s+)?(\w+)/i);
+  if (sportKw) return { field: "sport", value: sportKw[1].toUpperCase() };
+
+  // Description: "desc PatsCover", "description LakersML"
+  const descKw = t.match(/^(?:desc(?:ription)?)[^\w]*(?:is\s+)?(\S+)/i);
+  if (descKw) return { field: "description", value: descKw[1] };
+
+  return null;
+}
+
+function summaryText(pd: ParsedSlip & { his_wager?: number; my_wager?: number }) {
+  const odds    = pd.base_odds > 0 ? `+${pd.base_odds}` : String(pd.base_odds);
+  const boostTx = pd.boost_pct > 0 ? ` (${pd.boost_pct}% boost)` : "";
+  const splits  = pd.his_wager != null
+    ? `\nDan $${pd.his_wager} / Brent $${pd.my_wager}`
+    : "";
+  return `${pd.book} · ${pd.sport} · ${pd.description}\n${odds}${boostTx} · $${pd.total_wager} total${splits}`;
+}
+
 // ── /today summary ────────────────────────────────────────
 
 async function sendTodaySummary(chatId: number, supabase: ReturnType<typeof createClient>) {
@@ -242,34 +301,46 @@ serve(async (req) => {
 
   // ── Stage: awaiting_splits ──────────────────────────────
   if (pending.stage === "awaiting_splits") {
-    const danAmt = parseFloat(text.replace(/[^0-9.]/g, ""));
-    if (isNaN(danAmt) || danAmt < 0) {
-      await reply(chatId, "Just reply with a number — Dan's cut in dollars, e.g. 25");
+    const pd = pending.parsed_data as ParsedSlip;
+
+    // Allow corrections at this stage too
+    const correction = parseCorrection(text);
+    if (correction && correction.field !== "total_wager") {
+      const updated = { ...pd, [correction.field]: correction.value };
+      await supabase.from("pending_bets").update({ parsed_data: updated }).eq("id", pending.id);
+      const odds = updated.base_odds > 0 ? `+${updated.base_odds}` : String(updated.base_odds);
+      const boostTx = updated.boost_pct > 0 ? ` (${updated.boost_pct}% boost)` : "";
+      await reply(chatId, `Updated! ${summaryText(updated)}\n\nWhat's Dan's cut?`);
       return new Response("ok");
     }
 
-    const pd         = pending.parsed_data as ParsedSlip;
-    const brentAmt   = Math.round((pd.total_wager - danAmt) * 100) / 100;
+    // Total correction resets everything
+    if (correction?.field === "total_wager") {
+      const updated = { ...pd, total_wager: correction.value as number };
+      await supabase.from("pending_bets").update({ parsed_data: updated }).eq("id", pending.id);
+      await reply(chatId, `Total updated to $${correction.value}.\n\nWhat's Dan's cut?`);
+      return new Response("ok");
+    }
 
+    const danAmt = parseFloat(text.replace(/[^0-9.]/g, ""));
+    if (isNaN(danAmt) || danAmt < 0) {
+      await reply(chatId, "Reply with Dan's cut in dollars, e.g. 25\nOr correct a field: book DK · total 30 · odds +180 · boost 0 · sport NFL · desc PatsCover");
+      return new Response("ok");
+    }
+
+    const brentAmt = Math.round((pd.total_wager - danAmt) * 100) / 100;
     if (brentAmt < 0) {
       await reply(chatId, `Dan's cut can't exceed the total ($${pd.total_wager}). Try again.`);
       return new Response("ok");
     }
 
-    // Update pending with splits, move to awaiting_confirm
+    const updated = { ...pd, his_wager: danAmt, my_wager: brentAmt };
     await supabase
       .from("pending_bets")
-      .update({
-        stage:       "awaiting_confirm",
-        parsed_data: { ...pd, his_wager: danAmt, my_wager: brentAmt },
-      })
+      .update({ stage: "awaiting_confirm", parsed_data: updated })
       .eq("id", pending.id);
 
-    const odds = pd.base_odds > 0 ? `+${pd.base_odds}` : String(pd.base_odds);
-    await reply(
-      chatId,
-      `Ready to save:\n${pd.book} · ${pd.sport} · ${pd.description}\n${odds} · $${pd.total_wager} total\nDan $${danAmt} / Brent $${brentAmt}\n\nReply "yes" to save or /skip to dismiss.`,
-    );
+    await reply(chatId, `Ready to save:\n${summaryText(updated)}\n\nReply "yes" to save or /skip to dismiss.`);
     return new Response("ok");
   }
 
@@ -277,8 +348,27 @@ serve(async (req) => {
   if (pending.stage === "awaiting_confirm") {
     const isYes = ["yes", "y", "confirm", "ok", "yep", "yeah"].includes(text.toLowerCase());
 
+    // Handle corrections
     if (!isYes) {
-      await reply(chatId, `Reply "yes" to save, or /skip to dismiss.`);
+      const correction = parseCorrection(text);
+      if (correction) {
+        const pd = pending.parsed_data as ParsedSlip & { his_wager: number; my_wager: number };
+
+        // Total change → reset splits, go back to awaiting_splits
+        if (correction.field === "total_wager") {
+          const updated = { ...pd, total_wager: correction.value as number, his_wager: undefined, my_wager: undefined };
+          await supabase.from("pending_bets").update({ stage: "awaiting_splits", parsed_data: updated }).eq("id", pending.id);
+          await reply(chatId, `Total updated to $${correction.value}. What's Dan's cut?`);
+          return new Response("ok");
+        }
+
+        const updated = { ...pd, [correction.field]: correction.value };
+        await supabase.from("pending_bets").update({ parsed_data: updated }).eq("id", pending.id);
+        await reply(chatId, `Updated!\n${summaryText(updated)}\n\nReply "yes" to save or /skip to dismiss.`);
+        return new Response("ok");
+      }
+
+      await reply(chatId, `Reply "yes" to save, or correct a field:\nbook DK · total 30 · odds +180 · boost 0 · sport NFL · desc PatsCover\n\n/skip to dismiss`);
       return new Response("ok");
     }
 
