@@ -1964,3 +1964,123 @@ input:focus, select:focus { border-color: var(--purple); }
   transition: opacity 0.15s, color 0.15s;
 }
 .br-edit-btn:active { opacity: 1; color: var(--purple); }
+
+/* ── Stats Inner Tabs ─────────────────────────────────── */
+.stats-inner-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.stats-inner-tab {
+  flex: 1;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 0 9px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+.stats-inner-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--purple);
+}
+
+/* ── Daily Recon ──────────────────────────────────────── */
+.recon-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 14px;
+  scrollbar-width: none;
+}
+.recon-pills::-webkit-scrollbar { display: none; }
+
+.recon-pill {
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.recon-pill.active {
+  background: var(--purple-dim);
+  border-color: var(--purple);
+  color: var(--text);
+}
+
+.recon-card { padding: 0; overflow: hidden; }
+
+.recon-book-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.recon-book-row:last-of-type { border-bottom: none; }
+
+.recon-book-left { display: flex; flex-direction: column; gap: 5px; }
+
+.recon-book-name { font-size: 14px; font-weight: 600; }
+
+.recon-book-badges { display: flex; gap: 5px; flex-wrap: wrap; }
+
+.recon-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+}
+.recon-badge-pending { background: rgba(201,164,74,0.15); color: var(--gold); }
+.recon-badge-won     { background: var(--green-dim); color: var(--green); }
+.recon-badge-lost    { background: var(--red-dim); color: var(--red); }
+.recon-badge-push    { background: var(--bg-card2); color: var(--text-muted); }
+
+.recon-book-right { text-align: right; }
+
+.recon-book-count { font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+
+.recon-book-wager { font-size: 15px; font-weight: 700; }
+
+.recon-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-card2);
+  border-top: 1px solid var(--border);
+}
+
+.recon-total-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.recon-total-val {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.recon-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 32px 16px;
+}

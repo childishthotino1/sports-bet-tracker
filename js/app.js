@@ -12,6 +12,8 @@ const App = {
     loaded: false,
     undoStack: [],          // [{type, bet, result}] — last 3 actions
     currentUser: 'brent',  // 'brent' | 'dan' — set on PIN entry
+    statsTab: 'overview',  // 'overview' | 'daily'
+    reconDate: null,       // selected date for daily recon (YYYY-MM-DD)
   },
 
   _miniChart: null,
@@ -654,49 +656,10 @@ const App = {
         ></textarea>
         <div class="code-format-hint">BOOK · SPORT · DESC · BOOST% · TOTAL · DAN · BRENT±ODDS · one per line</div>
       </div>
-      <button class="btn-scan-slip" id="scan-slip-btn">📷 Scan Bet Slip</button>
-      <input type="file" id="bet-photo-input" accept="image/*" capture="environment" style="display:none">
       <div id="bet-parse-result"></div>
     `;
     document.getElementById('bet-code-input').addEventListener('input', e => {
       this.handleBetCodesInput(e.target.value);
-    });
-    document.getElementById('scan-slip-btn').addEventListener('click', () => {
-      document.getElementById('bet-photo-input').click();
-    });
-    document.getElementById('bet-photo-input').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const btn = document.getElementById('scan-slip-btn');
-      btn.textContent = 'Scanning…';
-      btn.disabled = true;
-      try {
-        const base64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result.split(',')[1]);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/parse-bet`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({ image: base64, mimeType: file.type }),
-        });
-        const { code, error } = await res.json();
-        if (error) throw new Error(error);
-        const textarea = document.getElementById('bet-code-input');
-        textarea.value = (textarea.value ? textarea.value + '\n' : '') + code;
-        this.handleBetCodesInput(textarea.value);
-      } catch (err) {
-        alert('Scan failed: ' + err.message);
-      } finally {
-        btn.textContent = '📷 Scan Bet Slip';
-        btn.disabled = false;
-        e.target.value = '';
-      }
     });
     document.getElementById('bet-code-input').focus();
   },
@@ -947,6 +910,28 @@ const App = {
   // ─── Stats View ────────────────────────────────────────
 
   renderStats() {
+    const tab = this.state.statsTab;
+
+    // Render tab bar first, then delegate
+    const tabBar = `
+      <div class="stats-inner-tabs">
+        <button class="stats-inner-tab ${tab === 'overview' ? 'active' : ''}" data-tab="overview">Overview</button>
+        <button class="stats-inner-tab ${tab === 'daily' ? 'active' : ''}" data-tab="daily">Daily</button>
+      </div>
+    `;
+
+    if (tab === 'daily') {
+      document.getElementById('stats-content').innerHTML = tabBar + '<div id="recon-content"></div>';
+      document.querySelectorAll('.stats-inner-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          this.state.statsTab = btn.dataset.tab;
+          this.renderStats();
+        });
+      });
+      this.renderRecon();
+      return;
+    }
+
     const { bets, snapshots } = this.state;
     const won    = bets.filter(b => b.status === 'won').length;
     const lost   = bets.filter(b => b.status === 'lost').length;
@@ -998,7 +983,7 @@ const App = {
       ? new Date(lastSnap.snapshot_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : null;
 
-    document.getElementById('stats-content').innerHTML = `
+    document.getElementById('stats-content').innerHTML = tabBar + `
       <div class="perf-card" id="perf-card-tap">
         <div class="perf-card-top">
           <div>
@@ -1064,9 +1049,111 @@ const App = {
       </div>
     `;
 
+    document.querySelectorAll('.stats-inner-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.state.statsTab = btn.dataset.tab;
+        this.renderStats();
+      });
+    });
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
     this._renderPerfCard();
+  },
+
+  // ─── Daily Recon ───────────────────────────────────────
+
+  renderRecon() {
+    const { bets, sportsbooks } = this.state;
+    const today = this.localDateStr();
+
+    // Build last 5 days (today first)
+    const days = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(today + 'T12:00:00');
+      d.setDate(d.getDate() - i);
+      days.push(this.localDateStr(d));
+    }
+
+    if (!this.state.reconDate || !days.includes(this.state.reconDate)) {
+      this.state.reconDate = today;
+    }
+    const selDate = this.state.reconDate;
+
+    // Date pills
+    const pillLabel = (dateStr) => {
+      if (dateStr === today) return 'Today';
+      const d = new Date(dateStr + 'T12:00:00');
+      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    };
+
+    const pillsHtml = days.map(d => `
+      <button class="recon-pill ${d === selDate ? 'active' : ''}" data-date="${d}">
+        ${pillLabel(d)}
+      </button>
+    `).join('');
+
+    // Filter bets for selected date
+    const dayBets = bets.filter(b => b.placed_at && b.placed_at.split('T')[0] === selDate);
+
+    // Group by sportsbook
+    const byBook = {};
+    dayBets.forEach(b => {
+      const name = b.sportsbooks?.name || 'Unknown';
+      if (!byBook[name]) byBook[name] = { bets: [], total: 0, pending: 0, won: 0, lost: 0, push: 0 };
+      byBook[name].bets.push(b);
+      byBook[name].total += parseFloat(b.total_wager) || 0;
+      byBook[name][b.status] = (byBook[name][b.status] || 0) + 1;
+    });
+
+    const bookEntries = Object.entries(byBook).sort((a, b) => b[1].total - a[1].total);
+    const totalWager  = dayBets.reduce((s, b) => s + (parseFloat(b.total_wager) || 0), 0);
+
+    const statusBadge = (count, type) => count > 0
+      ? `<span class="recon-badge recon-badge-${type}">${count}${type === 'pending' ? ' open' : type === 'won' ? ' W' : type === 'lost' ? ' L' : ' P'}</span>`
+      : '';
+
+    const bookCards = bookEntries.map(([name, data]) => `
+      <div class="recon-book-row">
+        <div class="recon-book-left">
+          <div class="recon-book-name">${name.replace('theScore Bet', 'Score')}</div>
+          <div class="recon-book-badges">
+            ${statusBadge(data.pending, 'pending')}
+            ${statusBadge(data.won, 'won')}
+            ${statusBadge(data.lost, 'lost')}
+            ${statusBadge(data.push, 'push')}
+          </div>
+        </div>
+        <div class="recon-book-right">
+          <div class="recon-book-count">${data.bets.length} bet${data.bets.length !== 1 ? 's' : ''}</div>
+          <div class="recon-book-wager">${BetMath.fmt(data.total)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    const content = dayBets.length === 0
+      ? `<div class="recon-empty">No bets entered for this day</div>`
+      : `
+        <div class="card recon-card">
+          ${bookCards}
+          <div class="recon-total-row">
+            <span class="recon-total-label">${dayBets.length} total bets</span>
+            <span class="recon-total-val">${BetMath.fmt(totalWager)}</span>
+          </div>
+        </div>
+      `;
+
+    document.getElementById('recon-content').innerHTML = `
+      <div class="recon-pills">${pillsHtml}</div>
+      <div class="section-label">${selDate === today ? 'Today' : new Date(selDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
+      ${content}
+    `;
+
+    document.querySelectorAll('.recon-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.state.reconDate = btn.dataset.date;
+        this.renderRecon();
+      });
+    });
   },
 
   // ─── Charts ────────────────────────────────────────────
