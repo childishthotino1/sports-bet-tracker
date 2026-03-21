@@ -131,11 +131,9 @@ function parseCorrection(text: string): Correction | null {
     return { field: "book", value: bareUpper };
   }
 
-  // Total: "total 30", "total is 30", "$30"
+  // Total: "total 30", "total is 30" — requires keyword, bare numbers are Dan's cut
   const totalKw = t.match(/^(?:total|wager)[^\d]*(\d+(?:\.\d+)?)/i);
   if (totalKw) return { field: "total_wager", value: parseFloat(totalKw[1]) };
-  const bareAmt = t.match(/^\$?(\d+(?:\.\d+)?)$/);
-  if (bareAmt) return { field: "total_wager", value: parseFloat(bareAmt[1]) };
 
   // Odds: "odds +180", "odds -110", bare "+180" or "-110"
   const oddsKw = t.match(/^(?:odds?)[^\d+-]*([+-]\d+)/i);
