@@ -31,42 +31,38 @@ const BetMath = {
     return sportsbooks.reduce((s, sb) => s + parseFloat(sb.current_balance), 0);
   },
 
-  // Bucket = total withdrawn from sportsbooks minus total disbursed to people
+  // Bucket = withdrawn from sportsbooks, minus redeployments back to books, minus disbursements paid out
+  // Owned proportionally by both people — no manual attribution needed
   bucketBalance(transactions) {
     return transactions.reduce((s, t) => {
-      if (t.type === 'withdrawal')   return s + parseFloat(t.amount);
-      if (t.type === 'disbursement') return s - parseFloat(t.amount);
+      if (t.type === 'withdrawal')    return s + parseFloat(t.amount);
+      if (t.type === 'redeployment')  return s - parseFloat(t.amount); // back into a sportsbook
+      if (t.type === 'disbursement')  return s - parseFloat(t.amount);
       return s;
     }, 0);
   },
 
-  // Total pool = all sportsbook money + bucket (withdrawals not yet disbursed)
+  // Total pool = all sportsbook money + bucket (cash in bank account)
   totalPool(sportsbooks, transactions) {
     return this.sportsbookTotal(sportsbooks) + this.bucketBalance(transactions);
   },
 
   // ─── Person Equity ────────────────────────────────────────
 
-  // Per-person bucket balance (withdrawals attributed to them, minus disbursements received)
-  personBucket(transactions, person) {
-    return transactions
-      .filter(t => t.person === person)
-      .reduce((s, t) => {
-        if (t.type === 'withdrawal')   return s + parseFloat(t.amount);
-        if (t.type === 'disbursement') return s - parseFloat(t.amount);
-        return s;
-      }, 0);
-  },
+  // Each person's share of the bucket = their equity % of the pool
+  // No manual tagging needed — the residual formula handles it automatically
 
-  // Dan's equity: deposits + bucket balance (withdrawals − disbursements) + bet P&L
+  // Dan's equity: deposits + bet P&L − disbursements received
+  // Withdrawals are NOT added here — they just move money within the pool,
+  // and Dan's proportional ownership of the bucket flows through naturally
+  // via brentEquity = totalPool − danEquity
   danEquity(transactions, bets) {
     let equity = 0;
 
     for (const t of transactions) {
       if (t.person !== 'dan') continue;
       if (t.type === 'deposit')      equity += parseFloat(t.amount);
-      if (t.type === 'withdrawal')   equity += parseFloat(t.amount);   // Dan's share moved to bucket — still his
-      if (t.type === 'disbursement') equity -= parseFloat(t.amount);   // Dan has received this cash
+      if (t.type === 'disbursement') equity -= parseFloat(t.amount); // Dan has received this cash
     }
 
     for (const bet of bets) {

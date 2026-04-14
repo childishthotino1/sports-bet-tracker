@@ -836,10 +836,15 @@ const App = {
     const stats      = BetMath.personStats(transactions, bets, person);
     const name       = person === 'dan' ? 'Dan' : 'Brent';
     const field      = person === 'dan' ? 'his_wager' : 'my_wager';
-    const myBucket   = BetMath.personBucket(transactions, person);
+    const bucket     = BetMath.bucketBalance(transactions);
+    // Each person's bucket share = their equity % of the total pool
+    const myBucket   = estPool > 0 ? bucket * (equity / estPool) : 0;
     const received   = transactions.filter(t => t.person === person && t.type === 'disbursement')
                          .reduce((s, t) => s + parseFloat(t.amount), 0);
-    const personTxs  = transactions.filter(t => t.person === person);
+    // Show all transactions relevant to this person (deposits/disbursements for them, plus pool-level withdrawals/redeployments)
+    const personTxs  = transactions.filter(t =>
+      t.person === person || t.type === 'withdrawal' || t.type === 'redeployment'
+    );
 
     // Per-person rolling P&L
     const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
@@ -906,14 +911,14 @@ const App = {
   },
 
   txCardHTML(t) {
-    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bucket', disbursement: 'Paid Out' };
+    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bank', redeployment: 'Redeployment', disbursement: 'Paid Out' };
     const book = t.sportsbooks?.name || '';
-    const sub  = t.type === 'withdrawal'   ? (book ? `from ${book}` : 'to bucket')
-               : t.type === 'disbursement' ? 'from bucket'
+    const sub  = t.type === 'withdrawal'    ? (book ? `from ${book}` : '')
+               : t.type === 'redeployment'  ? (book ? `bank → ${book}` : 'bank → sportsbook')
+               : t.type === 'disbursement'  ? 'from bank'
                : (book ? `· ${book}` : '');
-    // deposit = green (money in), withdrawal = neutral (staged in bucket), disbursement = grey (received, gone from pool)
-    const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'withdrawal' ? '' : 'text-muted';
-    const prefix = t.type === 'deposit' ? '+' : t.type === 'withdrawal' ? '→' : '';
+    const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'disbursement' ? 'text-muted' : '';
+    const prefix = t.type === 'deposit' ? '+' : '';
     return `
       <div class="tx-card">
         <div class="tx-left">
@@ -1716,9 +1721,10 @@ const App = {
       <div class="form-group">
         <label>Type</label>
         <select id="tx-type" class="form-input">
-          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit — person → sportsbook</option>
-          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → bucket</option>
-          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Payout — bucket → person</option>
+          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit — new money → sportsbook</option>
+          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → bank</option>
+          <option value="redeployment" ${defaultType==='redeployment' ?'selected':''}>Redeployment — bank → sportsbook</option>
+          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Payout — bank → person</option>
         </select>
       </div>
       <div class="form-group" id="tx-person-group">
@@ -1746,10 +1752,13 @@ const App = {
 
     // Show/hide fields based on type
     const updateFields = () => {
-      const type = document.getElementById('tx-type').value;
-      const sbGroup = document.getElementById('tx-sportsbook-group');
-      // disbursement: no sportsbook needed
-      sbGroup.style.display = type === 'disbursement' ? 'none' : 'block';
+      const type        = document.getElementById('tx-type').value;
+      const personGroup = document.getElementById('tx-person-group');
+      const sbGroup     = document.getElementById('tx-sportsbook-group');
+      // person only needed for deposit and disbursement
+      personGroup.style.display = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
+      // sportsbook not needed for disbursement (goes directly to person)
+      sbGroup.style.display     = type === 'disbursement' ? 'none' : 'block';
     };
     document.getElementById('tx-type').addEventListener('change', updateFields);
     updateFields();
@@ -1764,7 +1773,7 @@ const App = {
       if (!amount || amount <= 0) return;
 
       const tx = { type, amount, notes };
-      tx.person = person || 'brent';
+      if (type === 'deposit' || type === 'disbursement') tx.person = person || 'brent';
       if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
       await DB.addTransaction(tx);
