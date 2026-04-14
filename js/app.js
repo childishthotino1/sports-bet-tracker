@@ -880,12 +880,12 @@ const App = {
           <div class="hp-metric-value">${BetMath.fmt(stats.deposited)}</div>
         </div>
         <div class="hp-metric">
-          <div class="hp-metric-label">In Bucket</div>
-          <div class="hp-metric-value ${myBucket > 0 ? 'text-green' : ''}">${BetMath.fmt(myBucket)}</div>
-        </div>
-        <div class="hp-metric">
           <div class="hp-metric-label">Paid Out</div>
           <div class="hp-metric-value">${BetMath.fmt(received)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">In Bank (est.)</div>
+          <div class="hp-metric-value ${myBucket > 0 ? 'text-green' : ''}">${BetMath.fmt(myBucket)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">7-Day P&amp;L</div>
@@ -895,7 +895,7 @@ const App = {
           <div class="hp-metric-label">30-Day P&amp;L</div>
           <div class="hp-metric-value ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</div>
         </div>
-        <div class="hp-metric">
+        <div class="hp-metric hp-metric-total">
           <div class="hp-metric-label">All Time P&amp;L</div>
           <div class="hp-metric-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</div>
         </div>
