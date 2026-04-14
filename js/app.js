@@ -836,7 +836,6 @@ const App = {
     const stats      = BetMath.personStats(transactions, bets, person);
     const name       = person === 'dan' ? 'Dan' : 'Brent';
     const field      = person === 'dan' ? 'his_wager' : 'my_wager';
-    const bucket     = BetMath.bucketBalance(transactions);
     // Each person's bucket share = their equity % of the total pool
     const myBucket   = estPool > 0 ? bucket * (equity / estPool) : 0;
     const received   = transactions.filter(t => t.person === person && t.type === 'disbursement')
