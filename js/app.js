@@ -326,7 +326,11 @@ const App = {
             <button class="settle-btn settle-p" data-id="${bet.id}" data-result="push">P</button>
             <button class="settle-btn settle-del" data-id="${bet.id}" data-result="delete">×</button>
           </div>
-        ` : ''}
+        ` : `
+          <div class="settle-inline">
+            <button class="settle-btn settle-del" data-id="${bet.id}" data-result="delete">×</button>
+          </div>
+        `}
       </div>
     `;
   },
@@ -397,7 +401,9 @@ const App = {
     } else {
       const cls = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push' }[b.status] || '';
       const lbl = { won: 'WON', lost: 'LOST', push: 'PUSH' }[b.status] || b.status;
-      actionHtml = `<span class="badge ${cls}">${lbl}</span>`;
+      actionHtml = `
+        <span class="badge ${cls}">${lbl}</span>
+        <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete" title="Delete bet">×</button>`;
     }
 
     const editBtn = showEdit
@@ -420,7 +426,7 @@ const App = {
           <div class="bet-row-l3">${wagersHtml}</div>
           ${payoutHtml}
         </div>
-        <div class="bet-row-action${showEdit ? ' br-action-col' : ''}">
+        <div class="bet-row-action br-action-col">
           ${actionHtml}
           ${editBtn}
         </div>
@@ -814,19 +820,26 @@ const App = {
   renderPerson(person) {
     const { snapshots, bets, transactions } = this.state;
 
-    // Equity from latest snapshot
-    const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : 0;
-    const bucket    = BetMath.bucketBalance(transactions);
-    const totalPool = snapTotal + bucket;
-    const danEquity = BetMath.danEquity(transactions, bets);
-    const equity    = person === 'dan' ? danEquity : BetMath.brentEquity(totalPool, danEquity);
+    // Equity from latest snapshot + settled bet P&L since that snapshot
+    const lastSnap   = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const snapTotal  = lastSnap ? parseFloat(lastSnap.cash) : 0;
+    const snapDate   = lastSnap ? lastSnap.snapshot_date : null;
+    const bucket     = BetMath.bucketBalance(transactions);
+    const betsSince  = snapDate
+      ? bets.filter(b => b.placed_at && b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
+      : bets.filter(b => b.status !== 'pending');
+    const pnlSince   = BetMath.poolBetPnl(betsSince);
+    const estPool    = snapTotal + pnlSince + bucket;
+    const danEquity  = BetMath.danEquity(transactions, bets);
+    const equity     = person === 'dan' ? danEquity : BetMath.brentEquity(estPool, danEquity);
 
-    const stats     = BetMath.personStats(transactions, bets, person);
-    const name      = person === 'dan' ? 'Dan' : 'Brent';
-    const field     = person === 'dan' ? 'his_wager' : 'my_wager';
-    const netIn     = stats.deposited - stats.received;
-    const personTxs = transactions.filter(t => t.person === person);
+    const stats      = BetMath.personStats(transactions, bets, person);
+    const name       = person === 'dan' ? 'Dan' : 'Brent';
+    const field      = person === 'dan' ? 'his_wager' : 'my_wager';
+    const myBucket   = BetMath.personBucket(transactions, person);
+    const received   = transactions.filter(t => t.person === person && t.type === 'disbursement')
+                         .reduce((s, t) => s + parseFloat(t.amount), 0);
+    const personTxs  = transactions.filter(t => t.person === person);
 
     // Per-person rolling P&L
     const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
@@ -862,12 +875,12 @@ const App = {
           <div class="hp-metric-value">${BetMath.fmt(stats.deposited)}</div>
         </div>
         <div class="hp-metric">
-          <div class="hp-metric-label">Paid Out</div>
-          <div class="hp-metric-value">${BetMath.fmt(stats.received)}</div>
+          <div class="hp-metric-label">In Bucket</div>
+          <div class="hp-metric-value ${myBucket > 0 ? 'text-green' : ''}">${BetMath.fmt(myBucket)}</div>
         </div>
-        <div class="hp-metric hp-metric-total">
-          <div class="hp-metric-label">Net Invested</div>
-          <div class="hp-metric-value">${BetMath.fmt(netIn)}</div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Paid Out</div>
+          <div class="hp-metric-value">${BetMath.fmt(received)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">7-Day P&amp;L</div>
@@ -893,10 +906,14 @@ const App = {
   },
 
   txCardHTML(t) {
-    const typeLabels = { deposit: 'Deposit', withdrawal: 'Withdrawal', disbursement: 'Received' };
-    const isIn  = t.type === 'deposit' || t.type === 'disbursement';
-    const book  = t.sportsbooks?.name || '';
-    const sub   = t.type === 'disbursement' ? 'from bucket' : (book ? `· ${book}` : '');
+    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bucket', disbursement: 'Paid Out' };
+    const book = t.sportsbooks?.name || '';
+    const sub  = t.type === 'withdrawal'   ? (book ? `from ${book}` : 'to bucket')
+               : t.type === 'disbursement' ? 'from bucket'
+               : (book ? `· ${book}` : '');
+    // deposit = green (money in), withdrawal = neutral (staged in bucket), disbursement = grey (received, gone from pool)
+    const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'withdrawal' ? '' : 'text-muted';
+    const prefix = t.type === 'deposit' ? '+' : t.type === 'withdrawal' ? '→' : '';
     return `
       <div class="tx-card">
         <div class="tx-left">
@@ -904,8 +921,8 @@ const App = {
           <div class="tx-detail">${sub}</div>
           ${t.notes ? `<div class="tx-notes">${t.notes}</div>` : ''}
         </div>
-        <div class="tx-amount ${isIn ? 'text-green' : 'text-red'}">
-          ${isIn ? '+' : '-'}${BetMath.fmt(t.amount)}
+        <div class="tx-amount ${amtCls}">
+          ${prefix}${BetMath.fmt(t.amount)}
         </div>
       </div>
     `;
@@ -1730,12 +1747,9 @@ const App = {
     // Show/hide fields based on type
     const updateFields = () => {
       const type = document.getElementById('tx-type').value;
-      const personGroup = document.getElementById('tx-person-group');
-      const sbGroup     = document.getElementById('tx-sportsbook-group');
-      // withdrawal: no person needed (goes to bucket)
-      personGroup.style.display = type === 'withdrawal' ? 'none' : 'block';
-      // disbursement: no sportsbook
-      sbGroup.style.display     = type === 'disbursement' ? 'none' : 'block';
+      const sbGroup = document.getElementById('tx-sportsbook-group');
+      // disbursement: no sportsbook needed
+      sbGroup.style.display = type === 'disbursement' ? 'none' : 'block';
     };
     document.getElementById('tx-type').addEventListener('change', updateFields);
     updateFields();
@@ -1750,8 +1764,7 @@ const App = {
       if (!amount || amount <= 0) return;
 
       const tx = { type, amount, notes };
-      if (type !== 'withdrawal') tx.person = person || 'brent';
-      else tx.person = 'brent'; // default for withdrawals
+      tx.person = person || 'brent';
       if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
       await DB.addTransaction(tx);

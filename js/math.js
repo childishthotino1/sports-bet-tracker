@@ -47,14 +47,26 @@ const BetMath = {
 
   // ─── Person Equity ────────────────────────────────────────
 
-  // Dan's equity: what he's owed from the pool
-  // = his deposits − his disbursements received + his shared bet P&L
+  // Per-person bucket balance (withdrawals attributed to them, minus disbursements received)
+  personBucket(transactions, person) {
+    return transactions
+      .filter(t => t.person === person)
+      .reduce((s, t) => {
+        if (t.type === 'withdrawal')   return s + parseFloat(t.amount);
+        if (t.type === 'disbursement') return s - parseFloat(t.amount);
+        return s;
+      }, 0);
+  },
+
+  // Dan's equity: deposits + bucket balance (withdrawals − disbursements) + bet P&L
   danEquity(transactions, bets) {
     let equity = 0;
 
     for (const t of transactions) {
       if (t.person !== 'dan') continue;
-      if (t.type === 'deposit') equity += parseFloat(t.amount);
+      if (t.type === 'deposit')      equity += parseFloat(t.amount);
+      if (t.type === 'withdrawal')   equity += parseFloat(t.amount);   // Dan's share moved to bucket — still his
+      if (t.type === 'disbursement') equity -= parseFloat(t.amount);   // Dan has received this cash
     }
 
     for (const bet of bets) {
@@ -65,9 +77,10 @@ const BetMath = {
       if (bet.status === 'won') {
         const totalRet = this.totalReturn(totalW, boosted);
         equity += this.splitReturn(totalRet, totalW, hisWager) - hisWager;
-      } else {
-        equity -= hisWager; // lost or pending → counted as loss
+      } else if (bet.status === 'lost') {
+        equity -= hisWager;
       }
+      // pending: not counted — money is still in the pool
     }
 
     return equity;
