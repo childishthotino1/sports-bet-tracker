@@ -818,43 +818,22 @@ const App = {
   // ─── Person View (Brent / Dan) ────────────────────────
 
   renderPerson(person) {
-    const { snapshots, bets, transactions, settings } = this.state;
-
-    const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : 0;
-    const snapDate  = lastSnap ? lastSnap.snapshot_date : null;
-    const bucket    = BetMath.bucketBalance(transactions);
-    const betsSince = snapDate
-      ? bets.filter(b => b.placed_at && b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
-      : bets.filter(b => b.status !== 'pending');
-    const pnlSince  = BetMath.poolBetPnl(betsSince);
-    const sportsbookTotal = snapTotal + pnlSince;
-
-    // Equity in sportsbooks only (bank tracked separately)
-    const danEquityInBooks   = BetMath.danEquity(transactions, bets);
-    const brentEquityInBooks = sportsbookTotal - danEquityInBooks;
-    const equityInBooks      = person === 'dan' ? danEquityInBooks : brentEquityInBooks;
-
-    // Bank share from settings (dan_bank_share set when withdrawals are recorded)
-    const danBankShare   = parseFloat(settings.dan_bank_share || 0);
-    const brentBankShare = bucket - danBankShare;
-    const bankShare      = person === 'dan' ? danBankShare : brentBankShare;
-
-    // Payout breakdown
-    const payoutNow  = equityInBooks + bankShare;
-    const received   = transactions
-      .filter(t => t.person === person && t.type === 'disbursement')
-      .reduce((s, t) => s + parseFloat(t.amount), 0);
-    const totalValue = payoutNow + received;
-    const deposited  = transactions
-      .filter(t => t.person === person && t.type === 'deposit')
-      .reduce((s, t) => s + parseFloat(t.amount), 0);
-    const netGain    = totalValue - deposited;
+    const { bets, transactions } = this.state;
 
     const name  = person === 'dan' ? 'Dan' : 'Brent';
     const field = person === 'dan' ? 'his_wager' : 'my_wager';
 
-    // Per-person rolling P&L
+    // Deposits into the pool
+    const deposited = transactions
+      .filter(t => t.person === person && t.type === 'deposit')
+      .reduce((s, t) => s + parseFloat(t.amount), 0);
+
+    // Payouts already received from the bucket
+    const received = transactions
+      .filter(t => t.person === person && t.type === 'disbursement')
+      .reduce((s, t) => s + parseFloat(t.amount), 0);
+
+    // Per-person bet P&L
     const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
       if (b.status === 'push' || b.status === 'pending') return sum;
       const boosted = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
@@ -872,58 +851,57 @@ const App = {
     const pnl30  = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
     const pnlAll = personBetPnl(bets);
 
-    const personTxs = transactions.filter(t =>
-      t.person === person || t.type === 'withdrawal' || t.type === 'redeployment'
-    );
+    // Gross balance = deposited + all-time bet P&L
+    const grossBalance = deposited + pnlAll;
 
-    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
-    const sign   = v => v > 0 ? '+' : '';
+    const personTxs = transactions.filter(t => t.person === person);
+
+    const pnlCls  = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
+    const sign    = v => v > 0 ? '+' : '';
+    const totCls  = person === 'dan' ? 'hp-metric-total-dan' : 'hp-metric-total';
+
+    const dayStrip = [5,4,3,2,1].map(i => {
+      const db  = BetMath.dayBets(bets, i);
+      const pnl = personBetPnl(db);
+      const won  = db.filter(b => b.status === 'won').length;
+      const lost = db.filter(b => b.status === 'lost').length;
+      const push = db.filter(b => b.status === 'push').length;
+      const hasData = db.length > 0;
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      const rec = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
+      return `<div class="day-box">
+        <div class="day-box-label">${label}</div>
+        <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
+        <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
+      </div>`;
+    }).join('');
 
     const container = document.getElementById(`${person}-content`);
     container.innerHTML = `
       <div class="person-hero person-hero-${person}">
-        <div class="person-hero-label">Payout Now</div>
-        <div class="person-bankroll">${BetMath.fmt(payoutNow)}</div>
+        <div class="person-hero-label">Gross Balance</div>
+        <div class="person-bankroll">${BetMath.fmt(grossBalance)}</div>
+        ${pnlAll !== 0 ? `<div class="person-hero-sub">${sign(pnlAll)}${BetMath.fmt(pnlAll)} bet P&L on ${BetMath.fmt(deposited)} deposited</div>` : ''}
       </div>
 
-      <div class="section-label">Payout Breakdown</div>
-      <div class="payout-breakdown">
-        <div class="payout-row">
-          <span class="payout-label">Deposited</span>
-          <span class="payout-value">${BetMath.fmt(deposited)}</span>
-        </div>
-        <div class="payout-row">
-          <span class="payout-label">All-time Bet P&amp;L</span>
-          <span class="payout-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</span>
-        </div>
-        <div class="payout-row">
-          <span class="payout-label">Equity in Books</span>
-          <span class="payout-value">${BetMath.fmt(equityInBooks)}</span>
-        </div>
-        <div class="payout-row">
-          <span class="payout-label">Bank Share</span>
-          <span class="payout-value">${BetMath.fmt(bankShare)}</span>
-        </div>
-        <div class="payout-row payout-row-total">
-          <span class="payout-label">Payout Now</span>
-          <span class="payout-value">${BetMath.fmt(payoutNow)}</span>
-        </div>
-        <div class="payout-row">
-          <span class="payout-label">Already Received</span>
-          <span class="payout-value">${received > 0 ? BetMath.fmt(received) : '—'}</span>
-        </div>
-        <div class="payout-row payout-row-total">
-          <span class="payout-label">Total Value</span>
-          <span class="payout-value">${BetMath.fmt(totalValue)}</span>
-        </div>
-      </div>
-
-      <div class="net-gain-banner ${pnlCls(netGain)}">
-        Net Gain: ${sign(netGain)}${BetMath.fmt(netGain)} on ${BetMath.fmt(deposited)} in
-      </div>
-
-      <div class="section-label">Performance</div>
       <div class="hp-metrics-grid">
+        <div class="hp-metric">
+          <div class="hp-metric-label">Deposited</div>
+          <div class="hp-metric-value">${BetMath.fmt(deposited)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Bet P&amp;L</div>
+          <div class="hp-metric-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</div>
+        </div>
+        <div class="hp-metric ${totCls}">
+          <div class="hp-metric-label">Gross Balance</div>
+          <div class="hp-metric-value">${BetMath.fmt(grossBalance)}</div>
+        </div>
+        <div class="hp-metric">
+          <div class="hp-metric-label">Payouts Received</div>
+          <div class="hp-metric-value ${received > 0 ? 'text-muted' : ''}">${received > 0 ? BetMath.fmt(received) : '—'}</div>
+        </div>
         <div class="hp-metric">
           <div class="hp-metric-label">7-Day P&amp;L</div>
           <div class="hp-metric-value ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</div>
@@ -932,11 +910,10 @@ const App = {
           <div class="hp-metric-label">30-Day P&amp;L</div>
           <div class="hp-metric-value ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</div>
         </div>
-        <div class="hp-metric hp-metric-total">
-          <div class="hp-metric-label">All Time P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</div>
-        </div>
       </div>
+
+      <div class="section-label">Last 5 Days</div>
+      <div class="day-strip">${dayStrip}</div>
 
       <button class="btn-add-tx" id="add-tx-btn">+ Add Money Moves</button>
       <div class="section-label">${name}'s Transactions</div>
@@ -956,11 +933,14 @@ const App = {
                : (book ? `· ${book}` : '');
     const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'disbursement' ? 'text-muted' : '';
     const prefix = t.type === 'deposit' ? '+' : '';
+    const dateStr = t.created_at
+      ? new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : '';
     return `
       <div class="tx-card">
         <div class="tx-left">
           <div class="tx-type-label">${typeLabels[t.type] || t.type}</div>
-          <div class="tx-detail">${sub}</div>
+          <div class="tx-detail">${[sub, dateStr].filter(Boolean).join(' · ')}</div>
           ${t.notes ? `<div class="tx-notes">${t.notes}</div>` : ''}
         </div>
         <div class="tx-amount ${amtCls}">

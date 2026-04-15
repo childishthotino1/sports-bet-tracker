@@ -1826,6 +1826,10 @@ input:focus, select:focus { border-color: var(--purple); }
   border-top: 2px solid var(--purple);
 }
 
+.hp-metric-total-dan {
+  border-top: 2px solid var(--orange);
+}
+
 .hp-exposure {
   font-size: 11px;
   color: var(--text-muted);
