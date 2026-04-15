@@ -2084,3 +2084,55 @@ input:focus, select:focus { border-color: var(--purple); }
   font-size: 14px;
   padding: 32px 16px;
 }
+
+/* ── Payout Breakdown (Person Pages) ─────────────────── */
+.payout-breakdown {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.payout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.payout-row:last-child { border-bottom: none; }
+
+.payout-label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.payout-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.payout-row-total {
+  background: var(--bg-card2);
+}
+.payout-row-total .payout-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.payout-row-total .payout-value {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.net-gain-banner {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: var(--r);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  margin-bottom: 10px;
+}

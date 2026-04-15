@@ -818,39 +818,48 @@ const App = {
   // ─── Person View (Brent / Dan) ────────────────────────
 
   renderPerson(person) {
-    const { snapshots, bets, transactions } = this.state;
+    const { snapshots, bets, transactions, settings } = this.state;
 
-    // Equity from latest snapshot + settled bet P&L since that snapshot
-    const lastSnap   = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const snapTotal  = lastSnap ? parseFloat(lastSnap.cash) : 0;
-    const snapDate   = lastSnap ? lastSnap.snapshot_date : null;
-    const bucket     = BetMath.bucketBalance(transactions);
-    const betsSince  = snapDate
+    const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : 0;
+    const snapDate  = lastSnap ? lastSnap.snapshot_date : null;
+    const bucket    = BetMath.bucketBalance(transactions);
+    const betsSince = snapDate
       ? bets.filter(b => b.placed_at && b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
       : bets.filter(b => b.status !== 'pending');
-    const pnlSince   = BetMath.poolBetPnl(betsSince);
-    const estPool    = snapTotal + pnlSince + bucket;
-    const danEquity  = BetMath.danEquity(transactions, bets);
-    const equity     = person === 'dan' ? danEquity : BetMath.brentEquity(estPool, danEquity);
+    const pnlSince  = BetMath.poolBetPnl(betsSince);
+    const sportsbookTotal = snapTotal + pnlSince;
 
-    const stats      = BetMath.personStats(transactions, bets, person);
-    const name       = person === 'dan' ? 'Dan' : 'Brent';
-    const field      = person === 'dan' ? 'his_wager' : 'my_wager';
-    // Each person's bucket share = their equity % of the total pool
-    const myBucket   = estPool > 0 ? bucket * (equity / estPool) : 0;
-    const received   = transactions.filter(t => t.person === person && t.type === 'disbursement')
-                         .reduce((s, t) => s + parseFloat(t.amount), 0);
-    // Show all transactions relevant to this person (deposits/disbursements for them, plus pool-level withdrawals/redeployments)
-    const personTxs  = transactions.filter(t =>
-      t.person === person || t.type === 'withdrawal' || t.type === 'redeployment'
-    );
+    // Equity in sportsbooks only (bank tracked separately)
+    const danEquityInBooks   = BetMath.danEquity(transactions, bets);
+    const brentEquityInBooks = sportsbookTotal - danEquityInBooks;
+    const equityInBooks      = person === 'dan' ? danEquityInBooks : brentEquityInBooks;
+
+    // Bank share from settings (dan_bank_share set when withdrawals are recorded)
+    const danBankShare   = parseFloat(settings.dan_bank_share || 0);
+    const brentBankShare = bucket - danBankShare;
+    const bankShare      = person === 'dan' ? danBankShare : brentBankShare;
+
+    // Payout breakdown
+    const payoutNow  = equityInBooks + bankShare;
+    const received   = transactions
+      .filter(t => t.person === person && t.type === 'disbursement')
+      .reduce((s, t) => s + parseFloat(t.amount), 0);
+    const totalValue = payoutNow + received;
+    const deposited  = transactions
+      .filter(t => t.person === person && t.type === 'deposit')
+      .reduce((s, t) => s + parseFloat(t.amount), 0);
+    const netGain    = totalValue - deposited;
+
+    const name  = person === 'dan' ? 'Dan' : 'Brent';
+    const field = person === 'dan' ? 'his_wager' : 'my_wager';
 
     // Per-person rolling P&L
     const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
       if (b.status === 'push' || b.status === 'pending') return sum;
-      const boosted  = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
-      const wager    = parseFloat(b[field]);
-      const totalW   = parseFloat(b.total_wager);
+      const boosted = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
+      const wager   = parseFloat(b[field]);
+      const totalW  = parseFloat(b.total_wager);
       if (b.status === 'won') {
         return sum + BetMath.splitReturn(BetMath.totalReturn(totalW, boosted), totalW, wager) - wager;
       }
@@ -859,9 +868,13 @@ const App = {
 
     const cutoff7  = new Date(); cutoff7.setDate(cutoff7.getDate() - 7);   cutoff7.setHours(0,0,0,0);
     const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30); cutoff30.setHours(0,0,0,0);
-    const pnl7     = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7));
-    const pnl30    = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
-    const pnlAll   = personBetPnl(bets);
+    const pnl7   = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7));
+    const pnl30  = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
+    const pnlAll = personBetPnl(bets);
+
+    const personTxs = transactions.filter(t =>
+      t.person === person || t.type === 'withdrawal' || t.type === 'redeployment'
+    );
 
     const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
     const sign   = v => v > 0 ? '+' : '';
@@ -869,23 +882,48 @@ const App = {
     const container = document.getElementById(`${person}-content`);
     container.innerHTML = `
       <div class="person-hero person-hero-${person}">
-        <div class="person-hero-label">Equity</div>
-        <div class="person-bankroll">${BetMath.fmt(equity)}</div>
+        <div class="person-hero-label">Payout Now</div>
+        <div class="person-bankroll">${BetMath.fmt(payoutNow)}</div>
       </div>
 
+      <div class="section-label">Payout Breakdown</div>
+      <div class="payout-breakdown">
+        <div class="payout-row">
+          <span class="payout-label">Deposited</span>
+          <span class="payout-value">${BetMath.fmt(deposited)}</span>
+        </div>
+        <div class="payout-row">
+          <span class="payout-label">All-time Bet P&amp;L</span>
+          <span class="payout-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</span>
+        </div>
+        <div class="payout-row">
+          <span class="payout-label">Equity in Books</span>
+          <span class="payout-value">${BetMath.fmt(equityInBooks)}</span>
+        </div>
+        <div class="payout-row">
+          <span class="payout-label">Bank Share</span>
+          <span class="payout-value">${BetMath.fmt(bankShare)}</span>
+        </div>
+        <div class="payout-row payout-row-total">
+          <span class="payout-label">Payout Now</span>
+          <span class="payout-value">${BetMath.fmt(payoutNow)}</span>
+        </div>
+        <div class="payout-row">
+          <span class="payout-label">Already Received</span>
+          <span class="payout-value">${received > 0 ? BetMath.fmt(received) : '—'}</span>
+        </div>
+        <div class="payout-row payout-row-total">
+          <span class="payout-label">Total Value</span>
+          <span class="payout-value">${BetMath.fmt(totalValue)}</span>
+        </div>
+      </div>
+
+      <div class="net-gain-banner ${pnlCls(netGain)}">
+        Net Gain: ${sign(netGain)}${BetMath.fmt(netGain)} on ${BetMath.fmt(deposited)} in
+      </div>
+
+      <div class="section-label">Performance</div>
       <div class="hp-metrics-grid">
-        <div class="hp-metric">
-          <div class="hp-metric-label">Deposited</div>
-          <div class="hp-metric-value">${BetMath.fmt(stats.deposited)}</div>
-        </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">Paid Out</div>
-          <div class="hp-metric-value">${BetMath.fmt(received)}</div>
-        </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">In Bank (est.)</div>
-          <div class="hp-metric-value ${myBucket > 0 ? 'text-green' : ''}">${BetMath.fmt(myBucket)}</div>
-        </div>
         <div class="hp-metric">
           <div class="hp-metric-label">7-Day P&amp;L</div>
           <div class="hp-metric-value ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</div>
@@ -1741,6 +1779,10 @@ const App = {
         <label>Amount ($)</label>
         <input type="number" id="tx-amount" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
       </div>
+      <div class="form-group" id="tx-dan-share-group" style="display:none">
+        <label>Dan's Share ($)</label>
+        <input type="number" id="tx-dan-share" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
+      </div>
       <div class="form-group">
         <label>Notes (optional)</label>
         <input type="text" id="tx-notes" class="form-input" placeholder="">
@@ -1751,13 +1793,17 @@ const App = {
 
     // Show/hide fields based on type
     const updateFields = () => {
-      const type        = document.getElementById('tx-type').value;
-      const personGroup = document.getElementById('tx-person-group');
-      const sbGroup     = document.getElementById('tx-sportsbook-group');
+      const type          = document.getElementById('tx-type').value;
+      const personGroup   = document.getElementById('tx-person-group');
+      const sbGroup       = document.getElementById('tx-sportsbook-group');
+      const danShareGroup = document.getElementById('tx-dan-share-group');
       // person only needed for deposit and disbursement
-      personGroup.style.display = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
+      personGroup.style.display   = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
       // sportsbook not needed for disbursement (goes directly to person)
-      sbGroup.style.display     = type === 'disbursement' ? 'none' : 'block';
+      sbGroup.style.display       = type === 'disbursement' ? 'none' : 'block';
+      // dan's share needed for withdrawals (adds to bank) and redeployments (removes from bank)
+      danShareGroup.style.display = (type === 'withdrawal' || type === 'redeployment') ? 'block' : 'none';
+      danShareGroup.querySelector('label').textContent = type === 'redeployment' ? "Dan's Share Redeployed ($)" : "Dan's Share ($)";
     };
     document.getElementById('tx-type').addEventListener('change', updateFields);
     updateFields();
@@ -1776,6 +1822,17 @@ const App = {
       if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
       await DB.addTransaction(tx);
+
+      // Update Dan's bank share in settings for withdrawals (+) and redeployments (-)
+      if (type === 'withdrawal' || type === 'redeployment') {
+        const danShare = parseFloat(document.getElementById('tx-dan-share').value) || 0;
+        if (danShare > 0) {
+          const current = parseFloat(this.state.settings.dan_bank_share || 0);
+          const updated = type === 'withdrawal' ? current + danShare : current - danShare;
+          await DB.updateSetting('dan_bank_share', String(updated));
+        }
+      }
+
       DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
       await this.loadData();
       this.hideModal();
