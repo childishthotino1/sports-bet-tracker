@@ -1863,6 +1863,187 @@ input:focus, select:focus { border-color: var(--purple); }
   opacity: 0.85;
 }
 
+/* ── Person Where-It-Is ───────────────────────────────── */
+.person-where-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.person-where-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.person-where-brent  { border-top: 2px solid var(--purple); }
+.person-where-dan    { border-top: 2px solid var(--orange); }
+.person-where-escrow { border-top: 2px solid var(--gold); }
+
+.person-where-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.person-where-value {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* ── Person Receipt ───────────────────────────────────── */
+.person-receipt {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.person-receipt-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.person-receipt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.person-receipt-row-muted .person-receipt-label,
+.person-receipt-row-muted .person-receipt-amt {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.person-receipt-label { font-size: 14px; color: var(--text); }
+.person-receipt-amt   { font-size: 14px; font-weight: 700; }
+
+.person-receipt-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 6px 0;
+}
+
+.person-receipt-divider-strong {
+  height: 1px;
+  background: rgba(237,233,248,0.2);
+  margin: 8px 0;
+}
+
+.person-receipt-total .person-receipt-label {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.person-receipt-total .person-receipt-amt {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+/* ── Person Pending Bar ───────────────────────────────── */
+/* ── Transaction Split Preview ───────────────────────── */
+.tx-split-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(107,47,160,0.08);
+  border: 1px solid rgba(107,47,160,0.2);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.tx-split-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.tx-split-person {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tx-split-person + .tx-split-person::before {
+  content: '·';
+  margin-right: 10px;
+  color: var(--text-muted);
+}
+
+/* ── Person Pending Bar ───────────────────────────────── */
+.person-pending-bar {
+  background: rgba(201,164,74,0.08);
+  border: 1px solid rgba(201,164,74,0.25);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.person-pending-label {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+.person-pending-text {
+  font-size: 13px;
+  color: var(--gold);
+  opacity: 0.85;
+}
+
+/* ── Person Perf Row ──────────────────────────────────── */
+.person-perf-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.person-perf-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.person-perf-chip-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.person-perf-chip-val {
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .stat-card-equity {
   border-top: 2px solid var(--purple);
 }

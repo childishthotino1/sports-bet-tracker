@@ -818,22 +818,41 @@ const App = {
   // ─── Person View (Brent / Dan) ────────────────────────
 
   renderPerson(person) {
-    const { bets, transactions } = this.state;
+    const { bets, transactions, sportsbooks, snapshots, settings } = this.state;
 
     const name  = person === 'dan' ? 'Dan' : 'Brent';
     const field = person === 'dan' ? 'his_wager' : 'my_wager';
 
-    // Deposits into the pool
+    // ─── Pool totals (snapshot-aligned, same as Honeypot) ─────
+    const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
+    const bucket    = BetMath.bucketBalance(transactions);
+    const totalPool = snapTotal + bucket;
+
+    // ─── $ Bag (equity) ───────────────────────────────────────
+    const danEq   = BetMath.danEquity(transactions, bets);
+    const brentEq = BetMath.brentEquity(totalPool, danEq);
+    const equity  = person === 'dan' ? danEq : brentEq;
+
+    // ─── Escrow split (explicitly tracked, not proportional) ──
+    // dan_bank_share is updated each time a withdrawal is logged
+    const danEscrow   = parseFloat(settings.dan_bank_share || 0);
+    const brentEscrow = bucket - danEscrow;
+    const escrowShare = person === 'dan' ? danEscrow : brentEscrow;
+
+    // ─── Sportsbook share = $ Bag minus what's in escrow ──────
+    const sbShare = equity - escrowShare;
+
+    // ─── Money flow breakdown ─────────────────────────────
     const deposited = transactions
       .filter(t => t.person === person && t.type === 'deposit')
       .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-    // Payouts already received from the bucket
-    const received = transactions
+    const paidOut = transactions
       .filter(t => t.person === person && t.type === 'disbursement')
       .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-    // Per-person bet P&L
+    // Per-person bet P&L helper
     const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
       if (b.status === 'push' || b.status === 'pending') return sum;
       const boosted = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
@@ -845,21 +864,23 @@ const App = {
       return sum - wager;
     }, 0);
 
+    const betPnl = personBetPnl(bets);
+
+    // ─── Pending exposure ─────────────────────────────────
+    const pendingBets = bets.filter(b => b.status === 'pending');
+    const pendingAmt  = pendingBets.reduce((s, b) => s + parseFloat(b[field]), 0);
+
+    // ─── Rolling P&L ──────────────────────────────────────
     const cutoff7  = new Date(); cutoff7.setDate(cutoff7.getDate() - 7);   cutoff7.setHours(0,0,0,0);
     const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30); cutoff30.setHours(0,0,0,0);
-    const pnl7   = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7));
-    const pnl30  = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
-    const pnlAll = personBetPnl(bets);
+    const pnl7  = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7));
+    const pnl30 = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
 
-    // Gross balance = deposited + all-time bet P&L
-    const grossBalance = deposited + pnlAll;
+    // ─── Helpers ──────────────────────────────────────────
+    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
+    const sign   = v => v >= 0 ? '+' : '';
 
-    const personTxs = transactions.filter(t => t.person === person);
-
-    const pnlCls  = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
-    const sign    = v => v > 0 ? '+' : '';
-    const totCls  = person === 'dan' ? 'hp-metric-total-dan' : 'hp-metric-total';
-
+    // ─── Day strip ────────────────────────────────────────
     const dayStrip = [5,4,3,2,1].map(i => {
       const db  = BetMath.dayBets(bets, i);
       const pnl = personBetPnl(db);
@@ -877,38 +898,69 @@ const App = {
       </div>`;
     }).join('');
 
+    const personTxs = transactions.filter(t => t.person === person);
+
     const container = document.getElementById(`${person}-content`);
     container.innerHTML = `
+      <!-- Hero: $ Bag -->
       <div class="person-hero person-hero-${person}">
-        <div class="person-hero-label">Gross Balance</div>
-        <div class="person-bankroll">${BetMath.fmt(grossBalance)}</div>
-        ${pnlAll !== 0 ? `<div class="person-hero-sub">${sign(pnlAll)}${BetMath.fmt(pnlAll)} bet P&L on ${BetMath.fmt(deposited)} deposited</div>` : ''}
+        <div class="person-hero-label">$ BAG</div>
+        <div class="person-bankroll">${BetMath.fmt(equity)}</div>
+        <div class="person-hero-sub">${BetMath.fmt(sbShare)} sportsbooks · ${BetMath.fmt(escrowShare)} escrow</div>
       </div>
 
-      <div class="hp-metrics-grid">
-        <div class="hp-metric">
-          <div class="hp-metric-label">Deposited</div>
-          <div class="hp-metric-value">${BetMath.fmt(deposited)}</div>
+      <!-- Where It Is -->
+      <div class="person-where-grid">
+        <div class="person-where-card person-where-${person}">
+          <div class="person-where-label">In Sportsbooks</div>
+          <div class="person-where-value">${BetMath.fmt(sbShare)}</div>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">Bet P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(pnlAll)}">${sign(pnlAll)}${BetMath.fmt(pnlAll)}</div>
+        <div class="person-where-card person-where-escrow">
+          <div class="person-where-label">In Escrow</div>
+          <div class="person-where-value">${BetMath.fmt(escrowShare)}</div>
         </div>
-        <div class="hp-metric ${totCls}">
-          <div class="hp-metric-label">Gross Balance</div>
-          <div class="hp-metric-value">${BetMath.fmt(grossBalance)}</div>
+      </div>
+
+      <!-- How You Got Here (receipt) -->
+      <div class="person-receipt">
+        <div class="person-receipt-title">How You Got Here</div>
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Deposited</span>
+          <span class="person-receipt-amt">${BetMath.fmt(deposited)}</span>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">Payouts Received</div>
-          <div class="hp-metric-value ${received > 0 ? 'text-muted' : ''}">${received > 0 ? BetMath.fmt(received) : '—'}</div>
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Bet P&amp;L</span>
+          <span class="person-receipt-amt ${pnlCls(betPnl)}">${sign(betPnl)}${BetMath.fmt(betPnl)}</span>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">7-Day P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</div>
+        ${paidOut > 0 ? `
+        <div class="person-receipt-divider"></div>
+        <div class="person-receipt-row person-receipt-row-muted">
+          <span class="person-receipt-label">Already Paid Out</span>
+          <span class="person-receipt-amt">(${BetMath.fmt(paidOut)})</span>
+        </div>` : ''}
+        <div class="person-receipt-divider person-receipt-divider-strong"></div>
+        <div class="person-receipt-row person-receipt-total">
+          <span class="person-receipt-label">$ Bag</span>
+          <span class="person-receipt-amt">${BetMath.fmt(equity)}</span>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">30-Day P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</div>
+      </div>
+
+      <!-- Pending Exposure -->
+      ${pendingAmt > 0 ? `
+      <div class="person-pending-bar">
+        <span class="person-pending-label">Pending</span>
+        <span class="person-pending-text">${pendingBets.length} open bet${pendingBets.length !== 1 ? 's' : ''} · ${BetMath.fmt(pendingAmt)} at risk</span>
+      </div>` : ''}
+
+      <!-- Rolling performance -->
+      <div class="person-perf-row">
+        <div class="person-perf-chip">
+          <span class="person-perf-chip-label">7-Day P&amp;L</span>
+          <span class="person-perf-chip-val ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</span>
+        </div>
+        <div class="person-perf-chip">
+          <span class="person-perf-chip-label">30-Day P&amp;L</span>
+          <span class="person-perf-chip-val ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</span>
         </div>
       </div>
 
@@ -1739,9 +1791,9 @@ const App = {
         <label>Type</label>
         <select id="tx-type" class="form-input">
           <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit — new money → sportsbook</option>
-          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → bank</option>
-          <option value="redeployment" ${defaultType==='redeployment' ?'selected':''}>Redeployment — bank → sportsbook</option>
-          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Payout — bank → person</option>
+          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → escrow</option>
+          <option value="redeployment" ${defaultType==='redeployment' ?'selected':''}>Redeployment — escrow → sportsbook</option>
+          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Payout — escrow → person</option>
         </select>
       </div>
       <div class="form-group" id="tx-person-group">
@@ -1759,9 +1811,10 @@ const App = {
         <label>Amount ($)</label>
         <input type="number" id="tx-amount" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
       </div>
-      <div class="form-group" id="tx-dan-share-group" style="display:none">
-        <label>Dan's Share ($)</label>
-        <input type="number" id="tx-dan-share" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
+      <div id="tx-split-preview" class="tx-split-preview" style="display:none">
+        <span class="tx-split-label">Escrow split</span>
+        <span id="tx-split-dan" class="tx-split-person"></span>
+        <span id="tx-split-brent" class="tx-split-person"></span>
       </div>
       <div class="form-group">
         <label>Notes (optional)</label>
@@ -1771,21 +1824,55 @@ const App = {
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
 
+    // Auto-calculate Dan's share of a withdrawal or redeployment
+    const calcDanShare = (amount, type) => {
+      const { transactions, bets, sportsbooks, snapshots, settings } = this.state;
+      const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+      const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
+      const bucket    = BetMath.bucketBalance(transactions);
+      const totalPool = snapTotal + bucket;
+
+      if (type === 'withdrawal') {
+        // New money entering escrow: split by equity % at this moment
+        const danEq  = BetMath.danEquity(transactions, bets);
+        const danPct = totalPool > 0 ? danEq / totalPool : 0;
+        return amount * danPct;
+      } else if (type === 'redeployment') {
+        // Money leaving escrow: split by each person's current escrow proportion
+        const danEscrow    = parseFloat(settings.dan_bank_share || 0);
+        const danEscrowPct = bucket > 0 ? danEscrow / bucket : 0;
+        return amount * danEscrowPct;
+      }
+      return 0;
+    };
+
+    // Update the live split preview under the amount field
+    const updateSplitPreview = () => {
+      const type    = document.getElementById('tx-type').value;
+      const amount  = parseFloat(document.getElementById('tx-amount').value) || 0;
+      const preview = document.getElementById('tx-split-preview');
+      if ((type === 'withdrawal' || type === 'redeployment') && amount > 0) {
+        const danShare   = calcDanShare(amount, type);
+        const brentShare = amount - danShare;
+        document.getElementById('tx-split-dan').textContent   = `Dan ${BetMath.fmt(danShare)}`;
+        document.getElementById('tx-split-brent').textContent = `Brent ${BetMath.fmt(brentShare)}`;
+        preview.style.display = 'flex';
+      } else {
+        preview.style.display = 'none';
+      }
+    };
+
     // Show/hide fields based on type
     const updateFields = () => {
-      const type          = document.getElementById('tx-type').value;
-      const personGroup   = document.getElementById('tx-person-group');
-      const sbGroup       = document.getElementById('tx-sportsbook-group');
-      const danShareGroup = document.getElementById('tx-dan-share-group');
-      // person only needed for deposit and disbursement
-      personGroup.style.display   = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
-      // sportsbook not needed for disbursement (goes directly to person)
-      sbGroup.style.display       = type === 'disbursement' ? 'none' : 'block';
-      // dan's share needed for withdrawals (adds to bank) and redeployments (removes from bank)
-      danShareGroup.style.display = (type === 'withdrawal' || type === 'redeployment') ? 'block' : 'none';
-      danShareGroup.querySelector('label').textContent = type === 'redeployment' ? "Dan's Share Redeployed ($)" : "Dan's Share ($)";
+      const type        = document.getElementById('tx-type').value;
+      const personGroup = document.getElementById('tx-person-group');
+      const sbGroup     = document.getElementById('tx-sportsbook-group');
+      personGroup.style.display = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
+      sbGroup.style.display     = type === 'disbursement' ? 'none' : 'block';
+      updateSplitPreview();
     };
     document.getElementById('tx-type').addEventListener('change', updateFields);
+    document.getElementById('tx-amount').addEventListener('input', updateSplitPreview);
     updateFields();
 
     document.getElementById('save-tx').addEventListener('click', async () => {
@@ -1803,14 +1890,12 @@ const App = {
 
       await DB.addTransaction(tx);
 
-      // Update Dan's bank share in settings for withdrawals (+) and redeployments (-)
+      // Auto-update Dan's escrow share for withdrawals (+) and redeployments (-)
       if (type === 'withdrawal' || type === 'redeployment') {
-        const danShare = parseFloat(document.getElementById('tx-dan-share').value) || 0;
-        if (danShare > 0) {
-          const current = parseFloat(this.state.settings.dan_bank_share || 0);
-          const updated = type === 'withdrawal' ? current + danShare : current - danShare;
-          await DB.updateSetting('dan_bank_share', String(updated));
-        }
+        const danShare = calcDanShare(amount, type);
+        const current  = parseFloat(this.state.settings.dan_bank_share || 0);
+        const updated  = type === 'withdrawal' ? current + danShare : current - danShare;
+        await DB.updateSetting('dan_bank_share', String(Math.max(0, updated)));
       }
 
       DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
