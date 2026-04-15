@@ -835,9 +835,9 @@ const App = {
     const equity  = person === 'dan' ? danEq : brentEq;
 
     // ─── Escrow split (explicitly tracked, not proportional) ──
-    // dan_bank_share is updated each time a withdrawal is logged
-    const danEscrow   = parseFloat(settings.dan_bank_share || 0);
-    const brentEscrow = bucket - danEscrow;
+    // Clamped so stale dan_bank_share never exceeds the actual bucket
+    const danEscrow   = Math.min(parseFloat(settings.dan_bank_share || 0), Math.max(0, bucket));
+    const brentEscrow = Math.max(0, bucket - danEscrow);
     const escrowShare = person === 'dan' ? danEscrow : brentEscrow;
 
     // ─── Sportsbook share = $ Bag minus what's in escrow ──────
@@ -1890,12 +1890,29 @@ const App = {
 
       await DB.addTransaction(tx);
 
-      // Auto-update Dan's escrow share for withdrawals (+) and redeployments (-)
+      // Auto-update Dan's escrow share for all bucket movements
       if (type === 'withdrawal' || type === 'redeployment') {
         const danShare = calcDanShare(amount, type);
         const current  = parseFloat(this.state.settings.dan_bank_share || 0);
         const updated  = type === 'withdrawal' ? current + danShare : current - danShare;
         await DB.updateSetting('dan_bank_share', String(Math.max(0, updated)));
+      }
+      if (type === 'disbursement') {
+        // Disbursement reduces the bucket — keep dan_bank_share in sync
+        const { transactions, settings } = this.state;
+        const currentBucket  = BetMath.bucketBalance(transactions); // before this tx
+        const danEscrow      = Math.min(parseFloat(settings.dan_bank_share || 0), Math.max(0, currentBucket));
+        const brentEscrow    = Math.max(0, currentBucket - danEscrow);
+        if (person === 'dan') {
+          // Dan's disbursement comes from his escrow share
+          await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - amount)));
+        } else {
+          // Brent's disbursement — if it exceeds Brent's share, the rest comes from Dan's
+          const overflow = Math.max(0, amount - brentEscrow);
+          if (overflow > 0) {
+            await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - overflow)));
+          }
+        }
       }
 
       DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
