@@ -1902,8 +1902,7 @@ const App = {
       btn.textContent = 'Saving…';
 
       try {
-        const tx = { type, amount, notes };
-        if (type === 'deposit' || type === 'disbursement') tx.person = person || 'brent';
+        const tx = { type, amount, notes, person: person || 'brent' };
         if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
         await DB.addTransaction(tx);
