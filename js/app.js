@@ -1843,11 +1843,11 @@ const App = {
 
       if (type === 'withdrawal') {
         const danEq  = BetMath.danEquity(transactions, bets);
-        const danPct = totalPool > 0 ? danEq / totalPool : 0;
+        const danPct = totalPool > 0 ? Math.min(1, Math.max(0, danEq / totalPool)) : 0;
         return amount * danPct;
       } else if (type === 'redeployment') {
         const danEscrow    = parseFloat(settings.dan_bank_share) || 0;
-        const danEscrowPct = bucket > 0 ? danEscrow / bucket : 0;
+        const danEscrowPct = bucket > 0 ? Math.min(1, Math.max(0, danEscrow / bucket)) : 0;
         return amount * danEscrowPct;
       }
       return 0;
