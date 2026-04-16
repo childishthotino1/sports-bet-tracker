@@ -1956,6 +1956,38 @@ input:focus, select:focus { border-color: var(--purple); }
 
 /* ── Person Pending Bar ───────────────────────────────── */
 /* ── Transaction Split Preview ───────────────────────── */
+/* ── Transaction Split Mode ──────────────────────────── */
+.tx-split-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tx-split-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-card2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.tx-split-option input[type="radio"] {
+  accent-color: var(--purple);
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.tx-split-option:has(input:checked) {
+  border-color: var(--purple);
+  background: var(--purple-glow);
+}
+
+/* ── Transaction Split Preview ───────────────────────── */
 .tx-split-preview {
   display: flex;
   align-items: center;

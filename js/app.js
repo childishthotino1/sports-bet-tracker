@@ -1811,6 +1811,23 @@ const App = {
         <label>Amount ($)</label>
         <input type="number" id="tx-amount" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
       </div>
+      <div class="form-group" id="tx-split-mode-group" style="display:none">
+        <label>Who gets this?</label>
+        <div class="tx-split-options">
+          <label class="tx-split-option">
+            <input type="radio" name="tx-split-mode" value="auto" checked>
+            <span>Auto (equity %)</span>
+          </label>
+          <label class="tx-split-option">
+            <input type="radio" name="tx-split-mode" value="brent">
+            <span>All to Brent</span>
+          </label>
+          <label class="tx-split-option">
+            <input type="radio" name="tx-split-mode" value="dan">
+            <span>All to Dan</span>
+          </label>
+        </div>
+      </div>
       <div id="tx-split-preview" class="tx-split-preview" style="display:none">
         <span class="tx-split-label">Escrow split</span>
         <span id="tx-split-dan" class="tx-split-person"></span>
@@ -1824,8 +1841,13 @@ const App = {
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
 
-    // Auto-calculate Dan's share of a withdrawal or redeployment
+    // Calculate Dan's share based on selected split mode
     const calcDanShare = (amount, type) => {
+      const splitMode = document.querySelector('input[name="tx-split-mode"]:checked')?.value || 'auto';
+      if (splitMode === 'brent') return 0;
+      if (splitMode === 'dan')   return amount;
+
+      // auto: equity-based calculation
       const { transactions, bets, sportsbooks, snapshots, settings } = this.state;
       const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
       const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
@@ -1833,12 +1855,10 @@ const App = {
       const totalPool = snapTotal + bucket;
 
       if (type === 'withdrawal') {
-        // New money entering escrow: split by equity % at this moment
         const danEq  = BetMath.danEquity(transactions, bets);
         const danPct = totalPool > 0 ? danEq / totalPool : 0;
         return amount * danPct;
       } else if (type === 'redeployment') {
-        // Money leaving escrow: split by each person's current escrow proportion
         const danEscrow    = parseFloat(settings.dan_bank_share || 0);
         const danEscrowPct = bucket > 0 ? danEscrow / bucket : 0;
         return amount * danEscrowPct;
@@ -1846,7 +1866,7 @@ const App = {
       return 0;
     };
 
-    // Update the live split preview under the amount field
+    // Update the live split preview
     const updateSplitPreview = () => {
       const type    = document.getElementById('tx-type').value;
       const amount  = parseFloat(document.getElementById('tx-amount').value) || 0;
@@ -1864,15 +1884,21 @@ const App = {
 
     // Show/hide fields based on type
     const updateFields = () => {
-      const type        = document.getElementById('tx-type').value;
-      const personGroup = document.getElementById('tx-person-group');
-      const sbGroup     = document.getElementById('tx-sportsbook-group');
-      personGroup.style.display = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
-      sbGroup.style.display     = type === 'disbursement' ? 'none' : 'block';
+      const type           = document.getElementById('tx-type').value;
+      const personGroup    = document.getElementById('tx-person-group');
+      const sbGroup        = document.getElementById('tx-sportsbook-group');
+      const splitModeGroup = document.getElementById('tx-split-mode-group');
+      const isBucketMove   = type === 'withdrawal' || type === 'redeployment';
+      personGroup.style.display    = isBucketMove ? 'none' : 'block';
+      sbGroup.style.display        = type === 'disbursement' ? 'none' : 'block';
+      splitModeGroup.style.display = isBucketMove ? 'block' : 'none';
       updateSplitPreview();
     };
     document.getElementById('tx-type').addEventListener('change', updateFields);
     document.getElementById('tx-amount').addEventListener('input', updateSplitPreview);
+    document.querySelectorAll('input[name="tx-split-mode"]').forEach(r =>
+      r.addEventListener('change', updateSplitPreview)
+    );
     updateFields();
 
     document.getElementById('save-tx').addEventListener('click', async () => {
