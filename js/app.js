@@ -461,11 +461,15 @@ const App = {
 
     if (result === 'delete') {
       await DB.deleteBet(betId);
+      if (bet.status === 'pending') {
+        await this._adjustBookBalance(bet.sportsbook_id, parseFloat(bet.total_wager));
+      }
       DB.logActivity(this.state.currentUser, 'bet_deleted', {
         bet_id: bet.id, sport: bet.sport, description: bet.description, sportsbook: bet.sportsbooks?.name,
       });
     } else {
       await DB.settleBet(betId, result);
+      await this._adjustBookBalance(bet.sportsbook_id, this._betSettleDelta(bet, result));
       DB.logActivity(this.state.currentUser, 'bet_settled', {
         bet_id: bet.id, sport: bet.sport, description: bet.description, result, sportsbook: bet.sportsbooks?.name,
       });
@@ -511,8 +515,10 @@ const App = {
     try {
       if (entry.type === 'delete') {
         await DB.restoreBet(entry.bet);
+        await this._adjustBookBalance(entry.bet.sportsbook_id, -parseFloat(entry.bet.total_wager));
       } else {
         await DB.unsettleBet(entry.bet.id);
+        await this._adjustBookBalance(entry.bet.sportsbook_id, -this._betSettleDelta(entry.bet, entry.result));
       }
       DB.logActivity(this.state.currentUser, 'undo', {
         undone: entry.type, bet_id: entry.bet.id, description: entry.bet.description,
@@ -529,6 +535,22 @@ const App = {
     } catch (err) {
       alert('Undo failed: ' + err.message);
     }
+  },
+
+  // Returns the sportsbook balance delta when a bet settles
+  _betSettleDelta(bet, result) {
+    if (result === 'lost') return 0;
+    const boosted = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct) || 0);
+    return result === 'won'
+      ? BetMath.totalReturn(parseFloat(bet.total_wager), boosted)
+      : parseFloat(bet.total_wager); // push: refund wager
+  },
+
+  async _adjustBookBalance(sbId, delta) {
+    if (!sbId || delta === 0) return;
+    const sb = this.state.sportsbooks.find(s => s.id === sbId);
+    if (!sb) return;
+    await DB.updateSportsbookBalance(sbId, parseFloat(sb.current_balance) + delta);
   },
 
   // ─── Bets View ─────────────────────────────────────────
@@ -791,6 +813,7 @@ const App = {
         count: parsedBets.length,
         bets: parsedBets.map(p => ({ sport: p.sport, description: p.description, total_wager: p.total_wager, sportsbook: p.sportsbook_matched })),
       });
+      const balAdj = {};
       for (const p of parsedBets) {
         await DB.addBet({
           sportsbook_id: p.sportsbook_id,
@@ -803,6 +826,12 @@ const App = {
           base_odds:     p.base_odds,
           placed_at:     placedAt,
         });
+        const sid = String(p.sportsbook_id);
+        balAdj[sid] = (balAdj[sid] || 0) - parseFloat(p.total_wager);
+      }
+      for (const [sid, delta] of Object.entries(balAdj)) {
+        const sb = this.state.sportsbooks.find(s => String(s.id) === sid);
+        if (sb) await DB.updateSportsbookBalance(sid, parseFloat(sb.current_balance) + delta);
       }
       await this.loadData();
       document.getElementById('bet-code-input').value = '';
@@ -1578,6 +1607,7 @@ const App = {
       btn.addEventListener('click', async () => {
         btn.disabled = true;
         await DB.settleBet(bet.id, btn.dataset.result);
+        await this._adjustBookBalance(bet.sportsbook_id, this._betSettleDelta(bet, btn.dataset.result));
         await this.loadData();
         this.hideModal();
         this.render(this.state.view);
