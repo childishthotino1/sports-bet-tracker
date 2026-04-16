@@ -1125,6 +1125,7 @@ const App = {
       <div class="stats-action-row">
         <button class="btn-stats-action" id="stats-snap-btn">+ Add Snapshot</button>
         <button class="btn-stats-action btn-stats-action-tx" id="stats-tx-btn">+ Money Moves</button>
+        <button class="btn-stats-action" id="stats-books-btn">Manage Books</button>
       </div>
 
       <div class="section-label">Last Sportsbook Snapshot</div>
@@ -1169,6 +1170,7 @@ const App = {
     });
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
     document.getElementById('stats-tx-btn')?.addEventListener('click', () => this.showLogTransactionModal());
+    document.getElementById('stats-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
     this._renderPerfCard();
   },
@@ -1936,6 +1938,13 @@ const App = {
         if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
         await DB.addTransaction(tx);
+
+        // Auto-update sportsbook balance for moves that affect a book
+        if (type === 'deposit' || type === 'redeployment') {
+          await this._adjustBookBalance(sbId, amount);        // money in → balance up
+        } else if (type === 'withdrawal') {
+          await this._adjustBookBalance(sbId, -amount);       // money out → balance down
+        }
 
         // Auto-update Dan's escrow share for all bucket movements
         if (type === 'withdrawal' || type === 'redeployment') {
