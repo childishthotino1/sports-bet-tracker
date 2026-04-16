@@ -1897,41 +1897,52 @@ const App = {
 
       if (!amount || amount <= 0) return;
 
-      const tx = { type, amount, notes };
-      if (type === 'deposit' || type === 'disbursement') tx.person = person || 'brent';
-      if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
+      const btn = document.getElementById('save-tx');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
 
-      await DB.addTransaction(tx);
+      try {
+        const tx = { type, amount, notes };
+        if (type === 'deposit' || type === 'disbursement') tx.person = person || 'brent';
+        if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
 
-      // Auto-update Dan's escrow share for all bucket movements
-      if (type === 'withdrawal' || type === 'redeployment') {
-        const danShare = calcDanShare(amount, type);
-        const current  = parseFloat(this.state.settings.dan_bank_share || 0);
-        const updated  = type === 'withdrawal' ? current + danShare : current - danShare;
-        await DB.updateSetting('dan_bank_share', String(Math.max(0, updated)));
-      }
-      if (type === 'disbursement') {
-        // Disbursement reduces the bucket — keep dan_bank_share in sync
-        const { transactions, settings } = this.state;
-        const currentBucket  = BetMath.bucketBalance(transactions); // before this tx
-        const danEscrow      = Math.min(parseFloat(settings.dan_bank_share || 0), Math.max(0, currentBucket));
-        const brentEscrow    = Math.max(0, currentBucket - danEscrow);
-        if (person === 'dan') {
-          // Dan's disbursement comes from his escrow share
-          await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - amount)));
-        } else {
-          // Brent's disbursement — if it exceeds Brent's share, the rest comes from Dan's
-          const overflow = Math.max(0, amount - brentEscrow);
-          if (overflow > 0) {
-            await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - overflow)));
+        await DB.addTransaction(tx);
+
+        // Auto-update Dan's escrow share for all bucket movements
+        if (type === 'withdrawal' || type === 'redeployment') {
+          const danShare = calcDanShare(amount, type);
+          const current  = parseFloat(this.state.settings.dan_bank_share) || 0;
+          const updated  = type === 'withdrawal' ? current + danShare : current - danShare;
+          await DB.updateSetting('dan_bank_share', String(Math.max(0, updated)));
+        }
+        if (type === 'disbursement') {
+          const { transactions, settings } = this.state;
+          const currentBucket = BetMath.bucketBalance(transactions);
+          const danEscrow     = Math.min(parseFloat(settings.dan_bank_share) || 0, Math.max(0, currentBucket));
+          const brentEscrow   = Math.max(0, currentBucket - danEscrow);
+          if (person === 'dan') {
+            await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - amount)));
+          } else {
+            const overflow = Math.max(0, amount - brentEscrow);
+            if (overflow > 0) {
+              await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - overflow)));
+            }
           }
         }
-      }
 
-      DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
-      await this.loadData();
-      this.hideModal();
-      this.render(this.state.view);
+        DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
+        await this.loadData();
+        this.hideModal();
+        this.render(this.state.view);
+      } catch (err) {
+        console.error('Money Moves save failed:', err);
+        btn.disabled = false;
+        btn.textContent = 'Save';
+        const errEl = document.createElement('div');
+        errEl.style.cssText = 'color:var(--red);font-size:13px;margin-top:8px;text-align:center';
+        errEl.textContent = 'Save failed: ' + (err.message || err);
+        btn.insertAdjacentElement('afterend', errEl);
+      }
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
