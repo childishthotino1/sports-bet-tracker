@@ -134,8 +134,8 @@ const App = {
     const { sportsbooks, bets, transactions, snapshots } = this.state;
 
     // Latest snapshot drives "In Sportsbooks" and estimated balance
-    const lastSnap   = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const snapTotal  = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
+    const lastSnap   = BetMath.lastSnapshot(snapshots);
+    const snapTotal  = BetMath.snapTotal(snapshots, sportsbooks);
     const snapDate   = lastSnap ? lastSnap.snapshot_date : null; // 'YYYY-MM-DD'
 
     // "In Sportsbooks" date label
@@ -824,10 +824,8 @@ const App = {
     const field = person === 'dan' ? 'his_wager' : 'my_wager';
 
     // ─── Pool totals (snapshot-aligned, same as Honeypot) ─────
-    const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-    const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
     const bucket    = BetMath.bucketBalance(transactions);
-    const totalPool = snapTotal + bucket;
+    const totalPool = BetMath.snapTotal(snapshots, sportsbooks) + bucket;
 
     // ─── $ Bag (equity) ───────────────────────────────────────
     const danEq   = BetMath.danEquity(transactions, bets);
@@ -836,14 +834,14 @@ const App = {
 
     // ─── Escrow split (explicitly tracked, not proportional) ──
     // Clamped so stale dan_bank_share never exceeds the actual bucket
-    const danEscrow   = Math.min(parseFloat(settings.dan_bank_share || 0), Math.max(0, bucket));
+    const danEscrow   = Math.min(parseFloat(settings.dan_bank_share) || 0, Math.max(0, bucket));
     const brentEscrow = Math.max(0, bucket - danEscrow);
     const escrowShare = person === 'dan' ? danEscrow : brentEscrow;
 
     // ─── Sportsbook share = $ Bag minus what's in escrow ──────
     const sbShare = equity - escrowShare;
 
-    // ─── Money flow breakdown ─────────────────────────────
+    // ─── Money flow breakdown ─────────────────────────────────
     const deposited = transactions
       .filter(t => t.person === person && t.type === 'deposit')
       .reduce((s, t) => s + parseFloat(t.amount), 0);
@@ -852,29 +850,17 @@ const App = {
       .filter(t => t.person === person && t.type === 'disbursement')
       .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-    // Per-person bet P&L helper
-    const personBetPnl = (betsList) => betsList.reduce((sum, b) => {
-      if (b.status === 'push' || b.status === 'pending') return sum;
-      const boosted = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
-      const wager   = parseFloat(b[field]);
-      const totalW  = parseFloat(b.total_wager);
-      if (b.status === 'won') {
-        return sum + BetMath.splitReturn(BetMath.totalReturn(totalW, boosted), totalW, wager) - wager;
-      }
-      return sum - wager;
-    }, 0);
+    const betPnl  = BetMath.personBetPnl(bets, field);
 
-    const betPnl = personBetPnl(bets);
-
-    // ─── Pending exposure ─────────────────────────────────
+    // ─── Pending exposure ─────────────────────────────────────
     const pendingBets = bets.filter(b => b.status === 'pending');
     const pendingAmt  = pendingBets.reduce((s, b) => s + parseFloat(b[field]), 0);
 
-    // ─── Rolling P&L ──────────────────────────────────────
+    // ─── Rolling P&L ──────────────────────────────────────────
     const cutoff7  = new Date(); cutoff7.setDate(cutoff7.getDate() - 7);   cutoff7.setHours(0,0,0,0);
     const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30); cutoff30.setHours(0,0,0,0);
-    const pnl7  = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7));
-    const pnl30 = personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30));
+    const pnl7  = BetMath.personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7), field);
+    const pnl30 = BetMath.personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30), field);
 
     // ─── Helpers ──────────────────────────────────────────
     const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
@@ -1069,7 +1055,7 @@ const App = {
     `;
 
     // Latest snapshot
-    const lastSnap = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+    const lastSnap = BetMath.lastSnapshot(snapshots);
     const snapBookBalances = lastSnap?.book_balances || {};
     const snapBooksSorted = Object.entries(snapBookBalances).sort((a, b) => b[1] - a[1]);
     const snapDateStr = lastSnap
@@ -1487,7 +1473,7 @@ const App = {
               label: c => {
                 const v = Math.abs(c.parsed.y);
                 const sign = c.dataset.label === 'Withdrawn' ? '-' : '';
-                return ` ${c.dataset.label}: ${sign}$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+                return ` ${c.dataset.label}: ${sign}${BetMath.fmt(v)}`;
               },
             },
           },
@@ -1852,17 +1838,15 @@ const App = {
 
       // auto: equity-based calculation
       const { transactions, bets, sportsbooks, snapshots, settings } = this.state;
-      const lastSnap  = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
-      const snapTotal = lastSnap ? parseFloat(lastSnap.cash) : BetMath.sportsbookTotal(sportsbooks);
       const bucket    = BetMath.bucketBalance(transactions);
-      const totalPool = snapTotal + bucket;
+      const totalPool = BetMath.snapTotal(snapshots, sportsbooks) + bucket;
 
       if (type === 'withdrawal') {
         const danEq  = BetMath.danEquity(transactions, bets);
         const danPct = totalPool > 0 ? danEq / totalPool : 0;
         return amount * danPct;
       } else if (type === 'redeployment') {
-        const danEscrow    = parseFloat(settings.dan_bank_share || 0);
+        const danEscrow    = parseFloat(settings.dan_bank_share) || 0;
         const danEscrowPct = bucket > 0 ? danEscrow / bucket : 0;
         return amount * danEscrowPct;
       }

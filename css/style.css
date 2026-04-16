@@ -383,21 +383,6 @@ main {
   gap: 8px;
 }
 
-.btn-add-tx {
-  display: block;
-  width: 100%;
-  background: var(--orange);
-  color: white;
-  border: none;
-  border-radius: var(--r);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  padding: 14px;
-  margin-bottom: 16px;
-  cursor: pointer;
-  box-shadow: 0 4px 16px var(--orange-glow);
-}
 
 .card {
   background: var(--bg-card);

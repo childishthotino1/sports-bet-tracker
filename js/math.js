@@ -87,54 +87,32 @@ const BetMath = {
     return totalPool - danEquity;
   },
 
-  // Pending exposure per person
-  danPending(bets) {
-    return bets.filter(b => b.status === 'pending')
-               .reduce((s, b) => s + parseFloat(b.his_wager), 0);
+  // ─── Shared helpers ───────────────────────────────────────
+
+  // Last snapshot entry, or null if none
+  lastSnapshot(snapshots) {
+    return snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
   },
 
-  brentPending(bets) {
-    return bets.filter(b => b.status === 'pending')
-               .reduce((s, b) => s + parseFloat(b.my_wager), 0);
+  // Snapshot-aligned sportsbook total (falls back to live balances if no snapshot)
+  snapTotal(snapshots, sportsbooks) {
+    const snap = this.lastSnapshot(snapshots);
+    return snap ? parseFloat(snap.cash) : this.sportsbookTotal(sportsbooks);
   },
 
-  // ─── Per-Person Stats ─────────────────────────────────────
-
-  personStats(transactions, bets, person) {
-    const field = person === 'dan' ? 'his_wager' : 'my_wager';
-
-    const deposited = transactions
-      .filter(t => t.person === person && t.type === 'deposit')
-      .reduce((s, t) => s + parseFloat(t.amount), 0);
-
-    const received = transactions
-      .filter(t => t.person === person && t.type === 'disbursement')
-      .reduce((s, t) => s + parseFloat(t.amount), 0);
-
-    let sharedPnl = 0;
-    let sharedWon = 0;
-    let sharedLost = 0;
-    let pending = 0;
-    for (const bet of bets) {
-      if (bet.status === 'push') continue;
-      const boosted = this.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
-      const wager   = parseFloat(bet[field]);
-      const totalW  = parseFloat(bet.total_wager);
-      if (bet.status === 'won') {
-        const totalRet = this.totalReturn(totalW, boosted);
-        const profit = this.splitReturn(totalRet, totalW, wager) - wager;
-        sharedPnl  += profit;
-        sharedWon  += 1;
-      } else if (bet.status === 'lost') {
-        sharedPnl  -= wager;
-        sharedLost += 1;
-      } else if (bet.status === 'pending') {
-        sharedPnl  -= wager; // counted as loss
-        pending    += wager;
+  // Per-person bet P&L across a list of bets
+  // field: 'his_wager' (Dan) or 'my_wager' (Brent)
+  personBetPnl(bets, field) {
+    return bets.reduce((sum, b) => {
+      if (b.status === 'push' || b.status === 'pending') return sum;
+      const boosted = this.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct) || 0);
+      const wager   = parseFloat(b[field]);
+      const totalW  = parseFloat(b.total_wager);
+      if (b.status === 'won') {
+        return sum + this.splitReturn(this.totalReturn(totalW, boosted), totalW, wager) - wager;
       }
-    }
-
-    return { deposited, received, sharedPnl, sharedWon, sharedLost, pending };
+      return sum - wager;
+    }, 0);
   },
 
   // ─── Pool P&L ─────────────────────────────────────────
