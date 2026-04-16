@@ -967,13 +967,11 @@ const App = {
       <div class="section-label">Last 5 Days</div>
       <div class="day-strip">${dayStrip}</div>
 
-      <button class="btn-add-tx" id="add-tx-btn">+ Add Money Moves</button>
       <div class="section-label">${name}'s Transactions</div>
       ${personTxs.length === 0
         ? '<div class="empty-state">No transactions yet</div>'
         : personTxs.map(t => this.txCardHTML(t)).join('')}
     `;
-    document.getElementById('add-tx-btn').addEventListener('click', () => this.showLogTransactionModal('deposit', person));
   },
 
   txCardHTML(t) {
@@ -1109,6 +1107,11 @@ const App = {
 
       ${open > 0 ? `<div class="sh-open-row"><span class="badge badge-pending">${open} open</span> bets pending settlement</div>` : ''}
 
+      <div class="stats-action-row">
+        <button class="btn-stats-action" id="stats-snap-btn">+ Add Snapshot</button>
+        <button class="btn-stats-action btn-stats-action-tx" id="stats-tx-btn">+ Money Moves</button>
+      </div>
+
       <div class="section-label">Last Sportsbook Snapshot</div>
       <div class="card">
         ${lastSnap ? `
@@ -1124,7 +1127,6 @@ const App = {
             <span class="bankroll-total-val">${BetMath.fmt(lastSnap.cash)}</span>
           </div>
         ` : `<div class="snap-empty">No snapshots yet</div>`}
-        <button class="snap-inline-btn" id="stats-snap-btn">+ Add Snapshot</button>
       </div>
 
       <div class="section-label mt-12">By Sport</div>
@@ -1151,6 +1153,7 @@ const App = {
       });
     });
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
+    document.getElementById('stats-tx-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
     this._renderPerfCard();
   },
