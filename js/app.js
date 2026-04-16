@@ -869,7 +869,7 @@ const App = {
     // ─── Day strip ────────────────────────────────────────
     const dayStrip = [5,4,3,2,1].map(i => {
       const db  = BetMath.dayBets(bets, i);
-      const pnl = personBetPnl(db);
+      const pnl = BetMath.personBetPnl(db, field);
       const won  = db.filter(b => b.status === 'won').length;
       const lost = db.filter(b => b.status === 'lost').length;
       const push = db.filter(b => b.status === 'push').length;
