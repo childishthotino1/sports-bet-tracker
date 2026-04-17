@@ -1,107 +1,90 @@
 const BetMath = {
 
-  // Boost increases the payout by boost% of the profit rate
-  // Positive: +200 + 20% = +240 | Negative: -114 + 30% = +114
+  // Boost increases the payout by boost% of the profit rate.
+  // Floor to avoid crediting more than the book actually pays.
   boostedOdds(baseOdds, boostPct) {
     if (!boostPct) return baseOdds;
     if (baseOdds >= 0) {
-      return Math.round(baseOdds * (1 + boostPct / 100));
+      return Math.floor(baseOdds * (1 + boostPct / 100));
     } else {
       const profitPer100 = (10000 / Math.abs(baseOdds)) * (1 + boostPct / 100);
-      if (profitPer100 >= 100) return Math.round(profitPer100);
-      return -Math.round(10000 / profitPer100);
+      if (profitPer100 >= 100) return Math.floor(profitPer100);
+      return -Math.floor(10000 / profitPer100);
     }
   },
 
+  // Floor profit to the cent — don't credit more than the book pays
   totalReturn(wager, odds) {
-    if (!odds) return wager; // no odds recorded — return wager (no profit displayed)
-    const profit = odds > 0
+    if (!odds) return wager;
+    const rawProfit = odds > 0
       ? wager * (odds / 100)
       : wager * (100 / Math.abs(odds));
+    const profit = Math.floor(rawProfit * 100) / 100;
     return wager + profit;
   },
 
   splitReturn(totalReturn, totalWager, partnerWager) {
+    if (!totalWager) return 0;
     return totalReturn * (partnerWager / totalWager);
   },
 
-  // ─── Pool / Bucket ────────────────────────────────────────
+  // ─── Person normalization (legacy 'me'/'friend' support) ──
+
+  _norm(person) {
+    if (person === 'me')     return 'brent';
+    if (person === 'friend') return 'dan';
+    return person;
+  },
+
+  // ─── Pool / Bank ──────────────────────────────────────────
 
   sportsbookTotal(sportsbooks) {
     return sportsbooks.reduce((s, sb) => s + parseFloat(sb.current_balance), 0);
   },
 
-  // Bucket = withdrawn from sportsbooks, minus redeployments back to books, minus disbursements paid out
-  // Owned proportionally by both people — no manual attribution needed
-  bucketBalance(transactions) {
+  // Bank = money withdrawn from books, minus redeployments back in, minus payouts made
+  bankBalance(transactions) {
     return transactions.reduce((s, t) => {
-      if (t.type === 'withdrawal')    return s + parseFloat(t.amount);
-      if (t.type === 'redeployment')  return s - parseFloat(t.amount); // back into a sportsbook
-      if (t.type === 'disbursement')  return s - parseFloat(t.amount);
+      if (t.type === 'withdrawal')                          return s + parseFloat(t.amount);
+      if (t.type === 'redeployment')                        return s - parseFloat(t.amount);
+      if (t.type === 'disbursement' || t.type === 'payout') return s - parseFloat(t.amount);
       return s;
     }, 0);
   },
 
-  // Total pool = all sportsbook money + bucket (cash in bank account)
+  // Total pool = live sportsbook balances + cash in bank
   totalPool(sportsbooks, transactions) {
-    return this.sportsbookTotal(sportsbooks) + this.bucketBalance(transactions);
+    return this.sportsbookTotal(sportsbooks) + this.bankBalance(transactions);
   },
 
-  // ─── Person Equity ────────────────────────────────────────
+  // ─── Person Equity (symmetric for both) ──────────────────
 
-  // Each person's share of the bucket = their equity % of the pool
-  // No manual tagging needed — the residual formula handles it automatically
-
-  // Dan's equity: deposits + bet P&L − disbursements received
-  // Withdrawals are NOT added here — they just move money within the pool,
-  // and Dan's proportional ownership of the bucket flows through naturally
-  // via brentEquity = totalPool − danEquity
-  danEquity(transactions, bets) {
+  // equity = deposits + adjustments + bet P&L − payouts received
+  personEquity(transactions, bets, person) {
     let equity = 0;
-
     for (const t of transactions) {
-      if (t.person !== 'dan') continue;
-      if (t.type === 'deposit')      equity += parseFloat(t.amount);
-      if (t.type === 'disbursement') equity -= parseFloat(t.amount); // Dan has received this cash
+      if (this._norm(t.person) !== person) continue;
+      if (t.type === 'deposit' || t.type === 'adjustment') equity += parseFloat(t.amount);
+      if (t.type === 'disbursement' || t.type === 'payout') equity -= parseFloat(t.amount);
     }
-
-    for (const bet of bets) {
-      if (bet.status === 'push') continue;
-      const boosted   = this.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
-      const hisWager  = parseFloat(bet.his_wager);
-      const totalW    = parseFloat(bet.total_wager);
-      if (bet.status === 'won') {
-        const totalRet = this.totalReturn(totalW, boosted);
-        equity += this.splitReturn(totalRet, totalW, hisWager) - hisWager;
-      } else if (bet.status === 'lost') {
-        equity -= hisWager;
-      }
-      // pending: not counted — money is still in the pool
-    }
-
-    return equity;
+    const field = person === 'dan' ? 'his_wager' : 'my_wager';
+    return equity + this.personBetPnl(bets, field);
   },
 
-  // Brent's equity is the residual — automatically absorbs his solo bet results
-  brentEquity(totalPool, danEquity) {
-    return totalPool - danEquity;
+  personAdjustment(transactions, person) {
+    return transactions
+      .filter(t => this._norm(t.person) === person && t.type === 'adjustment')
+      .reduce((s, t) => s + parseFloat(t.amount), 0);
   },
 
-  // ─── Shared helpers ───────────────────────────────────────
-
-  // Last snapshot entry, or null if none
-  lastSnapshot(snapshots) {
-    return snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+  poolAdjustment(transactions) {
+    return transactions
+      .filter(t => t.type === 'adjustment')
+      .reduce((s, t) => s + parseFloat(t.amount), 0);
   },
 
-  // Snapshot-aligned sportsbook total (falls back to live balances if no snapshot)
-  snapTotal(snapshots, sportsbooks) {
-    const snap = this.lastSnapshot(snapshots);
-    return snap ? parseFloat(snap.cash) : this.sportsbookTotal(sportsbooks);
-  },
+  // ─── Bet P&L ──────────────────────────────────────────────
 
-  // Per-person bet P&L across a list of bets
-  // field: 'his_wager' (Dan) or 'my_wager' (Brent)
   personBetPnl(bets, field) {
     return bets.reduce((sum, b) => {
       if (b.status === 'push' || b.status === 'pending') return sum;
@@ -115,9 +98,6 @@ const BetMath = {
     }, 0);
   },
 
-  // ─── Pool P&L ─────────────────────────────────────────
-
-  // Net profit/loss from a set of bets (pool level, excludes pending)
   poolBetPnl(bets) {
     return bets.reduce((sum, b) => {
       if (b.status === 'push' || b.status === 'pending') return sum;
@@ -129,7 +109,15 @@ const BetMath = {
     }, 0);
   },
 
-  // Bets placed N days ago (local date) that have been settled
+  rollingPnl(bets, days) {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setHours(0, 0, 0, 0);
+    return this.poolBetPnl(
+      bets.filter(b => new Date(b.placed_at) >= cutoff)
+    );
+  },
+
   dayBets(bets, daysAgo) {
     const d = new Date();
     d.setDate(d.getDate() - daysAgo);
@@ -140,17 +128,12 @@ const BetMath = {
     );
   },
 
-  // Convenience alias
   yesterdayBets(bets) { return this.dayBets(bets, 1); },
 
-  // Net P&L from bets placed within the last N rolling days
-  rollingPnl(bets, days) {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - days);
-    cutoff.setHours(0, 0, 0, 0);
-    return this.poolBetPnl(
-      bets.filter(b => new Date(b.placed_at) >= cutoff)
-    );
+  // ─── Snapshots (used only for the performance chart) ──────
+
+  lastSnapshot(snapshots) {
+    return snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
   },
 
   // ─── Formatting ───────────────────────────────────────────

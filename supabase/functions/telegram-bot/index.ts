@@ -325,6 +325,11 @@ async function saveBet(chatId: number, pending: any, supabase: ReturnType<typeof
 
   await supabase.from("pending_bets").update({ status: "confirmed" }).eq("id", pending.id);
 
+  const { data: sb } = await supabase.from("sportsbooks").select("current_balance").eq("id", matched.id).single();
+  if (sb) {
+    await supabase.from("sportsbooks").update({ current_balance: parseFloat(sb.current_balance) - pd.total_wager }).eq("id", matched.id);
+  }
+
   // Remember this book for future slips that don't show the sportsbook name
   await setDefaultBook(chatId, pd.book, supabase);
 

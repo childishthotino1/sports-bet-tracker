@@ -103,19 +103,18 @@ const App = {
     const navBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
     if (navBtn) navBtn.classList.add('active');
     this.state.view = view;
-    const titles = { pool: 'Honeypot', bets: 'Bets', 'add-bet': 'New Bet', brent: 'Brent', dan: 'Dan', stats: 'Stats' };
+    const titles = { pool: 'Honeypot', bets: 'Bets', brent: 'Brent', dan: 'Dan', stats: 'Stats' };
     document.getElementById('header-title').textContent = titles[view] || view;
     this.render(view);
   },
 
   render(view) {
     const map = {
-      pool:     () => this.renderPool(),
-      bets:     () => this.renderBets(),
-      'add-bet': () => this.renderAddBet(),
-      brent:    () => this.renderPerson('brent'),
-      dan:      () => this.renderPerson('dan'),
-      stats:    () => this.renderStats(),
+      pool:  () => this.renderPool(),
+      bets:  () => this.renderBets(),
+      brent: () => this.renderPerson('brent'),
+      dan:   () => this.renderPerson('dan'),
+      stats: () => this.renderStats(),
     };
     if (!map[view]) return;
     try {
@@ -131,71 +130,72 @@ const App = {
   // ─── Pool View ─────────────────────────────────────────
 
   renderPool() {
-    const { sportsbooks, bets, transactions, snapshots } = this.state;
+    const { sportsbooks, bets, transactions } = this.state;
 
-    // Latest snapshot drives "In Sportsbooks" and estimated balance
-    const lastSnap   = BetMath.lastSnapshot(snapshots);
-    const snapTotal  = BetMath.snapTotal(snapshots, sportsbooks);
-    const snapDate   = lastSnap ? lastSnap.snapshot_date : null; // 'YYYY-MM-DD'
+    const totalSb   = BetMath.sportsbookTotal(sportsbooks);
+    const bank      = BetMath.bankBalance(transactions);
+    const totalPool = totalSb + bank;
 
-    // "In Sportsbooks" date label
-    const sbAsOf = snapDate
-      ? (() => { const d = new Date(snapDate + 'T00:00:00'); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`; })()
-      : null;
+    const brentEq  = BetMath.personEquity(transactions, bets, 'brent');
+    const danEq    = BetMath.personEquity(transactions, bets, 'dan');
+    const brentPct = totalPool > 0 ? (brentEq / totalPool * 100).toFixed(1) : '0.0';
+    const danPct   = totalPool > 0 ? (danEq   / totalPool * 100).toFixed(1) : '0.0';
 
-    // Est. balance = snapshot total + settled bet P&L placed after snapshot date
-    const betsSince  = snapDate
-      ? bets.filter(b => b.placed_at && b.placed_at.split('T')[0] > snapDate && b.status !== 'pending')
-      : [];
-    const pnlSince   = BetMath.poolBetPnl(betsSince);
-    const estBalance = snapTotal + pnlSince;
-
-    // Bucket & Total Equity (snapshot total + bucket)
-    const bucket    = BetMath.bucketBalance(transactions);
-    const totalPool = snapTotal + bucket;
-
-    // P&L
     const settledBets = bets.filter(b => b.status !== 'pending');
-    const allTimePnl  = BetMath.poolBetPnl(settledBets);
+    const allTimePnl  = BetMath.poolBetPnl(settledBets) + BetMath.poolAdjustment(transactions);
     const pnl7        = BetMath.rollingPnl(bets, 7);
     const pnl30       = BetMath.rollingPnl(bets, 30);
     const openBets    = bets.filter(b => b.status === 'pending');
 
-    // Snapshot reminder
-    const daysSinceSnap = lastSnap ? Math.floor((Date.now() - new Date(snapDate + 'T00:00:00')) / 864e5) : null;
-    const showSnapReminder = !lastSnap || daysSinceSnap >= 7;
-    const snapMsg = !lastSnap
-      ? 'No snapshots yet — add one to start tracking pool growth'
-      : `Last snapshot ${daysSinceSnap}d ago — add one to keep the chart accurate`;
-
     const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
-    const sign   = v => v > 0 ? '+' : '';
+    const sign   = v => v >= 0 ? '+' : '';
+
+    const dayStrip = [5,4,3,2,1].map(i => {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const db      = BetMath.dayBets(bets, i);
+      const pnl     = BetMath.poolBetPnl(db);
+      const won     = db.filter(b => b.status === 'won').length;
+      const lost    = db.filter(b => b.status === 'lost').length;
+      const push    = db.filter(b => b.status === 'push').length;
+      const hasData = db.length > 0;
+      const label   = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+      const rec     = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
+      return `<div class="day-box">
+        <div class="day-box-label">${label}</div>
+        <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
+        <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
+      </div>`;
+    }).join('');
 
     document.getElementById('pool-content').innerHTML = `
-      <div class="section-label">Est. Sportsbook Balance</div>
-      <div class="hp-today-card">
-        <div class="hp-today-pnl">
-          <div class="hp-today-amount">${BetMath.fmt(estBalance)}</div>
-          ${pnlSince !== 0 ? `<div class="hp-today-record"><span class="${pnlSince > 0 ? 'hp-rec-w' : 'hp-rec-l'}">${sign(pnlSince)}${BetMath.fmt(pnlSince)} since last update</span></div>` : ''}
+      <div class="pool-hero">
+        <div class="pool-label">Pool Total</div>
+        <div class="pool-amount">${BetMath.fmt(totalPool)}</div>
+        <div class="pool-sub ${pnlCls(allTimePnl)}">${sign(allTimePnl)}${BetMath.fmt(allTimePnl)} all-time P&amp;L</div>
+      </div>
+
+      <div class="equity-row">
+        <div class="equity-card equity-card-brent">
+          <div class="equity-name">Brent</div>
+          <div class="equity-amount">${BetMath.fmt(brentEq)}</div>
+          <div class="equity-risk">${brentPct}% of pool</div>
+        </div>
+        <div class="equity-card equity-card-dan">
+          <div class="equity-name">Dan</div>
+          <div class="equity-amount">${BetMath.fmt(danEq)}</div>
+          <div class="equity-risk">${danPct}% of pool</div>
         </div>
       </div>
 
       <div class="hp-metrics-grid">
-        <div class="hp-metric">
-          <div class="hp-metric-label">In Sportsbooks${sbAsOf ? `<span class="hp-metric-date"> · ${sbAsOf}</span>` : ''}</div>
-          <div class="hp-metric-value">${BetMath.fmt(snapTotal)}</div>
-        </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">Bucket</div>
-          <div class="hp-metric-value">${BetMath.fmt(bucket)}</div>
-        </div>
         <div class="hp-metric hp-metric-total">
-          <div class="hp-metric-label">Total Equity</div>
-          <div class="hp-metric-value">${BetMath.fmt(totalPool)}</div>
+          <div class="hp-metric-label">In Sportsbooks</div>
+          <div class="hp-metric-value">${BetMath.fmt(totalSb)}</div>
         </div>
         <div class="hp-metric">
-          <div class="hp-metric-label">All Time P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(allTimePnl)}">${sign(allTimePnl)}${BetMath.fmt(allTimePnl)}</div>
+          <div class="hp-metric-label">In Bank</div>
+          <div class="hp-metric-value ${bank > 0 ? 'text-gold' : ''}">${BetMath.fmt(bank)}</div>
         </div>
         <div class="hp-metric">
           <div class="hp-metric-label">7-Day P&amp;L</div>
@@ -207,28 +207,13 @@ const App = {
         </div>
       </div>
 
-      <div class="section-label">Last 5 Days</div>
-      <div class="day-strip">${
-        [5,4,3,2,1].map(i => {
-          const d = new Date();
-          d.setDate(d.getDate() - i);
-          const db     = BetMath.dayBets(bets, i);
-          const pnl    = BetMath.poolBetPnl(db);
-          const won    = db.filter(b => b.status === 'won').length;
-          const lost   = db.filter(b => b.status === 'lost').length;
-          const push   = db.filter(b => b.status === 'push').length;
-          const hasData = db.length > 0;
-          const label  = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-          const rec    = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
-          return `<div class="day-box">
-            <div class="day-box-label">${label}</div>
-            <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
-            <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
-          </div>`;
-        }).join('')
-      }</div>
+      <div class="pool-actions">
+        <button class="action-btn" id="btn-money-moves">+ Money Moves</button>
+        <button class="action-btn" id="btn-manage-books">Manage Books</button>
+      </div>
 
-      ${showSnapReminder ? `<button class="snap-reminder" id="snap-reminder-btn">${snapMsg}</button>` : ''}
+      <div class="section-label">Last 5 Days</div>
+      <div class="day-strip">${dayStrip}</div>
 
       ${openBets.length > 0 ? `
         <div class="section-label">Open Bets <span class="badge badge-pending">${openBets.length}</span></div>
@@ -237,7 +222,8 @@ const App = {
     `;
 
     this.attachBetCardHandlers();
-    document.getElementById('snap-reminder-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
+    document.getElementById('btn-money-moves')?.addEventListener('click', () => this.showLogTransactionModal());
+    document.getElementById('btn-manage-books')?.addEventListener('click', () => this.showManageBooksModal());
   },
 
   // ─── Honeypot Bet Row ───────────────────────────────────
@@ -555,26 +541,6 @@ const App = {
 
   // ─── Bets View ─────────────────────────────────────────
 
-  betCodeFromBet(b) {
-    const BOOK_SHORT = {
-      'theScore Bet': 'ESPN', 'Bet365': 'B365', 'DraftKings': 'DK',
-      'BetMGM': 'MGM', 'Fanatics': 'Fanatics',
-    };
-    const book  = BOOK_SHORT[b.sportsbooks?.name] || b.sportsbooks?.name || '?';
-    const odds  = parseInt(b.base_odds);
-    const oddsStr = odds !== 0 ? BetMath.fmtOdds(odds) : '';
-    const boost = parseFloat(b.boost_pct);
-    return [
-      book,
-      b.sport,
-      b.description,
-      boost,
-      parseFloat(b.total_wager),
-      parseFloat(b.his_wager),
-      `${parseFloat(b.my_wager)}${oddsStr}`,
-    ].join('.');
-  },
-
   renderBets() {
     const filter = this.state.betFilter;
 
@@ -660,252 +626,56 @@ const App = {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   },
 
-  // ─── Add Bet (Dot Notation) ────────────────────────────
-
-  renderAddBet() {
-    const today = this.localDateStr();
-    const container = document.getElementById('add-bet-view');
-    container.innerHTML = `
-      <div class="code-input-wrapper">
-        <div class="code-label">Date</div>
-        <input type="date" id="bet-date-input" class="form-input" value="${today}">
-      </div>
-      <div class="code-input-wrapper">
-        <div class="code-label">Bet Codes</div>
-        <textarea
-          id="bet-code-input"
-          class="code-input code-textarea"
-          placeholder="ESPN.NBA.PlayerProp.20.50.30.20+413&#10;DK.NFL.BrownsCover.0.25.20.5-110&#10;MGM.NHL.CapsCover.15.30.25.5+180"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="characters"
-          spellcheck="false"
-          rows="5"
-        ></textarea>
-        <div class="code-format-hint">BOOK · SPORT · DESC · BOOST% · TOTAL · DAN · BRENT±ODDS · one per line</div>
-      </div>
-      <div id="bet-parse-result"></div>
-    `;
-    document.getElementById('bet-code-input').addEventListener('input', e => {
-      this.handleBetCodesInput(e.target.value);
-    });
-    document.getElementById('bet-code-input').focus();
-  },
-
-  parseBetCode(raw) {
-    const code = raw.trim();
-    if (!code) return null;
-
-    const parts = code.split('.');
-
-    let book, sport, desc, boostStr, totalStr, danStr, brentStr, oddsStr;
-
-    if (parts.length === 8) {
-      // 8-segment: BOOK.SPORT.DESC.BOOST.TOTAL.DAN.BRENT.ODDS
-      [book, sport, desc, boostStr, totalStr, danStr, brentStr, oddsStr] = parts;
-    } else if (parts.length === 7) {
-      // 7-segment: BOOK.SPORT.DESC.BOOST.TOTAL.DAN.BRENT±ODDS
-      [book, sport, desc, boostStr, totalStr, danStr] = parts;
-      const m = parts[6].match(/^([\d.]+)([+-]\d+)$/);
-      if (!m) return { error: 'Last segment must be BrentWager±Odds (e.g. 20+413 or 20-110)' };
-      brentStr = m[1];
-      oddsStr  = m[2];
-    } else {
-      return { error: `Need 7 or 8 segments, got ${parts.length}` };
-    }
-
-    const boost_pct   = parseFloat(boostStr) || 0;
-    const total_wager = parseFloat(totalStr);
-    const his_wager   = parseFloat(danStr);
-    const my_wager    = parseFloat(brentStr);
-    const base_odds   = parseInt(oddsStr);
-
-    if (isNaN(total_wager) || total_wager <= 0) {
-      return { error: 'Total wager must be a positive number' };
-    }
-    if (isNaN(his_wager) || his_wager < 0 || isNaN(my_wager) || my_wager < 0) {
-      return { error: 'Wager amounts cannot be negative' };
-    }
-    if (Math.abs(his_wager + my_wager - total_wager) > 0.02) {
-      return { error: `Wagers don't add up: Dan $${his_wager} + Brent $${my_wager} ≠ $${total_wager}` };
-    }
-
-    // Match sportsbook (ESPN is the old name for theScore Bet)
-    const BOOK_ALIASES = {
-      'ESPN': 'theScore Bet', 'THESCORE': 'theScore Bet', 'SCORE': 'theScore Bet', 'THESCOREBET': 'theScore Bet',
-      'FD': 'FanDuel', 'FANDUEL': 'FanDuel',
-      'DK': 'DraftKings', 'DRAFTKINGS': 'DraftKings',
-      'MGM': 'BetMGM', 'BETMGM': 'BetMGM',
-      'B365': 'Bet365', 'BET365': 'Bet365',
-      'FAN': 'Fanatics', 'FANATICS': 'Fanatics',
-    };
-    const bookUpper = book.toUpperCase().replace(/\s/g, '');
-    const aliasName = BOOK_ALIASES[bookUpper];
-    const matched   = aliasName
-      ? this.state.sportsbooks.find(sb => sb.name === aliasName)
-      : (this.state.sportsbooks.find(sb => {
-          const sbKey = sb.name.toUpperCase().replace(/\s/g, '');
-          return sbKey === bookUpper || sbKey.startsWith(bookUpper) || bookUpper.startsWith(sbKey.split('')[0]);
-        }) || this.state.sportsbooks.find(sb =>
-          sb.name.toUpperCase().includes(bookUpper.slice(0, 4))
-        ) || null);
-
-    if (!matched) {
-      return { error: `Book "${book}" not recognized` };
-    }
-
-    return { book, sport: sport.toUpperCase(), description: desc, boost_pct, total_wager, his_wager, my_wager, base_odds, sportsbook_id: matched.id, sportsbook_matched: matched.name };
-  },
-
-  handleBetCodesInput(raw) {
-    const result = document.getElementById('bet-parse-result');
-    const lines  = raw.split(/\s+/).map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length === 0) { result.innerHTML = ''; return; }
-
-    const rows = lines.map(line => {
-      const p = this.parseBetCode(line);
-      if (!p) return '';
-      if (p.error) {
-        return `<div class="parse-row parse-row-error">
-          <span class="parse-row-label">${line.slice(0, 40)}${line.length > 40 ? '…' : ''}</span>
-          <span class="parse-row-msg">${p.error}</span>
-        </div>`;
-      }
-      const boosted = BetMath.boostedOdds(p.base_odds, p.boost_pct);
-      return `<div class="parse-row parse-row-valid">
-        <span class="parse-row-book">${p.sportsbook_matched.replace('theScore Bet', 'Score')}</span>
-        <span class="parse-row-sport">${p.sport}</span>
-        <span class="parse-row-desc">${p.description}</span>
-        <span class="parse-row-odds">${BetMath.fmtOdds(boosted)}${p.boost_pct > 0 ? ` +${p.boost_pct}%` : ''}</span>
-        <span class="parse-row-wager">${BetMath.fmt(p.total_wager)}</span>
-      </div>`;
-    }).join('');
-
-    const valid   = lines.filter(l => { const p = this.parseBetCode(l); return p && !p.error; });
-    const errored = lines.length - valid.length;
-
-    result.innerHTML = `
-      <div class="parse-summary">${rows}</div>
-      ${valid.length > 0 ? `
-        <button class="btn-place-bet" id="btn-place-bet">
-          Place ${valid.length} Bet${valid.length !== 1 ? 's' : ''}${errored > 0 ? ` · ${errored} skipped` : ''}
-        </button>
-      ` : ''}
-    `;
-
-    if (valid.length > 0) {
-      document.getElementById('btn-place-bet').addEventListener('click', () => {
-        const dateVal  = document.getElementById('bet-date-input')?.value;
-        const placedAt = dateVal ? new Date(dateVal + 'T12:00:00').toISOString() : new Date().toISOString();
-        const parsed   = valid.map(l => this.parseBetCode(l)).filter(p => p && !p.error);
-        this.submitParsedBets(parsed, placedAt);
-      });
-    }
-  },
-
-  async submitParsedBets(parsedBets, placedAt = new Date().toISOString()) {
-    const btn = document.getElementById('btn-place-bet');
-    btn.disabled = true;
-    btn.textContent = 'Placing...';
-
-    try {
-      DB.logActivity(this.state.currentUser, 'bets_placed', {
-        count: parsedBets.length,
-        bets: parsedBets.map(p => ({ sport: p.sport, description: p.description, total_wager: p.total_wager, sportsbook: p.sportsbook_matched })),
-      });
-      const balAdj = {};
-      for (const p of parsedBets) {
-        await DB.addBet({
-          sportsbook_id: p.sportsbook_id,
-          sport:         p.sport,
-          description:   p.description,
-          boost_pct:     p.boost_pct,
-          total_wager:   p.total_wager,
-          his_wager:     p.his_wager,
-          my_wager:      p.my_wager,
-          base_odds:     p.base_odds,
-          placed_at:     placedAt,
-        });
-        const sid = String(p.sportsbook_id);
-        balAdj[sid] = (balAdj[sid] || 0) - parseFloat(p.total_wager);
-      }
-      for (const [sid, delta] of Object.entries(balAdj)) {
-        const sb = this.state.sportsbooks.find(s => String(s.id) === sid);
-        if (sb) await DB.updateSportsbookBalance(sid, parseFloat(sb.current_balance) + delta);
-      }
-      await this.loadData();
-      document.getElementById('bet-code-input').value = '';
-      document.getElementById('bet-parse-result').innerHTML = '';
-      this.navigate('pool');
-    } catch (err) {
-      alert('Error: ' + err.message);
-      btn.disabled = false;
-      btn.textContent = `Place ${parsedBets.length} Bet${parsedBets.length !== 1 ? 's' : ''}`;
-    }
-  },
-
   // ─── Person View (Brent / Dan) ────────────────────────
 
   renderPerson(person) {
-    const { bets, transactions, sportsbooks, snapshots, settings } = this.state;
+    const { bets, transactions, sportsbooks } = this.state;
+    const norm = p => BetMath._norm(p);
 
     const name  = person === 'dan' ? 'Dan' : 'Brent';
     const field = person === 'dan' ? 'his_wager' : 'my_wager';
 
-    // ─── Pool totals (snapshot-aligned, same as Honeypot) ─────
-    const bucket    = BetMath.bucketBalance(transactions);
-    const totalPool = BetMath.snapTotal(snapshots, sportsbooks) + bucket;
+    const totalSb   = BetMath.sportsbookTotal(sportsbooks);
+    const bank      = BetMath.bankBalance(transactions);
+    const totalPool = totalSb + bank;
+    const equity    = BetMath.personEquity(transactions, bets, person);
+    const pct       = totalPool > 0 ? (equity / totalPool * 100).toFixed(1) : '0.0';
 
-    // ─── $ Bag (equity) ───────────────────────────────────────
-    const danEq   = BetMath.danEquity(transactions, bets);
-    const brentEq = BetMath.brentEquity(totalPool, danEq);
-    const equity  = person === 'dan' ? danEq : brentEq;
-
-    // ─── Escrow split (explicitly tracked, not proportional) ──
-    // Clamped so stale dan_bank_share never exceeds the actual bucket
-    const danEscrow   = Math.min(parseFloat(settings.dan_bank_share) || 0, Math.max(0, bucket));
-    const brentEscrow = Math.max(0, bucket - danEscrow);
-    const escrowShare = person === 'dan' ? danEscrow : brentEscrow;
-
-    // ─── Sportsbook share = $ Bag minus what's in escrow ──────
-    const sbShare = equity - escrowShare;
-
-    // ─── Money flow breakdown ─────────────────────────────────
+    // Receipt breakdown
     const deposited = transactions
-      .filter(t => t.person === person && t.type === 'deposit')
+      .filter(t => norm(t.person) === person && t.type === 'deposit')
       .reduce((s, t) => s + parseFloat(t.amount), 0);
 
     const paidOut = transactions
-      .filter(t => t.person === person && t.type === 'disbursement')
+      .filter(t => norm(t.person) === person && (t.type === 'disbursement' || t.type === 'payout'))
       .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-    const betPnl  = BetMath.personBetPnl(bets, field);
+    const betPnl     = BetMath.personBetPnl(bets, field);
+    const adjustment = BetMath.personAdjustment(transactions, person);
 
-    // ─── Pending exposure ─────────────────────────────────────
+    // Pending exposure
     const pendingBets = bets.filter(b => b.status === 'pending');
     const pendingAmt  = pendingBets.reduce((s, b) => s + parseFloat(b[field]), 0);
 
-    // ─── Rolling P&L ──────────────────────────────────────────
+    // Rolling P&L
     const cutoff7  = new Date(); cutoff7.setDate(cutoff7.getDate() - 7);   cutoff7.setHours(0,0,0,0);
     const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30); cutoff30.setHours(0,0,0,0);
-    const pnl7  = BetMath.personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7), field);
+    const pnl7  = BetMath.personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7),  field);
     const pnl30 = BetMath.personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff30), field);
 
-    // ─── Helpers ──────────────────────────────────────────
     const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
     const sign   = v => v >= 0 ? '+' : '';
 
-    // ─── Day strip ────────────────────────────────────────
     const dayStrip = [5,4,3,2,1].map(i => {
-      const db  = BetMath.dayBets(bets, i);
-      const pnl = BetMath.personBetPnl(db, field);
-      const won  = db.filter(b => b.status === 'won').length;
-      const lost = db.filter(b => b.status === 'lost').length;
-      const push = db.filter(b => b.status === 'push').length;
+      const db      = BetMath.dayBets(bets, i);
+      const pnl     = BetMath.personBetPnl(db, field);
+      const won     = db.filter(b => b.status === 'won').length;
+      const lost    = db.filter(b => b.status === 'lost').length;
+      const push    = db.filter(b => b.status === 'push').length;
       const hasData = db.length > 0;
       const d = new Date(); d.setDate(d.getDate() - i);
       const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-      const rec = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
+      const rec   = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
       return `<div class="day-box">
         <div class="day-box-label">${label}</div>
         <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
@@ -913,30 +683,15 @@ const App = {
       </div>`;
     }).join('');
 
-    const personTxs = transactions.filter(t => t.person === person);
+    const personTxs = transactions.filter(t => norm(t.person) === person);
 
-    const container = document.getElementById(`${person}-content`);
-    container.innerHTML = `
-      <!-- Hero: $ Bag -->
+    document.getElementById(`${person}-content`).innerHTML = `
       <div class="person-hero person-hero-${person}">
-        <div class="person-hero-label">$ BAG</div>
+        <div class="person-hero-label">${name}</div>
         <div class="person-bankroll">${BetMath.fmt(equity)}</div>
-        <div class="person-hero-sub">${BetMath.fmt(sbShare)} sportsbooks · ${BetMath.fmt(escrowShare)} escrow</div>
+        <div class="person-hero-sub">${pct}% of pool</div>
       </div>
 
-      <!-- Where It Is -->
-      <div class="person-where-grid">
-        <div class="person-where-card person-where-${person}">
-          <div class="person-where-label">In Sportsbooks</div>
-          <div class="person-where-value">${BetMath.fmt(sbShare)}</div>
-        </div>
-        <div class="person-where-card person-where-escrow">
-          <div class="person-where-label">In Escrow</div>
-          <div class="person-where-value">${BetMath.fmt(escrowShare)}</div>
-        </div>
-      </div>
-
-      <!-- How You Got Here (receipt) -->
       <div class="person-receipt">
         <div class="person-receipt-title">How You Got Here</div>
         <div class="person-receipt-row">
@@ -947,10 +702,15 @@ const App = {
           <span class="person-receipt-label">Bet P&amp;L</span>
           <span class="person-receipt-amt ${pnlCls(betPnl)}">${sign(betPnl)}${BetMath.fmt(betPnl)}</span>
         </div>
+        ${adjustment > 0 ? `
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Adjustment</span>
+          <span class="person-receipt-amt text-green">+${BetMath.fmt(adjustment)}</span>
+        </div>` : ''}
         ${paidOut > 0 ? `
         <div class="person-receipt-divider"></div>
         <div class="person-receipt-row person-receipt-row-muted">
-          <span class="person-receipt-label">Already Paid Out</span>
+          <span class="person-receipt-label">Paid Out</span>
           <span class="person-receipt-amt">(${BetMath.fmt(paidOut)})</span>
         </div>` : ''}
         <div class="person-receipt-divider person-receipt-divider-strong"></div>
@@ -960,14 +720,12 @@ const App = {
         </div>
       </div>
 
-      <!-- Pending Exposure -->
       ${pendingAmt > 0 ? `
       <div class="person-pending-bar">
         <span class="person-pending-label">Pending</span>
         <span class="person-pending-text">${pendingBets.length} open bet${pendingBets.length !== 1 ? 's' : ''} · ${BetMath.fmt(pendingAmt)} at risk</span>
       </div>` : ''}
 
-      <!-- Rolling performance -->
       <div class="person-perf-row">
         <div class="person-perf-chip">
           <span class="person-perf-chip-label">7-Day P&amp;L</span>
@@ -990,7 +748,7 @@ const App = {
   },
 
   txCardHTML(t) {
-    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bank', redeployment: 'Redeployment', disbursement: 'Paid Out' };
+    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bank', redeployment: 'Redeployment', disbursement: 'Paid Out', payout: 'Paid Out' };
     const book = t.sportsbooks?.name || '';
     const sub  = t.type === 'withdrawal'    ? (book ? `from ${book}` : '')
                : t.type === 'redeployment'  ? (book ? `bank → ${book}` : 'bank → sportsbook')
@@ -1040,7 +798,8 @@ const App = {
       return;
     }
 
-    const { bets, snapshots } = this.state;
+    const { bets, snapshots, sportsbooks, transactions } = this.state;
+    const totalSb = BetMath.sportsbookTotal(sportsbooks);
     const won    = bets.filter(b => b.status === 'won').length;
     const lost   = bets.filter(b => b.status === 'lost').length;
     const push   = bets.filter(b => b.status === 'push').length;
@@ -1083,14 +842,6 @@ const App = {
       </div>
     `;
 
-    // Latest snapshot
-    const lastSnap = BetMath.lastSnapshot(snapshots);
-    const snapBookBalances = lastSnap?.book_balances || {};
-    const snapBooksSorted = Object.entries(snapBookBalances).sort((a, b) => b[1] - a[1]);
-    const snapDateStr = lastSnap
-      ? new Date(lastSnap.snapshot_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      : null;
-
     document.getElementById('stats-content').innerHTML = tabBar + `
       <div class="perf-card" id="perf-card-tap">
         <div class="perf-card-top">
@@ -1123,26 +874,23 @@ const App = {
       ${open > 0 ? `<div class="sh-open-row"><span class="badge badge-pending">${open} open</span> bets pending settlement</div>` : ''}
 
       <div class="stats-action-row">
-        <button class="btn-stats-action" id="stats-snap-btn">+ Add Snapshot</button>
+        <button class="btn-stats-action" id="stats-snap-btn">+ Snapshot</button>
         <button class="btn-stats-action btn-stats-action-tx" id="stats-tx-btn">+ Money Moves</button>
         <button class="btn-stats-action" id="stats-books-btn">Manage Books</button>
       </div>
 
-      <div class="section-label">Last Sportsbook Snapshot</div>
+      <div class="section-label">Sportsbook Balances</div>
       <div class="card">
-        ${lastSnap ? `
-          <div class="snap-summary-date">${snapDateStr}</div>
-          ${snapBooksSorted.map(([book, bal]) => `
-            <div class="bankroll-row">
-              <span class="bankroll-name">${book}</span>
-              <span class="bankroll-val">${BetMath.fmt(bal)}</span>
-            </div>
-          `).join('')}
-          <div class="bankroll-total-row">
-            <span class="bankroll-total-label">Total</span>
-            <span class="bankroll-total-val">${BetMath.fmt(lastSnap.cash)}</span>
+        ${sportsbooks.map(sb => `
+          <div class="bankroll-row">
+            <span class="bankroll-name">${sb.name.replace('theScore Bet', 'Score')}</span>
+            <span class="bankroll-val">${BetMath.fmt(sb.current_balance)}</span>
           </div>
-        ` : `<div class="snap-empty">No snapshots yet</div>`}
+        `).join('')}
+        <div class="bankroll-total-row">
+          <span class="bankroll-total-label">Total in Books</span>
+          <span class="bankroll-total-val">${BetMath.fmt(totalSb)}</span>
+        </div>
       </div>
 
       <div class="section-label mt-12">By Sport</div>
@@ -1801,30 +1549,29 @@ const App = {
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
-  // defaultType: 'deposit' | 'withdrawal' | 'disbursement'
-  showLogTransactionModal(defaultType = 'deposit', defaultPerson = 'brent') {
+  showLogTransactionModal(defaultType = 'deposit') {
     const { sportsbooks } = this.state;
     const sbOptions = sportsbooks.map(sb => `<option value="${sb.id}">${sb.name}</option>`).join('');
 
     this.showModal(`
-      <div class="modal-header">Log Transaction</div>
+      <div class="modal-header">Money Moves</div>
       <div class="form-group">
         <label>Type</label>
         <select id="tx-type" class="form-input">
-          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit — new money → sportsbook</option>
-          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → escrow</option>
-          <option value="redeployment" ${defaultType==='redeployment' ?'selected':''}>Redeployment — escrow → sportsbook</option>
-          <option value="disbursement" ${defaultType==='disbursement' ?'selected':''}>Payout — escrow → person</option>
+          <option value="deposit"      ${defaultType==='deposit'      ?'selected':''}>Deposit — new money in</option>
+          <option value="withdrawal"   ${defaultType==='withdrawal'   ?'selected':''}>Withdrawal — sportsbook → bank</option>
+          <option value="redeployment" ${defaultType==='redeployment' ?'selected':''}>Redeploy — bank → sportsbook</option>
+          <option value="payout"       ${defaultType==='payout'       ?'selected':''}>Payout — bank → person</option>
         </select>
       </div>
       <div class="form-group" id="tx-person-group">
         <label>Person</label>
         <select id="tx-person" class="form-input">
-          <option value="dan"   ${defaultPerson==='dan'   ?'selected':''}>Dan</option>
-          <option value="brent" ${defaultPerson==='brent' ?'selected':''}>Brent</option>
+          <option value="brent">Brent</option>
+          <option value="dan">Dan</option>
         </select>
       </div>
-      <div class="form-group" id="tx-sportsbook-group">
+      <div class="form-group" id="tx-book-group">
         <label>Sportsbook</label>
         <select id="tx-sportsbook" class="form-input">${sbOptions}</select>
       </div>
@@ -1832,140 +1579,55 @@ const App = {
         <label>Amount ($)</label>
         <input type="number" id="tx-amount" class="form-input" placeholder="0.00" step="0.01" inputmode="decimal">
       </div>
-      <div class="form-group" id="tx-split-mode-group" style="display:none">
-        <label>Who gets this?</label>
-        <div class="tx-split-options">
-          <label class="tx-split-option">
-            <input type="radio" name="tx-split-mode" value="auto" checked>
-            <span>Auto (equity %)</span>
-          </label>
-          <label class="tx-split-option">
-            <input type="radio" name="tx-split-mode" value="brent">
-            <span>All to Brent</span>
-          </label>
-          <label class="tx-split-option">
-            <input type="radio" name="tx-split-mode" value="dan">
-            <span>All to Dan</span>
-          </label>
-        </div>
-      </div>
-      <div id="tx-split-preview" class="tx-split-preview" style="display:none">
-        <span class="tx-split-label">Escrow split</span>
-        <span id="tx-split-dan" class="tx-split-person"></span>
-        <span id="tx-split-brent" class="tx-split-person"></span>
-      </div>
       <div class="form-group">
         <label>Notes (optional)</label>
         <input type="text" id="tx-notes" class="form-input" placeholder="">
       </div>
+      <div id="tx-error" style="display:none;color:var(--red);font-size:13px;margin-bottom:12px;text-align:center"></div>
       <button class="btn-primary-full" id="save-tx">Save</button>
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
 
-    // Calculate Dan's share based on selected split mode
-    const calcDanShare = (amount, type) => {
-      const splitMode = document.querySelector('input[name="tx-split-mode"]:checked')?.value || 'auto';
-      if (splitMode === 'brent') return 0;
-      if (splitMode === 'dan')   return amount;
-
-      // auto: equity-based calculation
-      const { transactions, bets, sportsbooks, snapshots, settings } = this.state;
-      const bucket    = BetMath.bucketBalance(transactions);
-      const totalPool = BetMath.snapTotal(snapshots, sportsbooks) + bucket;
-
-      if (type === 'withdrawal') {
-        const danEq  = BetMath.danEquity(transactions, bets);
-        const danPct = totalPool > 0 ? Math.min(1, Math.max(0, danEq / totalPool)) : 0;
-        return amount * danPct;
-      } else if (type === 'redeployment') {
-        const danEscrow    = parseFloat(settings.dan_bank_share) || 0;
-        const danEscrowPct = bucket > 0 ? Math.min(1, Math.max(0, danEscrow / bucket)) : 0;
-        return amount * danEscrowPct;
-      }
-      return 0;
-    };
-
-    // Update the live split preview
-    const updateSplitPreview = () => {
-      const type    = document.getElementById('tx-type').value;
-      const amount  = parseFloat(document.getElementById('tx-amount').value) || 0;
-      const preview = document.getElementById('tx-split-preview');
-      if ((type === 'withdrawal' || type === 'redeployment') && amount > 0) {
-        const danShare   = calcDanShare(amount, type);
-        const brentShare = amount - danShare;
-        document.getElementById('tx-split-dan').textContent   = `Dan ${BetMath.fmt(danShare)}`;
-        document.getElementById('tx-split-brent').textContent = `Brent ${BetMath.fmt(brentShare)}`;
-        preview.style.display = 'flex';
-      } else {
-        preview.style.display = 'none';
-      }
-    };
-
-    // Show/hide fields based on type
     const updateFields = () => {
-      const type           = document.getElementById('tx-type').value;
-      const personGroup    = document.getElementById('tx-person-group');
-      const sbGroup        = document.getElementById('tx-sportsbook-group');
-      const splitModeGroup = document.getElementById('tx-split-mode-group');
-      const isBucketMove   = type === 'withdrawal' || type === 'redeployment';
-      personGroup.style.display    = isBucketMove ? 'none' : 'block';
-      sbGroup.style.display        = type === 'disbursement' ? 'none' : 'block';
-      splitModeGroup.style.display = isBucketMove ? 'block' : 'none';
-      updateSplitPreview();
+      const type = document.getElementById('tx-type').value;
+      // deposit: person + book  |  withdrawal: book only  |  redeploy: book only  |  payout: person only
+      document.getElementById('tx-person-group').style.display = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
+      document.getElementById('tx-book-group').style.display   = type === 'payout' ? 'none' : 'block';
     };
     document.getElementById('tx-type').addEventListener('change', updateFields);
-    document.getElementById('tx-amount').addEventListener('input', updateSplitPreview);
-    document.querySelectorAll('input[name="tx-split-mode"]').forEach(r =>
-      r.addEventListener('change', updateSplitPreview)
-    );
     updateFields();
 
     document.getElementById('save-tx').addEventListener('click', async () => {
       const type   = document.getElementById('tx-type').value;
-      const person = document.getElementById('tx-person')?.value;
+      const person = document.getElementById('tx-person')?.value || 'brent';
       const sbId   = document.getElementById('tx-sportsbook')?.value;
       const amount = parseFloat(document.getElementById('tx-amount').value);
       const notes  = document.getElementById('tx-notes').value.trim() || null;
+      const errEl  = document.getElementById('tx-error');
 
-      if (!amount || amount <= 0) return;
+      if (!amount || amount <= 0) {
+        errEl.textContent = 'Enter a valid amount.';
+        errEl.style.display = 'block';
+        return;
+      }
 
       const btn = document.getElementById('save-tx');
       btn.disabled = true;
       btn.textContent = 'Saving…';
 
       try {
-        const tx = { type, amount, notes, person: person || 'brent' };
-        if (type !== 'disbursement') tx.sportsbook_id = sbId || null;
+        const tx = { type, amount, notes };
+        // deposit/payout are attributed to a person; withdrawal/redeploy are pool-level
+        tx.person = (type === 'deposit' || type === 'payout') ? person : 'brent';
+        if (type !== 'payout') tx.sportsbook_id = sbId || null;
 
         await DB.addTransaction(tx);
 
-        // Auto-update sportsbook balance for moves that affect a book
+        // Auto-adjust sportsbook balance
         if (type === 'deposit' || type === 'redeployment') {
-          await this._adjustBookBalance(sbId, amount);        // money in → balance up
+          await this._adjustBookBalance(sbId, amount);
         } else if (type === 'withdrawal') {
-          await this._adjustBookBalance(sbId, -amount);       // money out → balance down
-        }
-
-        // Auto-update Dan's escrow share for all bucket movements
-        if (type === 'withdrawal' || type === 'redeployment') {
-          const danShare = calcDanShare(amount, type);
-          const current  = parseFloat(this.state.settings.dan_bank_share) || 0;
-          const updated  = type === 'withdrawal' ? current + danShare : current - danShare;
-          await DB.updateSetting('dan_bank_share', String(Math.max(0, updated)));
-        }
-        if (type === 'disbursement') {
-          const { transactions, settings } = this.state;
-          const currentBucket = BetMath.bucketBalance(transactions);
-          const danEscrow     = Math.min(parseFloat(settings.dan_bank_share) || 0, Math.max(0, currentBucket));
-          const brentEscrow   = Math.max(0, currentBucket - danEscrow);
-          if (person === 'dan') {
-            await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - amount)));
-          } else {
-            const overflow = Math.max(0, amount - brentEscrow);
-            if (overflow > 0) {
-              await DB.updateSetting('dan_bank_share', String(Math.max(0, danEscrow - overflow)));
-            }
-          }
+          await this._adjustBookBalance(sbId, -amount);
         }
 
         DB.logActivity(this.state.currentUser, 'transaction_added', { type, amount, person: tx.person });
@@ -1974,12 +1636,10 @@ const App = {
         this.render(this.state.view);
       } catch (err) {
         console.error('Money Moves save failed:', err);
+        errEl.textContent = 'Save failed: ' + (err.message || err);
+        errEl.style.display = 'block';
         btn.disabled = false;
         btn.textContent = 'Save';
-        const errEl = document.createElement('div');
-        errEl.style.cssText = 'color:var(--red);font-size:13px;margin-top:8px;text-align:center';
-        errEl.textContent = 'Save failed: ' + (err.message || err);
-        btn.insertAdjacentElement('afterend', errEl);
       }
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
