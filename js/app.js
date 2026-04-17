@@ -650,8 +650,7 @@ const App = {
       .filter(t => norm(t.person) === person && (t.type === 'disbursement' || t.type === 'payout'))
       .reduce((s, t) => s + parseFloat(t.amount), 0);
 
-    const betPnl     = BetMath.personBetPnl(bets, field);
-    const adjustment = BetMath.personAdjustment(transactions, person);
+    const betPnl = BetMath.personBetPnl(bets, field) + BetMath.personAdjustment(transactions, person);
 
     // Pending exposure
     const pendingBets = bets.filter(b => b.status === 'pending');
@@ -702,11 +701,6 @@ const App = {
           <span class="person-receipt-label">Bet P&amp;L</span>
           <span class="person-receipt-amt ${pnlCls(betPnl)}">${sign(betPnl)}${BetMath.fmt(betPnl)}</span>
         </div>
-        ${adjustment > 0 ? `
-        <div class="person-receipt-row">
-          <span class="person-receipt-label">Adjustment</span>
-          <span class="person-receipt-amt text-green">+${BetMath.fmt(adjustment)}</span>
-        </div>` : ''}
         ${paidOut > 0 ? `
         <div class="person-receipt-divider"></div>
         <div class="person-receipt-row person-receipt-row-muted">
