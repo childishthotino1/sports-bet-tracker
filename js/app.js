@@ -2,6 +2,7 @@ const App = {
   state: {
     view: 'pool',
     betFilter: 'pending',
+    betBookFilter: 'all',
     betViewMode: 'list',    // 'list' | 'cards'
     sportsbooks: [],
     bets: [],
@@ -542,18 +543,40 @@ const App = {
   // ─── Bets View ─────────────────────────────────────────
 
   renderBets() {
-    const filter = this.state.betFilter;
+    const filter     = this.state.betFilter;
+    const bookFilter = this.state.betBookFilter;
 
     document.querySelectorAll('.filter-tab').forEach(t => t.classList.toggle('active', t.dataset.filter === filter));
 
-    const list = document.getElementById('bets-list');
+    const bookRow = document.getElementById('book-filter-row');
+    const list    = document.getElementById('bets-list');
 
     if (filter === 'activity') {
+      bookRow.hidden = true;
       list.innerHTML = this.renderActivityFeed();
       return;
     }
 
-    const filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
+    const books = this.state.sportsbooks;
+    bookRow.hidden = false;
+    bookRow.innerHTML = `<div class="book-filter-tabs">${
+      [{ id: 'all', name: 'All Books' }, ...books]
+        .map(b => `<button class="book-filter-tab${bookFilter === String(b.id) ? ' active' : ''}" data-book="${b.id}">${b.name?.replace('theScore Bet', 'Score') ?? b.name}</button>`)
+        .join('')
+    }</div>`;
+
+    bookRow.querySelectorAll('.book-filter-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.state.betBookFilter = btn.dataset.book;
+        this.renderBets();
+      });
+    });
+
+    let filtered = filter === 'all' ? this.state.bets : this.state.bets.filter(b => b.status === filter);
+    if (bookFilter !== 'all') {
+      filtered = filtered.filter(b => String(b.sportsbook_id) === bookFilter);
+    }
+
     if (filtered.length === 0) {
       list.innerHTML = '<div class="empty-state">No bets</div>';
       return;
