@@ -525,6 +525,29 @@ main {
   margin-bottom: 0;
 }
 
+/* ── Book Filter Row ──────────────────────────────────── */
+.book-filter-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.book-filter-tabs::-webkit-scrollbar { display: none; }
+
+.book-filter-tab {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px 10px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.book-filter-tab.active { background: var(--purple-dim); border-color: var(--purple); color: var(--text); }
+
 .bets-toggle-btn {
   background: var(--bg-card);
   border: 1px solid var(--border);
