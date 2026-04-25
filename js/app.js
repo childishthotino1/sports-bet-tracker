@@ -526,11 +526,11 @@ const App = {
 
   // Returns the sportsbook balance delta when a bet settles
   _betSettleDelta(bet, result) {
-    if (result === 'lost') return 0;
+    const wager   = parseFloat(bet.total_wager);
     const boosted = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct) || 0);
-    return result === 'won'
-      ? BetMath.totalReturn(parseFloat(bet.total_wager), boosted)
-      : parseFloat(bet.total_wager); // push: refund wager
+    if (result === 'won')  return BetMath.totalReturn(wager, boosted) - wager; // profit only
+    if (result === 'lost') return -wager;  // deduct the lost stake
+    return 0; // push: wager was never deducted, so no adjustment needed
   },
 
   async _adjustBookBalance(sbId, delta) {
