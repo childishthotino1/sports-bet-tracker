@@ -87,11 +87,10 @@ const BetMath = {
 
   personBetPnl(bets, field) {
     return bets.reduce((sum, b) => {
-      if (b.status === 'push') return sum;
+      if (b.status === 'push' || b.status === 'pending') return sum;
+      const boosted = this.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct) || 0);
       const wager   = parseFloat(b[field]);
       const totalW  = parseFloat(b.total_wager);
-      if (b.status === 'pending') return sum - wager;
-      const boosted = this.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct) || 0);
       if (b.status === 'won') {
         return sum + this.splitReturn(this.totalReturn(totalW, boosted), totalW, wager) - wager;
       }
