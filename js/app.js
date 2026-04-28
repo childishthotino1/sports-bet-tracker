@@ -139,8 +139,12 @@ const App = {
 
     const brentEq  = BetMath.personEquity(transactions, bets, 'brent');
     const danEq    = BetMath.personEquity(transactions, bets, 'dan');
-    const brentPct = totalPool > 0 ? (brentEq / totalPool * 100).toFixed(1) : '0.0';
-    const danPct   = totalPool > 0 ? (danEq   / totalPool * 100).toFixed(1) : '0.0';
+    const totalEq  = brentEq + danEq;
+    // Normalize against actual pool so Brent + Dan always = 100%
+    const brentDisplay = totalEq > 0 ? totalPool * (brentEq / totalEq) : totalPool / 2;
+    const danDisplay   = totalPool - brentDisplay;
+    const brentPct = totalPool > 0 ? (brentDisplay / totalPool * 100).toFixed(1) : '0.0';
+    const danPct   = totalPool > 0 ? (danDisplay   / totalPool * 100).toFixed(1) : '0.0';
 
     const settledBets = bets.filter(b => b.status !== 'pending');
     const allTimePnl  = BetMath.poolBetPnl(settledBets) + BetMath.poolAdjustment(transactions);
@@ -179,12 +183,12 @@ const App = {
       <div class="equity-row">
         <div class="equity-card equity-card-brent">
           <div class="equity-name">Brent</div>
-          <div class="equity-amount">${BetMath.fmt(brentEq)}</div>
+          <div class="equity-amount">${BetMath.fmt(brentDisplay)}</div>
           <div class="equity-risk">${brentPct}% of pool</div>
         </div>
         <div class="equity-card equity-card-dan">
           <div class="equity-name">Dan</div>
-          <div class="equity-amount">${BetMath.fmt(danEq)}</div>
+          <div class="equity-amount">${BetMath.fmt(danDisplay)}</div>
           <div class="equity-risk">${danPct}% of pool</div>
         </div>
       </div>
