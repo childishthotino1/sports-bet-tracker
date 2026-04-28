@@ -39,7 +39,15 @@ serve(async (req) => {
 Format: BOOK.SPORT.DESC.BOOST.TOTAL.??.??±ODDS
 
 Rules:
-- BOOK: use SCORE (theScore), DK (DraftKings), FD (FanDuel), MGM (BetMGM), B365 (Bet365), or best guess
+- BOOK: identify by color scheme and logo:
+    SCORE = theScore (red & white)
+    DK = DraftKings (green & black)
+    FD = FanDuel (blue & white)
+    MGM = BetMGM (black & gold)
+    B365 = Bet365 (green & yellow)
+    CS = Caesars (blue & gold)
+    FAN = Fanatics (red & white, "Fanatics" wordmark)
+  Use best guess if unclear.
 - SPORT: NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, TENNIS, MMA, etc.
 - DESC: short label, no spaces or dots (e.g. LakersML, PatsCover, 3legSGP)
 - BOOST: boost % number only, 0 if not shown
