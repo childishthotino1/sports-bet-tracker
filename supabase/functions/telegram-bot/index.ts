@@ -106,7 +106,14 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
             text: `Parse this sportsbook bet slip and return a JSON object with these fields:
 
 {
-  "book": "sportsbook abbreviation — DK (DraftKings), FD (FanDuel), MGM (BetMGM), SCORE (theScore Bet), B365 (Bet365)",
+  "book": "sportsbook abbreviation — identify by logo, color scheme, and name:
+    DK    = DraftKings   (TODO: add color scheme)
+    FD    = FanDuel      (TODO: add color scheme)
+    MGM   = BetMGM       (black & gold)
+    SCORE = theScore Bet (TODO: add color scheme)
+    B365  = Bet365       (TODO: add color scheme)
+    CS    = Caesars      (TODO: add color scheme)
+    FAN   = Fanatics     (TODO: add color scheme)",
   "sport": "sport abbreviation — NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, etc.",
   "description": "short label including team or player name and bet type, no spaces or dots — e.g. LakersML, BrownsCover, CurrieO29pts, PHLvsWSH, 3TeamParlay",
   "boost_pct": boost percentage as a number (0 if no boost shown),
@@ -142,6 +149,7 @@ const BOOK_ALIASES: Record<string, string> = {
   "MGM": "BetMGM", "BETMGM": "BetMGM",
   "B365": "Bet365", "BET365": "Bet365",
   "FAN": "Fanatics", "FANATICS": "Fanatics",
+  "CS": "Ceasars", "CAESARS": "Ceasars", "CEASARS": "Ceasars",
 };
 
 function matchBook(book: string, sportsbooks: { id: string; name: string }[]) {
@@ -170,7 +178,7 @@ function parseCorrection(text: string): Correction | null {
 
   // Bare book alias (e.g. just "DK" or "FanDuel")
   const bareUpper = t.toUpperCase().replace(/\s/g, "");
-  if (BOOK_ALIASES[bareUpper] || ["DRAFTKINGS","FANDUEL","BETMGM","BET365","FANATICS","THESCOREBET"].includes(bareUpper)) {
+  if (BOOK_ALIASES[bareUpper] || ["DRAFTKINGS","FANDUEL","BETMGM","BET365","FANATICS","THESCOREBET","CAESARS","CEASARS"].includes(bareUpper)) {
     return { field: "book", value: bareUpper };
   }
 
@@ -378,7 +386,7 @@ async function promoteNextQueued(
 // ── Field edit prompts ────────────────────────────────────
 
 const FIELD_PROMPTS: Record<string, string> = {
-  book:        "Enter sportsbook (e.g. DK, FD, MGM, SCORE, B365):",
+  book:        "Enter sportsbook (e.g. DK, FD, MGM, SCORE, B365, CS, FAN):",
   sport:       "Enter sport (e.g. NBA, NFL, MLB, NHL):",
   odds:        "Enter American odds (e.g. +180 or -110):",
   total:       "Enter total wager amount (e.g. 50):",
@@ -434,7 +442,7 @@ serve(async (req) => {
 
     // Edit field button
     if (data.startsWith("edit_")) {
-      const shortKey = data.replace("edit_", ""); // book, sport, odds, total, boost, desc/description
+      const shortKey = data.replace("edit_", "");
       const fieldKey = shortKey === "desc" ? "description" : shortKey;
       const pd = { ...pending.parsed_data as ParsedSlip, _editing_field: fieldKey };
       await supabase.from("pending_bets")
@@ -581,7 +589,6 @@ serve(async (req) => {
     const field = pd._editing_field ?? "";
     delete pd._editing_field;
 
-    // Parse the value based on field type
     let newValue: string | number = text;
     if (field === "odds") {
       const v = parseInt(text.replace(/[^+\-\d]/g, ""));
@@ -606,14 +613,12 @@ serve(async (req) => {
       newValue = text.toUpperCase().replace(/\s/g, "");
     }
 
-    // Map short field names to parsed_data keys
     const KEY_MAP: Record<string, string> = {
       odds: "base_odds", total: "total_wager", boost: "boost_pct",
     };
     const key = KEY_MAP[field] ?? field;
     const updated = { ...pd, [key]: newValue };
 
-    // If total changed, reset splits and go back to awaiting_splits
     if (key === "total_wager") {
       delete updated.his_wager;
       delete updated.my_wager;
@@ -628,7 +633,6 @@ serve(async (req) => {
       return new Response("ok");
     }
 
-    // Return to whichever stage we came from
     if (updated.his_wager != null) {
       await supabase.from("pending_bets")
         .update({ stage: "awaiting_confirm", parsed_data: updated })
@@ -655,7 +659,6 @@ serve(async (req) => {
   if (pending.stage === "awaiting_splits") {
     const pd = pending.parsed_data as ParsedSlip;
 
-    // Allow typed corrections at this stage too
     const correction = parseCorrection(text);
     if (correction && correction.field !== "total_wager") {
       const updated = { ...pd, [correction.field]: correction.value };
@@ -664,7 +667,6 @@ serve(async (req) => {
       return new Response("ok");
     }
 
-    // Total correction resets splits
     if (correction?.field === "total_wager") {
       const updated = { ...pd, total_wager: correction.value as number };
       await supabase.from("pending_bets").update({ parsed_data: updated }).eq("id", pending.id);
