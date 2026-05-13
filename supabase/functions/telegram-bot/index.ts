@@ -107,13 +107,14 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
 
 {
   "book": "sportsbook abbreviation — identify by logo, color scheme, and name:
-    DK    = DraftKings   (TODO: add color scheme)
-    FD    = FanDuel      (TODO: add color scheme)
-    MGM   = BetMGM       (black & gold)
-    SCORE = theScore Bet (TODO: add color scheme)
-    B365  = Bet365       (TODO: add color scheme)
-    CS    = Caesars      (TODO: add color scheme)
-    FAN   = Fanatics     (TODO: add color scheme)",
+    DK    = DraftKings   (black background, green logo/accents, crown icon)
+    FD    = FanDuel      (blue background, white text, 'FanDuel' wordmark)
+    MGM   = BetMGM       (black background, gold/yellow font and accents, lion logo)
+    SCORE = theScore Bet (red and white, 'theScore' wordmark)
+    B365  = Bet365       (green background, white text, 'bet365' wordmark)
+    CZR   = Caesars      (white background, green font and accents, 'Caesars' wordmark)
+    FAN   = Fanatics     (black background, 'Fanatics' wordmark prominently shown)
+    IMPORTANT: MGM has a BLACK background with GOLD accents. CZR (Caesars) has a WHITE background with GREEN accents. Do not confuse them.",
   "sport": "sport abbreviation — NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, etc.",
   "description": "short label including team or player name and bet type, no spaces or dots — e.g. LakersML, BrownsCover, CurrieO29pts, PHLvsWSH, 3TeamParlay",
   "boost_pct": boost percentage as a number (0 if no boost shown),
@@ -149,7 +150,7 @@ const BOOK_ALIASES: Record<string, string> = {
   "MGM": "BetMGM", "BETMGM": "BetMGM",
   "B365": "Bet365", "BET365": "Bet365",
   "FAN": "Fanatics", "FANATICS": "Fanatics",
-  "CS": "Ceasars", "CAESARS": "Ceasars", "CEASARS": "Ceasars",
+  "CZR": "Caesars", "CS": "Caesars", "CAESARS": "Caesars", "CEASARS": "Caesars",
 };
 
 function matchBook(book: string, sportsbooks: { id: string; name: string }[]) {
@@ -386,7 +387,7 @@ async function promoteNextQueued(
 // ── Field edit prompts ────────────────────────────────────
 
 const FIELD_PROMPTS: Record<string, string> = {
-  book:        "Enter sportsbook (e.g. DK, FD, MGM, SCORE, B365, CS, FAN):",
+  book:        "Enter sportsbook (e.g. DK, FD, MGM, SCORE, B365, CZR, FAN):",
   sport:       "Enter sport (e.g. NBA, NFL, MLB, NHL):",
   odds:        "Enter American odds (e.g. +180 or -110):",
   total:       "Enter total wager amount (e.g. 50):",
