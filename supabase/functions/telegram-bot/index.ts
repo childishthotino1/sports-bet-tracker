@@ -106,17 +106,63 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
             text: `Parse this sportsbook bet slip and return a JSON object with these fields:
 
 {
-  "book": "sportsbook abbreviation — identify by logo, color scheme, and name:
-    DK    = DraftKings   (black background, green logo/accents, crown icon)
-    FD    = FanDuel      (blue background, white text, 'FanDuel' wordmark)
-    MGM   = BetMGM       (black background, gold/yellow font and accents, lion logo)
-    SCORE = theScore Bet (red and white, 'theScore' wordmark)
-    B365  = Bet365       (green background, white text, 'bet365' wordmark)
-    CZR   = Caesars      (white background, green font and accents, 'Caesars' wordmark)
-    FAN   = Fanatics     (black background, 'Fanatics' wordmark prominently shown)
-    IMPORTANT: MGM has a BLACK background with GOLD accents. CZR (Caesars) has a WHITE background with GREEN accents. Do not confuse them.",
+  "book": "sportsbook abbreviation. Use these SPECIFIC visual rules to identify the book — check them in order:
+
+    CZR = Caesars Sportsbook
+      • WHITE or light grey background (the only book with a light background)
+      • 'CAESARS SPORTSBOOK' logo in green inside the bet card
+      • 'CAESARS REWARDS.' badge visible
+      • Trophy icon in top-right of card
+      • Labels: 'Cash Wagered', 'To Win', 'Pays'
+      • Dark green 'Done' button, outlined 'Reuse Selections' button
+
+    FAN = Fanatics Sportsbook
+      • Dark background
+      • 'Fanatics Sportsbook' wordmark with F-flag logo ALWAYS visible on the slip
+      • 'FanCash' column in the header; purple 'FCash' badge next to a dollar amount
+      • Green oval 'Cash out $X.XX' button
+      • Labels: 'Wager' and 'Payout'
+      • Header says 'Receipt / 1 bet placed'
+
+    MGM = BetMGM
+      • Dark background
+      • NO sportsbook name or logo visible on the slip itself
+      • White banner saying 'Your bet has been accepted. Good luck!'  with a green left border
+      • 'Account Balance $X,XXX' shown at top center
+      • Gold/tan 'Done' button (bottom right); 'View my bets' outline button (bottom left)
+      • Labels: 'Stake', 'Total payout'
+      • 'incl. Boosted Winnings $X in Cash' in green text when boosted
+      • 'Keep placed bets in bet slip' checkbox; 'Share My Bet' link
+
+    DK = DraftKings
+      • Dark background, green DraftKings crown logo
+      • 'DraftKings' wordmark visible
+
+    FD = FanDuel
+      • Blue background, 'FanDuel' wordmark
+
+    SCORE = theScore Bet
+      • Dark navy background
+      • 'theScore BET' logo top-left with yellow 'BET' pill
+      • Blue circular '+' button next to account balance top-right
+      • Green upward-arrow boost icon (not a dollar-sign like Fanatics)
+      • 'SGP' badge on same-game parlays
+      • Labels: 'BET' and 'POTENTIAL PAYOUT' at bottom
+
+    B365 = Bet365
+      • Green background, 'bet365' wordmark
+
+    CRITICAL DISAMBIGUATION:
+    - If background is WHITE/LIGHT → always CZR
+    - If dark background AND 'Fanatics Sportsbook' text visible → always FAN
+    - If dark background AND 'Your bet has been accepted. Good luck!' banner visible → always MGM
+    - If dark background AND gold 'Done' button → always MGM
+    - If dark background AND green oval 'Cash out' button + FanCash → always FAN",
   "sport": "sport abbreviation — NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, etc.",
-  "description": "short label including team or player name and bet type, no spaces or dots — e.g. LakersML, BrownsCover, CurrieO29pts, PHLvsWSH, 3TeamParlay",
+  "description": "short label, no spaces or dots, that identifies the specific bet — include enough to recognize it later:
+    • Single bet: team or player + bet type — e.g. LakersML, BrownsCover, CurrieO29pts, MartaHR
+    • Parlay: up to 3 key teams or players from the legs + leg count — e.g. Angels-TBRays-3Leg, Wemby-Castle-2Leg, KurtzHR-SabresRL-MGM3Leg
+    • Never use generic labels like '3LegParlay' or 'Parlay' alone — always include at least one team or player name",
   "boost_pct": boost percentage as a number (0 if no boost shown),
   "total_wager": total wager amount as a number,
   "base_odds": the ORIGINAL pre-boost odds as an integer in American format (e.g. 180, -110, -114). If a profit boost is applied, use the original odds shown BEFORE the boost. If no boost, use the displayed odds.

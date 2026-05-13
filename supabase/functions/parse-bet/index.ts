@@ -39,17 +39,19 @@ serve(async (req) => {
 Format: BOOK.SPORT.DESC.BOOST.TOTAL.??.??±ODDS
 
 Rules:
-- BOOK: identify by color scheme and logo:
-    SCORE = theScore (red & white)
-    DK = DraftKings (green & black)
-    FD = FanDuel (blue & white)
-    MGM = BetMGM (black & gold)
-    B365 = Bet365 (green & yellow)
-    CS = Caesars (blue & gold)
-    FAN = Fanatics (red & white, "Fanatics" wordmark)
-  Use best guess if unclear.
+- BOOK: identify using these specific visual rules, checked in order:
+    CZR   = Caesars      WHITE/light background; 'CAESARS SPORTSBOOK' green logo; 'CAESARS REWARDS.' badge; trophy icon; labels: Cash Wagered/To Win/Pays; dark green Done button
+    FAN   = Fanatics     Dark background; 'Fanatics Sportsbook' wordmark always visible; FanCash column; purple FCash badge; green oval Cash out button; labels: Wager/Payout
+    MGM   = BetMGM       Dark background; NO logo on slip; white 'Your bet has been accepted. Good luck!' banner with green left border; gold/tan Done button; labels: Stake/Total payout
+    SCORE = theScore Bet Dark navy background; 'theScore BET' logo with yellow BET pill top-left; blue + balance button; green upward-arrow boost icon; labels: BET/POTENTIAL PAYOUT
+    DK    = DraftKings   Dark background; green DraftKings crown logo
+    FD    = FanDuel      Blue background; FanDuel wordmark
+    B365  = Bet365       Green background; bet365 wordmark
+    CRITICAL: white/light background = always CZR. Dark + Fanatics wordmark = always FAN. Dark + gold Done button = always MGM.
 - SPORT: NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, TENNIS, MMA, etc.
-- DESC: short label, no spaces or dots (e.g. LakersML, PatsCover, 3legSGP)
+- DESC: short label, no spaces or dots — include team/player name, never just '3LegParlay':
+    Single: LakersML, BrownsCover, CurrieO29pts
+    Parlay: up to 3 key teams/players + leg count — Angels-TBRays-3Leg, Wemby-Castle-2Leg
 - BOOST: boost % number only, 0 if not shown
 - TOTAL: total wager in dollars, number only
 - ?? for both wager splits (those are internal, not on the slip)
