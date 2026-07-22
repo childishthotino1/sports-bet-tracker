@@ -7,6 +7,22 @@ function client() {
   return _client;
 }
 
+// Supabase caps a single request at 1000 rows — tables that can grow past
+// that (bets, transactions) need to page through or they silently drop rows,
+// which corrupts every P&L/equity total computed client-side.
+async function fetchAllRows(buildQuery, pageSize = 1000) {
+  let rows = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    rows = rows.concat(data);
+    if (!data || data.length < pageSize) break;
+    offset += pageSize;
+  }
+  return rows;
+}
+
 const DB = {
   async getSettings() {
     const { data, error } = await client().from('settings').select('*');
@@ -39,12 +55,10 @@ const DB = {
   },
 
   async getBets() {
-    const { data, error } = await client()
+    return fetchAllRows(() => client()
       .from('bets')
       .select('*, sportsbooks(name)')
-      .order('placed_at', { ascending: false });
-    if (error) throw error;
-    return data;
+      .order('placed_at', { ascending: false }));
   },
 
   async addBet(bet) {
@@ -82,12 +96,10 @@ const DB = {
   },
 
   async getTransactions() {
-    const { data, error } = await client()
+    return fetchAllRows(() => client()
       .from('transactions')
       .select('*, sportsbooks(name)')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data;
+      .order('created_at', { ascending: false }));
   },
 
   // type: 'deposit' | 'withdrawal' | 'disbursement'

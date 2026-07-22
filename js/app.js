@@ -139,12 +139,12 @@ const App = {
 
     const brentEq  = BetMath.personEquity(transactions, bets, 'brent');
     const danEq    = BetMath.personEquity(transactions, bets, 'dan');
-    const totalEq  = brentEq + danEq;
-    // Normalize against actual pool so Brent + Dan always = 100%
-    const brentDisplay = totalEq > 0 ? totalPool * (brentEq / totalEq) : totalPool / 2;
-    const danDisplay   = totalPool - brentDisplay;
-    const brentPct = totalPool > 0 ? (brentDisplay / totalPool * 100).toFixed(1) : '0.0';
-    const danPct   = totalPool > 0 ? (danDisplay   / totalPool * 100).toFixed(1) : '0.0';
+    // Show the real per-person equity (same number as each person's own page) —
+    // do not rescale it to force-fit the pool total. Drift between totalPool and
+    // brentEq+danEq is reconciled at the source (Update Balance / Add Snapshot
+    // log an adjustment transaction automatically), not papered over here.
+    const brentPct = totalPool > 0 ? (brentEq / totalPool * 100).toFixed(1) : '0.0';
+    const danPct   = totalPool > 0 ? (danEq   / totalPool * 100).toFixed(1) : '0.0';
 
     const settledBets = bets.filter(b => b.status !== 'pending');
     const allTimePnl  = BetMath.poolBetPnl(settledBets) + BetMath.poolAdjustment(transactions);
@@ -183,12 +183,12 @@ const App = {
       <div class="equity-row">
         <div class="equity-card equity-card-brent">
           <div class="equity-name">Brent</div>
-          <div class="equity-amount">${BetMath.fmt(brentDisplay)}</div>
+          <div class="equity-amount">${BetMath.fmt(brentEq)}</div>
           <div class="equity-risk">${brentPct}% of pool</div>
         </div>
         <div class="equity-card equity-card-dan">
           <div class="equity-name">Dan</div>
-          <div class="equity-amount">${BetMath.fmt(danDisplay)}</div>
+          <div class="equity-amount">${BetMath.fmt(danEq)}</div>
           <div class="equity-risk">${danPct}% of pool</div>
         </div>
       </div>
@@ -769,14 +769,15 @@ const App = {
   },
 
   txCardHTML(t) {
-    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bank', redeployment: 'Redeployment', disbursement: 'Paid Out', payout: 'Paid Out' };
+    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bank', redeployment: 'Redeployment', disbursement: 'Paid Out', payout: 'Paid Out', adjustment: 'Balance Correction' };
     const book = t.sportsbooks?.name || '';
     const sub  = t.type === 'withdrawal'    ? (book ? `from ${book}` : '')
                : t.type === 'redeployment'  ? (book ? `bank → ${book}` : 'bank → sportsbook')
                : t.type === 'disbursement'  ? 'from bank'
+               : t.type === 'adjustment'    ? (book ? `· ${book}` : '')
                : (book ? `· ${book}` : '');
-    const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'disbursement' ? 'text-muted' : '';
-    const prefix = t.type === 'deposit' ? '+' : '';
+    const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'disbursement' ? 'text-muted' : parseFloat(t.amount) < 0 ? 'text-red' : '';
+    const prefix = t.type === 'deposit' || (t.type === 'adjustment' && parseFloat(t.amount) > 0) ? '+' : '';
     const dateStr = t.created_at
       ? new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
       : '';
@@ -1321,8 +1322,25 @@ const App = {
         cash += val;
         bookUpdates.push({ id: inp.dataset.id, val });
       });
+
+      // Reconcile: a snapshot re-types every book's real current balance, which
+      // can differ from what the app tracked (promos, corrections, drift). Log
+      // that difference as a split adjustment so it lands in Brent + Dan's
+      // equity instead of silently shifting the pool total.
+      const oldCash = this.state.sportsbooks.reduce((s, sb) => s + parseFloat(sb.current_balance), 0);
+      const delta = Math.round((cash - oldCash) * 100) / 100;
+
       await DB.addSnapshot({ snapshot_date, cash, at_risk, book_balances });
       await Promise.all(bookUpdates.map(({ id, val }) => DB.updateSportsbookBalance(id, val)));
+
+      if (delta !== 0) {
+        const half      = Math.round((delta / 2) * 100) / 100;
+        const otherHalf = delta - half; // absorbs any odd cent so the two halves still sum to delta exactly
+        const notes     = `Snapshot reconciliation ${snapshot_date}`;
+        await DB.addTransaction({ type: 'adjustment', person: 'brent', amount: half, notes });
+        await DB.addTransaction({ type: 'adjustment', person: 'dan', amount: otherHalf, notes });
+      }
+
       await DB.updateSetting('books_last_updated', new Date().toISOString());
       await this.loadData();
       this.hideModal();
@@ -1403,7 +1421,19 @@ const App = {
     document.getElementById('save-balance').addEventListener('click', async () => {
       const val = parseFloat(inp.value);
       if (isNaN(val)) return;
+      const delta = Math.round((val - parseFloat(currentBal)) * 100) / 100;
       await DB.updateSportsbookBalance(sbId, val);
+      if (delta !== 0) {
+        // Log the correction as a pool-level adjustment split evenly, so it
+        // shows up in both people's equity and doesn't silently orphan the
+        // pool total from Brent + Dan's totals (see "Unreconciled" on the
+        // Honeypot page).
+        const half = Math.round((delta / 2) * 100) / 100;
+        const otherHalf = delta - half; // absorbs any odd cent so the two halves still sum to delta exactly
+        const notes = `Balance correction: ${sbName} ${BetMath.fmt(currentBal)} → ${BetMath.fmt(val)}`;
+        await DB.addTransaction({ type: 'adjustment', person: 'brent', amount: half, sportsbook_id: sbId, notes });
+        await DB.addTransaction({ type: 'adjustment', person: 'dan', amount: otherHalf, sportsbook_id: sbId, notes });
+      }
       await DB.updateSetting('books_last_updated', new Date().toISOString());
       await this.loadData();
       this.hideModal();
@@ -1541,6 +1571,10 @@ const App = {
         errEl.style.display = 'block';
         return;
       }
+      // Derive Brent's wager as the exact remainder so his_wager + my_wager
+      // always equals total_wager to the cent, instead of trusting both
+      // typed fields (which could be off by up to the 2¢ tolerance above).
+      const myWagerFinal = Math.round((total_wager - his_wager) * 100) / 100;
       errEl.style.display = 'none';
 
       const btn = document.getElementById('save-edit-bet');
@@ -1548,10 +1582,25 @@ const App = {
       btn.textContent = 'Saving…';
 
       try {
+        // Reconcile the sportsbook balance(s) for any change to the fields
+        // that determine the bet's effect on book balance (wager/odds/boost/
+        // book itself) — editing a bet used to leave current_balance stale.
+        const netEffect = (b, status) =>
+          -parseFloat(b.total_wager) + (status === 'pending' ? 0 : this._betSettleDelta(b, status));
+        const oldNet = netEffect(bet, bet.status);
+        const newNet = netEffect({ total_wager, base_odds, boost_pct }, bet.status);
+
+        if (sbId === bet.sportsbook_id) {
+          await this._adjustBookBalance(sbId, newNet - oldNet);
+        } else {
+          await this._adjustBookBalance(bet.sportsbook_id, -oldNet);
+          await this._adjustBookBalance(sbId, newNet);
+        }
+
         await DB.updateBet(bet.id, {
           sport, description, sportsbook_id: sbId,
           base_odds, boost_pct, total_wager,
-          his_wager, my_wager,
+          his_wager, my_wager: myWagerFinal,
           placed_at: new Date(placedAt + 'T12:00:00').toISOString(),
         });
         DB.logActivity(this.state.currentUser, 'bet_edited', {
