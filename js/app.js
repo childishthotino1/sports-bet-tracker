@@ -170,7 +170,7 @@ const App = {
 
       <div class="metric-grid">
         <div class="metric">
-          <div class="metric-label">My Cut</div>
+          <div class="metric-label">Brent</div>
           <div class="metric-value">${BetMath.fmt(brentEq)}</div>
         </div>
         <div class="metric">
