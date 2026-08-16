@@ -85,9 +85,14 @@ const BetMath = {
 
   // ─── Bet P&L ──────────────────────────────────────────────
 
+  // Statuses with no P&L effect (wager returned or still at risk)
+  _noPnl(status) {
+    return status === 'push' || status === 'pending' || status === 'void';
+  },
+
   personBetPnl(bets, field) {
     return bets.reduce((sum, b) => {
-      if (b.status === 'push' || b.status === 'pending') return sum;
+      if (this._noPnl(b.status)) return sum;
       const boosted = this.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct) || 0);
       const wager   = parseFloat(b[field]);
       const totalW  = parseFloat(b.total_wager);
@@ -100,7 +105,7 @@ const BetMath = {
 
   poolBetPnl(bets) {
     return bets.reduce((sum, b) => {
-      if (b.status === 'push' || b.status === 'pending') return sum;
+      if (this._noPnl(b.status)) return sum;
       const boosted = this.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
       if (b.status === 'won') {
         return sum + this.totalReturn(parseFloat(b.total_wager), boosted) - parseFloat(b.total_wager);
@@ -129,6 +134,38 @@ const BetMath = {
   },
 
   yesterdayBets(bets) { return this.dayBets(bets, 1); },
+
+  // ─── Summary helpers ──────────────────────────────────────
+
+  record(bets) {
+    const r = { won: 0, lost: 0, push: 0, void: 0, pending: 0, total: bets.length };
+    for (const b of bets) r[b.status] = (r[b.status] || 0) + 1;
+    r.settled = r.won + r.lost + r.push;
+    r.winPct  = (r.won + r.lost) > 0 ? Math.round(r.won / (r.won + r.lost) * 100) : 0;
+    return r;
+  },
+
+  // ROI = P&L / total settled wagers (pushes/voids excluded from the denominator)
+  poolRoi(bets) {
+    const decided = bets.filter(b => b.status === 'won' || b.status === 'lost');
+    const risked  = decided.reduce((s, b) => s + parseFloat(b.total_wager), 0);
+    return risked > 0 ? this.poolBetPnl(decided) / risked * 100 : 0;
+  },
+
+  // Longest and current W/L streaks over decided bets, oldest→newest
+  streaks(bets) {
+    const decided = bets
+      .filter(b => b.status === 'won' || b.status === 'lost')
+      .sort((a, b) => new Date(a.settled_at || a.placed_at) - new Date(b.settled_at || b.placed_at));
+    let bestW = 0, bestL = 0, run = 0, runType = null;
+    for (const b of decided) {
+      if (b.status === runType) run++;
+      else { runType = b.status; run = 1; }
+      if (runType === 'won'  && run > bestW) bestW = run;
+      if (runType === 'lost' && run > bestL) bestL = run;
+    }
+    return { bestW, bestL, current: run, currentType: runType };
+  },
 
   // ─── Snapshots (used only for the performance chart) ──────
 

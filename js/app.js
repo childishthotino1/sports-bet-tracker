@@ -3,22 +3,21 @@ const App = {
     view: 'pool',
     betFilter: 'pending',
     betBookFilter: 'all',
-    betViewMode: 'list',    // 'list' | 'cards'
     sportsbooks: [],
     bets: [],
     transactions: [],
     settings: {},
     snapshots: [],
     activityLog: [],
+    v1: null,               // lazy-loaded {bets, transactions, snapshots}
     loaded: false,
     undoStack: [],          // [{type, bet, result}] — last 3 actions
-    currentUser: 'brent',  // 'brent' | 'dan' — set on PIN entry
-    statsTab: 'overview',  // 'overview' | 'daily'
-    reconDate: null,       // selected date for daily recon (YYYY-MM-DD)
+    currentUser: 'brent',   // 'brent' | 'dan' — set on PIN entry
   },
 
   _miniChart: null,
   _fullChart: null,
+  _v1Chart: null,
 
   pinEntry: '',
 
@@ -104,25 +103,28 @@ const App = {
     const navBtn = document.querySelector(`.nav-btn[data-view="${view}"]`);
     if (navBtn) navBtn.classList.add('active');
     this.state.view = view;
-    const titles = { pool: 'Honeypot', bets: 'Bets', brent: 'Brent', dan: 'Dan', stats: 'Stats' };
+    const titles = { pool: 'Home', bets: 'Bets', brent: 'Brent', dan: 'Dan', summary: 'Summary', v1: 'Season 1' };
     document.getElementById('header-title').textContent = titles[view] || view;
+    // FAB only where adding a bet makes sense
+    document.getElementById('fab-add-bet').classList.toggle('hidden', !['pool', 'bets'].includes(view));
     this.render(view);
   },
 
   render(view) {
     const map = {
-      pool:  () => this.renderPool(),
-      bets:  () => this.renderBets(),
-      brent: () => this.renderPerson('brent'),
-      dan:   () => this.renderPerson('dan'),
-      stats: () => this.renderStats(),
+      pool:    () => this.renderPool(),
+      bets:    () => this.renderBets(),
+      brent:   () => this.renderPerson('brent'),
+      dan:     () => this.renderPerson('dan'),
+      summary: () => this.renderSummary(),
+      v1:      () => this.renderV1(),
     };
     if (!map[view]) return;
     try {
       map[view]();
     } catch (e) {
       console.error(`render(${view}) failed:`, e);
-      const containers = { pool: 'pool-content', bets: 'bets-list', brent: 'brent-content', dan: 'dan-content', stats: 'stats-content' };
+      const containers = { pool: 'pool-content', bets: 'bets-list', brent: 'brent-content', dan: 'dan-content', summary: 'summary-content', v1: 'v1-content' };
       const el = containers[view] ? document.getElementById(containers[view]) : null;
       if (el) el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error loading view: ${e.message}</div>`;
     }
@@ -133,200 +135,80 @@ const App = {
   renderPool() {
     const { sportsbooks, bets, transactions } = this.state;
 
-    const totalSb   = BetMath.sportsbookTotal(sportsbooks);
-    const bank      = BetMath.bankBalance(transactions);
-    const totalPool = totalSb + bank;
+    const totalSb = BetMath.sportsbookTotal(sportsbooks);
+    const bank    = BetMath.bankBalance(transactions);
 
-    const brentEq  = BetMath.personEquity(transactions, bets, 'brent');
-    const danEq    = BetMath.personEquity(transactions, bets, 'dan');
-    // Show the real per-person equity (same number as each person's own page) —
-    // do not rescale it to force-fit the pool total. Drift between totalPool and
-    // brentEq+danEq is reconciled at the source (Update Balance / Add Snapshot
-    // log an adjustment transaction automatically), not papered over here.
-    const brentPct = totalPool > 0 ? (brentEq / totalPool * 100).toFixed(1) : '0.0';
-    const danPct   = totalPool > 0 ? (danEq   / totalPool * 100).toFixed(1) : '0.0';
+    // Real ledger values — never rescaled to force-fit the shared cash total.
+    const brentEq = BetMath.personEquity(transactions, bets, 'brent');
+    const danEq   = BetMath.personEquity(transactions, bets, 'dan');
 
-    const settledBets = bets.filter(b => b.status !== 'pending');
-    const allTimePnl  = BetMath.poolBetPnl(settledBets) + BetMath.poolAdjustment(transactions);
-    const pnl7        = BetMath.rollingPnl(bets, 7);
-    const pnl30       = BetMath.rollingPnl(bets, 30);
-    const openBets    = bets.filter(b => b.status === 'pending');
+    const allTimePnl = BetMath.poolBetPnl(bets) + BetMath.poolAdjustment(transactions);
+    const openBets   = bets.filter(b => b.status === 'pending');
+    const atRisk     = openBets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
 
     const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
     const sign   = v => v >= 0 ? '+' : '';
 
-    const dayStrip = [5,4,3,2,1].map(i => {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const db      = BetMath.dayBets(bets, i);
-      const pnl     = BetMath.poolBetPnl(db);
-      const won     = db.filter(b => b.status === 'won').length;
-      const lost    = db.filter(b => b.status === 'lost').length;
-      const push    = db.filter(b => b.status === 'push').length;
-      const hasData = db.length > 0;
-      const label   = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-      const rec     = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
-      return `<div class="day-box">
-        <div class="day-box-label">${label}</div>
-        <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
-        <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
-      </div>`;
-    }).join('');
+    // Dan's pending exposure — money of his currently riding on open bets
+    const danAtRisk = openBets.reduce((s, b) => s + parseFloat(b.his_wager), 0);
 
+    const isFresh = bets.length === 0 && transactions.length === 0;
+
+    // Dan-first: the number this app exists to answer is "what is Dan owed?"
     document.getElementById('pool-content').innerHTML = `
-      <div class="pool-hero">
-        <div class="pool-label">Pool Total</div>
-        <div class="pool-amount">${BetMath.fmt(totalPool)}</div>
-        <div class="pool-sub ${pnlCls(allTimePnl)}">${sign(allTimePnl)}${BetMath.fmt(allTimePnl)} all-time P&amp;L</div>
+      <div class="pool-hero pool-hero-dan">
+        <div class="pool-label">Dan's Equity</div>
+        <div class="pool-amount">${BetMath.fmt(danEq)}</div>
+        <div class="pool-sub">what Dan's owed if we settled today${danAtRisk > 0 ? ` · ${BetMath.fmt(danAtRisk)} riding` : ''}</div>
       </div>
 
-      <div class="equity-row">
-        <div class="equity-card equity-card-brent">
-          <div class="equity-name">Brent</div>
-          <div class="equity-amount">${BetMath.fmt(brentEq)}</div>
-          <div class="equity-risk">${brentPct}% of pool</div>
-        </div>
-        <div class="equity-card equity-card-dan">
-          <div class="equity-name">Dan</div>
-          <div class="equity-amount">${BetMath.fmt(danEq)}</div>
-          <div class="equity-risk">${danPct}% of pool</div>
-        </div>
-      </div>
+      ${isFresh ? `
+      <div class="fresh-card">
+        <div class="fresh-title">Fresh season 🐣</div>
+        <div class="fresh-sub">Log Dan's deposit to fund the books, then add your first shared bet with the + button.</div>
+      </div>` : ''}
 
-      <div class="hp-metrics-grid">
-        <div class="hp-metric hp-metric-total">
-          <div class="hp-metric-label">In Sportsbooks</div>
-          <div class="hp-metric-value">${BetMath.fmt(totalSb)}</div>
+      <div class="metric-grid">
+        <div class="metric">
+          <div class="metric-label">My Cut</div>
+          <div class="metric-value">${BetMath.fmt(brentEq)}</div>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">In Bank</div>
-          <div class="hp-metric-value ${bank > 0 ? 'text-gold' : ''}">${BetMath.fmt(bank)}</div>
+        <div class="metric">
+          <div class="metric-label">Shared in Books</div>
+          <div class="metric-value">${BetMath.fmt(totalSb)}</div>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">7-Day P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(pnl7)}">${sign(pnl7)}${BetMath.fmt(pnl7)}</div>
+        <div class="metric">
+          <div class="metric-label">Shared in Bank</div>
+          <div class="metric-value ${bank > 0 ? 'text-gold' : ''}">${BetMath.fmt(bank)}</div>
         </div>
-        <div class="hp-metric">
-          <div class="hp-metric-label">30-Day P&amp;L</div>
-          <div class="hp-metric-value ${pnlCls(pnl30)}">${sign(pnl30)}${BetMath.fmt(pnl30)}</div>
+        <div class="metric">
+          <div class="metric-label">Season P&amp;L</div>
+          <div class="metric-value ${pnlCls(allTimePnl)}">${sign(allTimePnl)}${BetMath.fmt(allTimePnl)}</div>
         </div>
       </div>
 
       <div class="pool-actions">
-        <button class="action-btn" id="btn-money-moves">+ Money Moves</button>
+        <button class="action-btn action-btn-primary" id="btn-money-moves">＄ Money Moves</button>
         <button class="action-btn" id="btn-manage-books">Manage Books</button>
       </div>
 
-      <div class="section-label">Last 5 Days</div>
-      <div class="day-strip">${dayStrip}</div>
-
       ${openBets.length > 0 ? `
-        <div class="section-label">Open Bets <span class="badge badge-pending">${openBets.length}</span></div>
-        ${openBets.map(b => this.hpBetRowHTML(b)).join('')}
-      ` : `<div class="hp-no-open">All bets settled ✓</div>`}
+        <div class="section-label">Open Bets <span class="badge badge-pending">${openBets.length}</span><span class="section-label-right">${BetMath.fmt(atRisk)} at risk</span></div>
+        ${openBets.map(b => this.betRowHTML(b)).join('')}
+      ` : `<div class="all-settled">All bets settled ✓</div>`}
     `;
 
-    this.attachBetCardHandlers();
+    this.attachBetRowHandlers();
     document.getElementById('btn-money-moves')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('btn-manage-books')?.addEventListener('click', () => this.showManageBooksModal());
   },
 
-  // ─── Honeypot Bet Row ───────────────────────────────────
+  // ─── Bet Row ───────────────────────────────────────────
 
-  hpBetRowHTML(b) {
-    const boosted   = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
-    const baseOdds  = parseInt(b.base_odds);
-    const boostPct  = parseFloat(b.boost_pct);
-    const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
-    const sportCls  = sportColors[b.sport] || 'sport-other';
-    const date      = new Date(b.placed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-    const oddsHtml = boostPct > 0
-      ? `<span class="br-odds"><span class="br-odds-base">${BetMath.fmtOdds(baseOdds)}</span><span class="br-odds-arrow">›</span><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span><span class="boost-tag-xs">+${boostPct}%</span></span>`
-      : `<span class="br-odds"><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span></span>`;
-
-    return `
-      <div class="bet-row bet-row-pending" data-bet-id="${b.id}">
-        <div class="bet-row-info">
-          <div class="bet-row-l1">
-            <span class="br-book">${b.sportsbooks?.name?.replace('theScore Bet', 'Score') || ''}</span>
-            <span class="bet-row-sport-badge ${sportCls}">${b.sport}</span>
-            <span class="bet-row-desc">${b.description}</span>
-          </div>
-          <div class="bet-row-l2">
-            <span class="br-date">${date}</span>
-            <span class="br-sep">·</span>
-            ${oddsHtml}
-          </div>
-        </div>
-        <div class="bet-row-action">
-          <div class="settle-grid">
-            <button class="settle-btn settle-w"   data-id="${b.id}" data-result="won">W</button>
-            <button class="settle-btn settle-l"   data-id="${b.id}" data-result="lost">L</button>
-            <button class="settle-btn settle-p"   data-id="${b.id}" data-result="push">P</button>
-            <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete">×</button>
-          </div>
-        </div>
-      </div>
-    `;
+  _sportClass(sport) {
+    const map = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
+    return map[(sport || '').toUpperCase()] || 'sport-other';
   },
-
-  // ─── Bet Card HTML ─────────────────────────────────────
-
-  betCardHTML(bet) {
-    const boosted = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
-    const statusLabels  = { won: 'WON', lost: 'LOST', push: 'PUSH', pending: 'OPEN' };
-    const statusClasses = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push', pending: 'badge-pending' };
-    const isPending = bet.status === 'pending';
-
-    let payoutLine = '';
-    if (bet.status === 'won') {
-      const totalRet  = BetMath.totalReturn(parseFloat(bet.total_wager), boosted);
-      const danRet    = BetMath.splitReturn(totalRet, parseFloat(bet.total_wager), parseFloat(bet.his_wager));
-      const brentRet  = BetMath.splitReturn(totalRet, parseFloat(bet.total_wager), parseFloat(bet.my_wager));
-      payoutLine = `<div class="bet-payout"><span>Dan +${BetMath.fmt(danRet - parseFloat(bet.his_wager))}</span><span>Brent +${BetMath.fmt(brentRet - parseFloat(bet.my_wager))}</span></div>`;
-    }
-
-    return `
-      <div class="bet-card ${isPending ? 'bet-card-pending' : ''}" data-bet-id="${bet.id}">
-        <div class="bet-card-top">
-          <div class="bet-meta">
-            <span class="bet-sport">${bet.sport}</span>
-            <span class="bet-dot">·</span>
-            <span class="bet-desc">${bet.description}</span>
-          </div>
-          <span class="badge ${statusClasses[bet.status]}">${statusLabels[bet.status]}</span>
-        </div>
-        <div class="bet-card-mid">
-          <span class="bet-book">${bet.sportsbooks?.name || ''}</span>
-          <span class="bet-odds-display">
-            ${BetMath.fmtOdds(boosted)}
-            ${bet.boost_pct > 0 ? `<span class="boost-tag">+${bet.boost_pct}%</span>` : ''}
-          </span>
-        </div>
-        <div class="bet-card-bot">
-          <span>Total ${BetMath.fmt(bet.total_wager)}</span>
-          <span>Dan ${BetMath.fmt(bet.his_wager)}</span>
-          <span>Brent ${BetMath.fmt(bet.my_wager)}</span>
-        </div>
-        ${payoutLine}
-        ${isPending ? `
-          <div class="settle-inline">
-            <button class="settle-btn settle-w" data-id="${bet.id}" data-result="won">W</button>
-            <button class="settle-btn settle-l" data-id="${bet.id}" data-result="lost">L</button>
-            <button class="settle-btn settle-p" data-id="${bet.id}" data-result="push">P</button>
-            <button class="settle-btn settle-del" data-id="${bet.id}" data-result="delete">×</button>
-          </div>
-        ` : `
-          <div class="settle-inline">
-            <button class="settle-btn settle-del" data-id="${bet.id}" data-result="delete">×</button>
-          </div>
-        `}
-      </div>
-    `;
-  },
-
-  // ─── Bet Row HTML (list view) ──────────────────────────
 
   betRowHTML(b) {
     const boosted    = BetMath.boostedOdds(parseInt(b.base_odds), parseFloat(b.boost_pct));
@@ -336,30 +218,13 @@ const App = {
     const danWager   = parseFloat(b.his_wager);
     const brentWager = parseFloat(b.my_wager);
     const totalW     = parseFloat(b.total_wager);
-
-    const d    = new Date(b.placed_at);
-    const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-    const sportColors = {
-      NBA: 'sport-nba', NFL: 'sport-nfl', NHL: 'sport-nhl', MLB: 'sport-mlb',
-      NCAAB: 'sport-ncaab', CBB: 'sport-ncaab', CFB: 'sport-cfb', NCAAF: 'sport-cfb',
-    };
-    const sportClass = sportColors[b.sport] || 'sport-other';
+    const date       = new Date(b.placed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     let oddsHtml = '';
     if (baseOdds !== 0) {
-      if (boostPct > 0) {
-        oddsHtml = `
-          <span class="br-sep">·</span>
-          <span class="br-odds">
-            <span class="br-odds-base">${BetMath.fmtOdds(baseOdds)}</span>
-            <span class="br-odds-arrow">›</span>
-            <span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span>
-            <span class="boost-tag-xs">+${boostPct}%</span>
-          </span>`;
-      } else {
-        oddsHtml = `<span class="br-sep">·</span><span class="br-odds"><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span></span>`;
-      }
+      oddsHtml = boostPct > 0
+        ? `<span class="br-sep">·</span><span class="br-odds"><span class="br-odds-base">${BetMath.fmtOdds(baseOdds)}</span><span class="br-odds-arrow">›</span><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span><span class="boost-tag-xs">+${boostPct}%</span></span>`
+        : `<span class="br-sep">·</span><span class="br-odds"><span class="br-odds-boosted">${BetMath.fmtOdds(boosted)}</span></span>`;
     }
 
     const wagerParts = [];
@@ -370,42 +235,31 @@ const App = {
     let payoutHtml = '';
     if (b.status === 'won') {
       const totalRet    = BetMath.totalReturn(totalW, boosted);
-      const danProfit   = danWager > 0   ? BetMath.splitReturn(totalRet, totalW, danWager)   - danWager   : 0;
-      const brentProfit = brentWager > 0 ? BetMath.splitReturn(totalRet, totalW, brentWager) - brentWager : 0;
       const parts = [];
-      if (danWager > 0)   parts.push(`<span class="br-profit">D +${BetMath.fmt(danProfit)}</span>`);
-      if (brentWager > 0) parts.push(`<span class="br-profit">B +${BetMath.fmt(brentProfit)}</span>`);
+      if (danWager > 0)   parts.push(`<span class="br-profit">D +${BetMath.fmt(BetMath.splitReturn(totalRet, totalW, danWager) - danWager)}</span>`);
+      if (brentWager > 0) parts.push(`<span class="br-profit">B +${BetMath.fmt(BetMath.splitReturn(totalRet, totalW, brentWager) - brentWager)}</span>`);
       payoutHtml = `<div class="bet-row-l3 br-payout-row">${parts.join(`<span class="br-sep">·</span>`)}</div>`;
     }
-
-    const showEdit = this.state.betFilter === 'all';
 
     let actionHtml;
     if (isPending) {
       actionHtml = `
         <div class="settle-grid">
-          <button class="settle-btn settle-w"   data-id="${b.id}" data-result="won">W</button>
-          <button class="settle-btn settle-l"   data-id="${b.id}" data-result="lost">L</button>
-          <button class="settle-btn settle-p"   data-id="${b.id}" data-result="push">P</button>
-          <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete">×</button>
+          <button class="settle-btn settle-w" data-id="${b.id}" data-result="won">W</button>
+          <button class="settle-btn settle-l" data-id="${b.id}" data-result="lost">L</button>
+          <button class="settle-btn settle-p" data-id="${b.id}" data-result="push">P</button>
         </div>`;
     } else {
-      const cls = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push' }[b.status] || '';
-      const lbl = { won: 'WON', lost: 'LOST', push: 'PUSH' }[b.status] || b.status;
-      actionHtml = `
-        <span class="badge ${cls}">${lbl}</span>
-        <button class="settle-btn settle-del" data-id="${b.id}" data-result="delete" title="Delete bet">×</button>`;
+      const cls = { won: 'badge-won', lost: 'badge-lost', push: 'badge-push', void: 'badge-void' }[b.status] || '';
+      const lbl = { won: 'WON', lost: 'LOST', push: 'PUSH', void: 'VOID' }[b.status] || b.status;
+      actionHtml = `<span class="badge ${cls}">${lbl}</span>`;
     }
-
-    const editBtn = showEdit
-      ? `<button class="br-edit-btn" data-id="${b.id}" title="Edit bet">✎</button>`
-      : '';
 
     return `
       <div class="bet-row bet-row-${b.status}" data-bet-id="${b.id}">
-        <div class="bet-row-info">
+        <div class="bet-row-info" data-sheet-id="${b.id}">
           <div class="bet-row-l1">
-            <span class="bet-row-sport-badge ${sportClass}">${b.sport}</span>
+            <span class="bet-row-sport-badge ${this._sportClass(b.sport)}">${b.sport}</span>
             <span class="bet-row-desc">${b.description}</span>
           </div>
           <div class="bet-row-l2">
@@ -417,41 +271,44 @@ const App = {
           <div class="bet-row-l3">${wagersHtml}</div>
           ${payoutHtml}
         </div>
-        <div class="bet-row-action br-action-col">
+        <div class="bet-row-action">
           ${actionHtml}
-          ${editBtn}
+          <button class="br-more-btn" data-sheet-id="${b.id}" title="Manage bet">⋯</button>
         </div>
       </div>
     `;
   },
 
-  attachBetCardHandlers() {
-    document.querySelectorAll('.settle-btn').forEach(btn => {
+  attachBetRowHandlers() {
+    document.querySelectorAll('.settle-btn[data-result]').forEach(btn => {
       btn.addEventListener('click', async e => {
         e.stopPropagation();
         btn.disabled = true;
-        await this.handleInlineSettle(btn.dataset.id, btn.dataset.result);
+        await this.handleSettle(btn.dataset.id, btn.dataset.result);
       });
     });
-    document.querySelectorAll('.br-edit-btn').forEach(btn => {
-      btn.addEventListener('click', e => {
+    document.querySelectorAll('[data-sheet-id]').forEach(el => {
+      el.addEventListener('click', e => {
         e.stopPropagation();
-        const bet = this.state.bets.find(b => b.id === btn.dataset.id);
-        if (bet) this.showEditBetModal(bet);
+        const bet = this.state.bets.find(b => b.id === el.dataset.sheetId);
+        if (bet) this.showBetSheet(bet);
       });
     });
   },
 
-  async handleInlineSettle(betId, result) {
+  // ─── Bet Actions (settle / void / reopen / delete) ─────
+
+  async handleSettle(betId, result) {
     const bet = this.state.bets.find(b => b.id === betId);
     if (!bet) return;
 
-    // Push to undo stack (cap at 3)
     this.state.undoStack.unshift({ type: result === 'delete' ? 'delete' : 'settle', bet, result });
     if (this.state.undoStack.length > 3) this.state.undoStack.pop();
 
     if (result === 'delete') {
       await DB.deleteBet(betId);
+      // Only a pending bet's stake is still "in" the book; settled bets
+      // already had their delta applied.
       if (bet.status === 'pending') {
         await this._adjustBookBalance(bet.sportsbook_id, parseFloat(bet.total_wager));
       }
@@ -461,13 +318,76 @@ const App = {
     } else {
       await DB.settleBet(betId, result);
       await this._adjustBookBalance(bet.sportsbook_id, this._betSettleDelta(bet, result));
-      DB.logActivity(this.state.currentUser, 'bet_settled', {
+      DB.logActivity(this.state.currentUser, result === 'void' ? 'bet_voided' : 'bet_settled', {
         bet_id: bet.id, sport: bet.sport, description: bet.description, result, sportsbook: bet.sportsbooks?.name,
       });
     }
     await this.loadData();
     this.render(this.state.view);
     this._showUndoToast();
+  },
+
+  async handleReopen(bet) {
+    await DB.unsettleBet(bet.id);
+    await this._adjustBookBalance(bet.sportsbook_id, -this._betSettleDelta(bet, bet.status));
+    DB.logActivity(this.state.currentUser, 'bet_reopened', {
+      bet_id: bet.id, sport: bet.sport, description: bet.description, prior: bet.status,
+    });
+    await this.loadData();
+    this.render(this.state.view);
+  },
+
+  showBetSheet(bet) {
+    const boosted   = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
+    const isPending = bet.status === 'pending';
+    const statusLbl = { pending: 'Open', won: 'Won', lost: 'Lost', push: 'Push', void: 'Void' }[bet.status];
+
+    this.showModal(`
+      <div class="modal-header">Manage Bet</div>
+      <div class="sheet-bet-info">
+        <div class="sheet-bet-title"><span class="bet-row-sport-badge ${this._sportClass(bet.sport)}">${bet.sport}</span> ${bet.description}</div>
+        <div class="sheet-bet-sub">${bet.sportsbooks?.name || ''} · ${BetMath.fmtOdds(boosted)}${parseFloat(bet.boost_pct) > 0 ? ` (+${parseFloat(bet.boost_pct)}% boost)` : ''} · ${BetMath.fmt(bet.total_wager)} · <span class="badge badge-${bet.status}">${statusLbl}</span></div>
+      </div>
+      ${isPending ? `
+        <div class="settle-btns">
+          <button class="btn-settle btn-won"  data-result="won">Won</button>
+          <button class="btn-settle btn-lost" data-result="lost">Lost</button>
+          <button class="btn-settle btn-push" data-result="push">Push</button>
+        </div>` : ''}
+      <div class="sheet-actions">
+        <button class="sheet-action-btn" id="sheet-edit">✎ &nbsp;Edit Bet</button>
+        ${isPending
+          ? `<button class="sheet-action-btn" id="sheet-void">⊘ &nbsp;Void Bet <span class="sheet-action-hint">book cancelled it — refund stake</span></button>`
+          : `<button class="sheet-action-btn" id="sheet-reopen">↺ &nbsp;Reopen <span class="sheet-action-hint">undo ${statusLbl?.toLowerCase()} and make it open again</span></button>`}
+        <button class="sheet-action-btn sheet-action-danger" id="sheet-delete">✕ &nbsp;Delete Bet</button>
+      </div>
+      <button class="btn-cancel-modal" id="modal-cancel">Close</button>
+    `);
+
+    document.querySelectorAll('.btn-settle').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        this.hideModal();
+        await this.handleSettle(bet.id, btn.dataset.result);
+      });
+    });
+    document.getElementById('sheet-edit').addEventListener('click', () => {
+      this.hideModal();
+      setTimeout(() => this.showBetFormModal(bet), 120);
+    });
+    document.getElementById('sheet-void')?.addEventListener('click', async () => {
+      this.hideModal();
+      await this.handleSettle(bet.id, 'void');
+    });
+    document.getElementById('sheet-reopen')?.addEventListener('click', async () => {
+      this.hideModal();
+      await this.handleReopen(bet);
+    });
+    document.getElementById('sheet-delete').addEventListener('click', async () => {
+      this.hideModal();
+      await this.handleSettle(bet.id, 'delete');
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
   _showUndoToast() {
@@ -482,7 +402,7 @@ const App = {
     }
 
     const top    = this.state.undoStack[0];
-    const labels = { won: 'Won', lost: 'Lost', push: 'Push', delete: 'Deleted' };
+    const labels = { won: 'Won', lost: 'Lost', push: 'Push', void: 'Voided', delete: 'Deleted' };
     const action = top.type === 'delete' ? 'delete' : top.result;
     const count  = this.state.undoStack.length;
 
@@ -495,7 +415,7 @@ const App = {
 
     this._undoTimer = setTimeout(() => {
       toast.classList.remove('visible');
-      this.state.undoStack = []; // clear stack when window expires
+      this.state.undoStack = [];
     }, 5000);
   },
 
@@ -506,7 +426,9 @@ const App = {
     try {
       if (entry.type === 'delete') {
         await DB.restoreBet(entry.bet);
-        await this._adjustBookBalance(entry.bet.sportsbook_id, -parseFloat(entry.bet.total_wager));
+        if (entry.bet.status === 'pending') {
+          await this._adjustBookBalance(entry.bet.sportsbook_id, -parseFloat(entry.bet.total_wager));
+        }
       } else {
         await DB.unsettleBet(entry.bet.id);
         await this._adjustBookBalance(entry.bet.sportsbook_id, -this._betSettleDelta(entry.bet, entry.result));
@@ -518,23 +440,24 @@ const App = {
       this.render(this.state.view);
 
       if (this.state.undoStack.length > 0) {
-        this._showUndoToast(); // show next undo if available
+        this._showUndoToast();
       } else {
         clearTimeout(this._undoTimer);
         document.getElementById('undo-toast')?.classList.remove('visible');
       }
     } catch (err) {
-      alert('Undo failed: ' + err.message);
+      console.error('Undo failed:', err);
     }
   },
 
-  // Returns the sportsbook balance delta when a bet settles
+  // Sportsbook balance delta when a pending bet resolves.
+  // void behaves like push in the ledger: the stake comes back.
   _betSettleDelta(bet, result) {
     if (result === 'lost') return 0;
     const boosted = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct) || 0);
     return result === 'won'
       ? BetMath.totalReturn(parseFloat(bet.total_wager), boosted)
-      : parseFloat(bet.total_wager); // push: refund wager
+      : parseFloat(bet.total_wager); // push / void: refund wager
   },
 
   async _adjustBookBalance(sbId, delta) {
@@ -561,7 +484,9 @@ const App = {
       return;
     }
 
-    const books = this.state.sportsbooks;
+    // Only offer filters for books this season's bets actually use
+    const usedIds = new Set(this.state.bets.map(b => b.sportsbook_id));
+    const books = this.state.sportsbooks.filter(sb => usedIds.has(sb.id));
     bookRow.hidden = false;
     bookRow.innerHTML = `<div class="book-filter-tabs">${
       [{ id: 'all', name: 'All Books' }, ...books]
@@ -582,19 +507,17 @@ const App = {
     }
 
     if (filtered.length === 0) {
-      list.innerHTML = '<div class="empty-state">No bets</div>';
+      list.innerHTML = '<div class="empty-state">No bets yet — hit + to add one</div>';
       return;
     }
 
     list.innerHTML = filtered.map(b => this.betRowHTML(b)).join('');
-    this.attachBetCardHandlers();
+    this.attachBetRowHandlers();
   },
 
   renderActivityFeed() {
     const log = this.state.activityLog;
     if (!log.length) return '<div class="empty-state">No recent activity</div>';
-
-    const sportColors = { NBA:'sport-nba', NFL:'sport-nfl', NHL:'sport-nhl', MLB:'sport-mlb', NCAAB:'sport-ncaab', CBB:'sport-ncaab', CFB:'sport-cfb', NCAAF:'sport-cfb' };
 
     return log.flatMap(entry => {
       const user    = entry.user_name === 'brent' ? 'Brent' : 'Dan';
@@ -603,29 +526,37 @@ const App = {
       const time    = this.relativeTime(new Date(entry.created_at));
 
       if (entry.action === 'bets_placed') {
-        return (d.bets || []).map(b => {
-          const sportCls = sportColors[(b.sport || '').toUpperCase()] || 'sport-other';
-          return `<div class="activity-row">
+        return (d.bets || []).map(b => `<div class="activity-row">
             <span class="act-user-badge ${userCls}">${user}</span>
             <div class="act-body">
               <span class="act-label">Added Bet</span>
-              <span class="bet-row-sport-badge ${sportCls}">${b.sport || ''}</span>
+              <span class="bet-row-sport-badge ${this._sportClass(b.sport)}">${b.sport || ''}</span>
               ${b.sportsbook ? `<span class="act-book">${b.sportsbook}</span>` : ''}
             </div>
             <span class="act-time">${time}</span>
-          </div>`;
-        });
+          </div>`);
       }
 
       if (entry.action === 'bet_settled' && (d.result === 'won' || d.result === 'lost')) {
-        const sportCls  = sportColors[(d.sport || '').toUpperCase()] || 'sport-other';
-        const resCls    = d.result === 'won' ? 'act-res-w' : 'act-res-l';
-        const resLabel  = d.result === 'won' ? 'W' : 'L';
+        const resCls   = d.result === 'won' ? 'act-res-w' : 'act-res-l';
+        const resLabel = d.result === 'won' ? 'W' : 'L';
         return [`<div class="activity-row">
           <span class="act-user-badge ${userCls}">${user}</span>
           <div class="act-body">
             <span class="act-label">Marked Bet <span class="act-res ${resCls}">${resLabel}</span></span>
-            <span class="bet-row-sport-badge ${sportCls}">${d.sport || ''}</span>
+            <span class="bet-row-sport-badge ${this._sportClass(d.sport)}">${d.sport || ''}</span>
+            ${d.sportsbook ? `<span class="act-book">${d.sportsbook}</span>` : ''}
+          </div>
+          <span class="act-time">${time}</span>
+        </div>`];
+      }
+
+      if (entry.action === 'bet_voided') {
+        return [`<div class="activity-row">
+          <span class="act-user-badge ${userCls}">${user}</span>
+          <div class="act-body">
+            <span class="act-label">Voided Bet</span>
+            <span class="bet-row-sport-badge ${this._sportClass(d.sport)}">${d.sport || ''}</span>
             ${d.sportsbook ? `<span class="act-book">${d.sportsbook}</span>` : ''}
           </div>
           <span class="act-time">${time}</span>
@@ -668,7 +599,6 @@ const App = {
     const equity    = BetMath.personEquity(transactions, bets, person);
     const pct       = totalPool > 0 ? (equity / totalPool * 100).toFixed(1) : '0.0';
 
-    // Receipt breakdown
     const deposited = transactions
       .filter(t => norm(t.person) === person && t.type === 'deposit')
       .reduce((s, t) => s + parseFloat(t.amount), 0);
@@ -679,11 +609,9 @@ const App = {
 
     const betPnl = BetMath.personBetPnl(bets, field) + BetMath.personAdjustment(transactions, person);
 
-    // Pending exposure
-    const pendingBets = bets.filter(b => b.status === 'pending');
+    const pendingBets = bets.filter(b => b.status === 'pending' && parseFloat(b[field]) > 0);
     const pendingAmt  = pendingBets.reduce((s, b) => s + parseFloat(b[field]), 0);
 
-    // Rolling P&L
     const cutoff7  = new Date(); cutoff7.setDate(cutoff7.getDate() - 7);   cutoff7.setHours(0,0,0,0);
     const cutoff30 = new Date(); cutoff30.setDate(cutoff30.getDate() - 30); cutoff30.setHours(0,0,0,0);
     const pnl7  = BetMath.personBetPnl(bets.filter(b => new Date(b.placed_at) >= cutoff7),  field);
@@ -692,24 +620,7 @@ const App = {
     const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
     const sign   = v => v >= 0 ? '+' : '';
 
-    const dayStrip = [5,4,3,2,1].map(i => {
-      const db      = BetMath.dayBets(bets, i);
-      const pnl     = BetMath.personBetPnl(db, field);
-      const won     = db.filter(b => b.status === 'won').length;
-      const lost    = db.filter(b => b.status === 'lost').length;
-      const push    = db.filter(b => b.status === 'push').length;
-      const hasData = db.length > 0;
-      const d = new Date(); d.setDate(d.getDate() - i);
-      const label = d.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-      const rec   = [won > 0 ? `${won}W` : '', lost > 0 ? `${lost}L` : '', push > 0 ? `${push}P` : ''].filter(Boolean).join(' ');
-      return `<div class="day-box">
-        <div class="day-box-label">${label}</div>
-        <div class="day-box-pnl ${pnlCls(pnl)}">${hasData ? sign(pnl) + BetMath.fmt(pnl) : '—'}</div>
-        <div class="day-box-rec">${rec || (hasData ? '—' : '')}</div>
-      </div>`;
-    }).join('');
-
-    const personTxs = transactions.filter(t => norm(t.person) === person);
+    const statement = this._statementEvents(person);
 
     document.getElementById(`${person}-content`).innerHTML = `
       <div class="person-hero person-hero-${person}">
@@ -719,7 +630,7 @@ const App = {
       </div>
 
       <div class="person-receipt">
-        <div class="person-receipt-title">How You Got Here</div>
+        <div class="person-receipt-title">Season 2 Receipt</div>
         <div class="person-receipt-row">
           <span class="person-receipt-label">Deposited</span>
           <span class="person-receipt-amt">${BetMath.fmt(deposited)}</span>
@@ -758,118 +669,131 @@ const App = {
         </div>
       </div>
 
-      <div class="section-label">Last 5 Days</div>
-      <div class="day-strip">${dayStrip}</div>
-
-      <div class="section-label">${name}'s Transactions</div>
-      ${personTxs.length === 0
-        ? '<div class="empty-state">No transactions yet</div>'
-        : personTxs.map(t => this.txCardHTML(t)).join('')}
+      <div class="section-label">${name}'s Statement</div>
+      ${statement.length === 0
+        ? '<div class="empty-state">Nothing yet — deposits and settled bets will show up here</div>'
+        : `<div class="card statement-card">
+             <div class="stmt-header"><span></span><span class="stmt-delta">+/−</span><span class="stmt-bal">Balance</span></div>
+             ${statement.map(e => this.statementRowHTML(e)).join('')}
+           </div>`}
     `;
   },
 
-  txCardHTML(t) {
-    const typeLabels = { deposit: 'Deposit', withdrawal: 'To Bank', redeployment: 'Redeployment', disbursement: 'Paid Out', payout: 'Paid Out', adjustment: 'Balance Correction' };
-    const book = t.sportsbooks?.name || '';
-    const sub  = t.type === 'withdrawal'    ? (book ? `from ${book}` : '')
-               : t.type === 'redeployment'  ? (book ? `bank → ${book}` : 'bank → sportsbook')
-               : t.type === 'disbursement'  ? 'from bank'
-               : t.type === 'adjustment'    ? (book ? `· ${book}` : '')
-               : (book ? `· ${book}` : '');
-    const amtCls = t.type === 'deposit' ? 'text-green' : t.type === 'disbursement' ? 'text-muted' : parseFloat(t.amount) < 0 ? 'text-red' : '';
-    const prefix = t.type === 'deposit' || (t.type === 'adjustment' && parseFloat(t.amount) > 0) ? '+' : '';
-    const dateStr = t.created_at
-      ? new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      : '';
-    return `
-      <div class="tx-card">
-        <div class="tx-left">
-          <div class="tx-type-label">${typeLabels[t.type] || t.type}</div>
-          <div class="tx-detail">${[sub, dateStr].filter(Boolean).join(' · ')}</div>
-          ${t.notes ? `<div class="tx-notes">${t.notes}</div>` : ''}
-        </div>
-        <div class="tx-amount ${amtCls}">
-          ${prefix}${BetMath.fmt(t.amount)}
-        </div>
-      </div>
-    `;
-  },
+  // Bank-statement view of one person's equity: deposits, their cut of every
+  // settled bet, adjustments, payouts — with a running balance. This is the
+  // transparency layer for "your money is in my account".
+  _statementEvents(person) {
+    const { bets, transactions } = this.state;
+    const norm  = p => BetMath._norm(p);
+    const field = person === 'dan' ? 'his_wager' : 'my_wager';
 
-  // ─── Stats View ────────────────────────────────────────
-
-  renderStats() {
-    const tab = this.state.statsTab;
-
-    // Render tab bar first, then delegate
-    const tabBar = `
-      <div class="stats-inner-tabs">
-        <button class="stats-inner-tab ${tab === 'overview' ? 'active' : ''}" data-tab="overview">Overview</button>
-        <button class="stats-inner-tab ${tab === 'daily' ? 'active' : ''}" data-tab="daily">Daily</button>
-      </div>
-    `;
-
-    if (tab === 'daily') {
-      document.getElementById('stats-content').innerHTML = tabBar + '<div id="recon-content"></div>';
-      document.querySelectorAll('.stats-inner-tab').forEach(btn => {
-        btn.addEventListener('click', () => {
-          this.state.statsTab = btn.dataset.tab;
-          this.renderStats();
-        });
+    const events = [];
+    for (const t of transactions) {
+      if (norm(t.person) !== person) continue;
+      const amt = parseFloat(t.amount);
+      if (t.type === 'deposit') {
+        events.push({ date: t.created_at, label: 'Deposit', sub: t.sportsbooks?.name || '', delta: amt, kind: 'deposit' });
+      } else if (t.type === 'adjustment') {
+        events.push({ date: t.created_at, label: 'Adjustment', sub: t.notes || '', delta: amt, kind: 'adjustment' });
+      } else if (t.type === 'payout' || t.type === 'disbursement') {
+        events.push({ date: t.created_at, label: 'Paid Out', sub: t.notes || '', delta: -amt, kind: 'payout' });
+      }
+    }
+    for (const b of bets) {
+      if (BetMath._noPnl(b.status)) continue;      // pending/push/void: no equity change
+      if (parseFloat(b[field]) <= 0) continue;      // not their bet
+      events.push({
+        date: b.settled_at || b.placed_at,
+        label: `${b.status === 'won' ? 'Won' : 'Lost'} · ${b.description}`,
+        sub: `${b.sport} · ${b.sportsbooks?.name?.replace('theScore Bet', 'Score') || ''}`,
+        delta: BetMath.personBetPnl([b], field),
+        kind: b.status,
       });
-      this.renderRecon();
-      return;
     }
 
-    const { bets, snapshots, sportsbooks, transactions } = this.state;
-    const totalSb = BetMath.sportsbookTotal(sportsbooks);
-    const won    = bets.filter(b => b.status === 'won').length;
-    const lost   = bets.filter(b => b.status === 'lost').length;
-    const push   = bets.filter(b => b.status === 'push').length;
-    const open   = bets.filter(b => b.status === 'pending').length;
-    const settled = won + lost + push;
-    const winPct  = settled > 0 ? Math.round(won / settled * 100) : 0;
+    events.sort((a, b) => new Date(a.date) - new Date(b.date));
+    let bal = 0;
+    for (const e of events) { bal += e.delta; e.balance = bal; }
+    return events.reverse(); // newest first
+  },
 
-    // Group by sport
-    const bySport = {};
-    bets.forEach(b => {
-      const s = b.sport || 'OTHER';
-      if (!bySport[s]) bySport[s] = { total: 0, won: 0, lost: 0 };
-      bySport[s].total++;
-      if (b.status === 'won')  bySport[s].won++;
-      if (b.status === 'lost') bySport[s].lost++;
-    });
-    const sportRows = Object.entries(bySport).sort((a, b) => b[1].total - a[1].total);
-    const maxSport  = sportRows[0]?.[1].total || 1;
-
-    // Group by sportsbook
-    const byBook = {};
-    bets.forEach(b => {
-      const name = b.sportsbooks?.name || 'Unknown';
-      if (!byBook[name]) byBook[name] = { total: 0, won: 0, lost: 0 };
-      byBook[name].total++;
-      if (b.status === 'won')  byBook[name].won++;
-      if (b.status === 'lost') byBook[name].lost++;
-    });
-    const bookRows = Object.entries(byBook).sort((a, b) => b[1].total - a[1].total);
-    const maxBook  = bookRows[0]?.[1].total || 1;
-
-    const barRow = (label, data, max, orange = false) => `
-      <div class="stat-bar-row">
-        <div class="stat-bar-label">${label}</div>
-        <div class="stat-bar-track">
-          <div class="stat-bar-fill ${orange ? 'stat-bar-fill-orange' : ''}" style="width:${Math.round(data.total/max*100)}%"></div>
+  statementRowHTML(e) {
+    const deltaCls = e.delta > 0 ? 'text-green' : e.delta < 0 ? 'text-red' : 'text-muted';
+    const sign     = e.delta >= 0 ? '+' : '';
+    const date     = new Date(e.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `
+      <div class="stmt-row">
+        <div class="stmt-info">
+          <div class="stmt-label">${e.label}</div>
+          <div class="stmt-sub">${[date, e.sub].filter(Boolean).join(' · ')}</div>
         </div>
-        <div class="stat-bar-count">${data.total}</div>
-        <div class="stat-bar-wr">${data.won + data.lost > 0 ? Math.round(data.won/(data.won+data.lost)*100) + '%' : '—'}</div>
+        <div class="stmt-delta ${deltaCls}">${sign}${BetMath.fmt(e.delta)}</div>
+        <div class="stmt-bal">${BetMath.fmt(e.balance)}</div>
       </div>
     `;
+  },
 
-    document.getElementById('stats-content').innerHTML = tabBar + `
+
+  // ─── Summary View ──────────────────────────────────────
+
+  _breakdownRows(bets, keyFn) {
+    const groups = {};
+    bets.forEach(b => {
+      const k = keyFn(b) || 'Other';
+      if (!groups[k]) groups[k] = [];
+      groups[k].push(b);
+    });
+    return Object.entries(groups)
+      .map(([label, list]) => {
+        const rec = BetMath.record(list);
+        return { label, count: list.length, rec, pnl: BetMath.poolBetPnl(list) };
+      })
+      .sort((a, b) => b.count - a.count);
+  },
+
+  _breakdownHTML(rows) {
+    const max = rows[0]?.count || 1;
+    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : 'text-muted';
+    const sign   = v => v > 0 ? '+' : '';
+    return `
+      <div class="bd-header"><span></span><span></span><span class="bd-rec">W–L</span><span class="bd-pnl">P&amp;L</span></div>
+      ${rows.map(r => `
+        <div class="bd-row">
+          <div class="bd-label">${r.label.replace('theScore Bet', 'Score')}</div>
+          <div class="bd-track"><div class="bd-fill" style="width:${Math.round(r.count / max * 100)}%"></div></div>
+          <div class="bd-rec">${r.rec.won}–${r.rec.lost}</div>
+          <div class="bd-pnl ${pnlCls(r.pnl)}">${sign(r.pnl)}${BetMath.fmt(r.pnl)}</div>
+        </div>`).join('')}
+    `;
+  },
+
+  renderSummary() {
+    const { bets, snapshots, sportsbooks, transactions } = this.state;
+    const totalSb = BetMath.sportsbookTotal(sportsbooks);
+    // Empty unused books (V1 leftovers) stay out of the day-to-day view;
+    // they're still reachable via Manage Books.
+    const usedBookIds = new Set(bets.map(b => b.sportsbook_id));
+    const activeBooks = sportsbooks.filter(sb => parseFloat(sb.current_balance) !== 0 || usedBookIds.has(sb.id));
+    const rec     = BetMath.record(bets);
+    const roi     = BetMath.poolRoi(bets);
+    const streaks = BetMath.streaks(bets);
+    const pnl     = BetMath.poolBetPnl(bets);
+
+    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
+    const sign   = v => v >= 0 ? '+' : '';
+
+    const streakChip = streaks.currentType
+      ? `<div class="streak-chip ${streaks.currentType === 'won' ? 'streak-hot' : 'streak-cold'}">
+           ${streaks.currentType === 'won' ? '🔥' : '🥶'} ${streaks.current}${streaks.currentType === 'won' ? 'W' : 'L'} streak
+         </div>`
+      : '';
+
+    document.getElementById('summary-content').innerHTML = `
       <div class="perf-card" id="perf-card-tap">
         <div class="perf-card-top">
           <div>
-            <div class="perf-label">Pool Performance</div>
-            <div class="perf-growth" id="perf-growth-text">Loading chart...</div>
+            <div class="perf-label">Season 2 Performance</div>
+            <div class="perf-growth" id="perf-growth-text">Loading chart…</div>
           </div>
           <span class="perf-caret">›</span>
         </div>
@@ -880,203 +804,264 @@ const App = {
 
       <div class="stats-hero">
         <div class="sh-stat">
-          <div class="sh-num">${bets.length}</div>
-          <div class="sh-lbl">Total Bets</div>
+          <div class="sh-num ${pnlCls(pnl)}">${sign(pnl)}${BetMath.fmt(pnl)}</div>
+          <div class="sh-lbl">Bet P&amp;L</div>
         </div>
         <div class="sh-stat">
-          <div class="sh-num">${won}<span class="sh-w">W</span> ${lost}<span class="sh-l">L</span>${push > 0 ? ` ${push}<span>P</span>` : ''}</div>
+          <div class="sh-num">${rec.won}<span class="sh-w">W</span> ${rec.lost}<span class="sh-l">L</span>${rec.push > 0 ? ` ${rec.push}<span>P</span>` : ''}</div>
           <div class="sh-lbl">Record</div>
         </div>
         <div class="sh-stat">
-          <div class="sh-num ${winPct >= 30 ? 'text-green' : ''}">${winPct}%</div>
+          <div class="sh-num">${rec.winPct}%</div>
           <div class="sh-lbl">Win Rate</div>
+        </div>
+        <div class="sh-stat">
+          <div class="sh-num ${pnlCls(roi)}">${sign(roi)}${roi.toFixed(1)}%</div>
+          <div class="sh-lbl">ROI</div>
         </div>
       </div>
 
-      ${open > 0 ? `<div class="sh-open-row"><span class="badge badge-pending">${open} open</span> bets pending settlement</div>` : ''}
+      <div class="streak-row">
+        ${streakChip}
+        ${streaks.bestW > 0 ? `<div class="streak-chip">Best run ${streaks.bestW}W</div>` : ''}
+        ${rec.pending > 0 ? `<div class="streak-chip"><span class="badge badge-pending">${rec.pending}</span> open</div>` : ''}
+        ${rec.void > 0 ? `<div class="streak-chip">${rec.void} voided</div>` : ''}
+      </div>
 
       <div class="stats-action-row">
         <button class="btn-stats-action" id="stats-snap-btn">+ Snapshot</button>
-        <button class="btn-stats-action btn-stats-action-tx" id="stats-tx-btn">+ Money Moves</button>
+        <button class="btn-stats-action btn-stats-action-alt" id="stats-tx-btn">＄ Money Moves</button>
         <button class="btn-stats-action" id="stats-books-btn">Manage Books</button>
       </div>
 
-      <div class="section-label">Sportsbook Balances</div>
+      <div class="section-label">Shared Balances</div>
       <div class="card">
-        ${sportsbooks.map(sb => `
+        ${(activeBooks.length ? activeBooks : sportsbooks).map(sb => `
           <div class="bankroll-row">
             <span class="bankroll-name">${sb.name.replace('theScore Bet', 'Score')}</span>
             <span class="bankroll-val">${BetMath.fmt(sb.current_balance)}</span>
           </div>
         `).join('')}
         <div class="bankroll-total-row">
-          <span class="bankroll-total-label">Total in Books</span>
+          <span class="bankroll-total-label">Total Shared in Books</span>
           <span class="bankroll-total-val">${BetMath.fmt(totalSb)}</span>
         </div>
       </div>
 
+      ${bets.length > 0 ? `
       <div class="section-label mt-12">By Sport</div>
-      <div class="card">
-        <div class="stat-bar-header">
-          <span></span><span></span><span class="stat-bar-count">Bets</span><span class="stat-bar-wr">W%</span>
-        </div>
-        ${sportRows.map(([sport, data]) => barRow(sport, data, maxSport)).join('')}
-      </div>
+      <div class="card">${this._breakdownHTML(this._breakdownRows(bets, b => (b.sport || '').toUpperCase()))}</div>
 
       <div class="section-label mt-12">By Sportsbook</div>
-      <div class="card">
-        <div class="stat-bar-header">
-          <span></span><span></span><span class="stat-bar-count">Bets</span><span class="stat-bar-wr">W%</span>
+      <div class="card">${this._breakdownHTML(this._breakdownRows(bets, b => b.sportsbooks?.name))}</div>
+      ` : ''}
+
+      <button class="v1-link-card" id="v1-link">
+        <div>
+          <div class="v1-link-title">Season 1 · Closed</div>
+          <div class="v1-link-sub">Sep 2025 – Aug 2026 · full review</div>
         </div>
-        ${bookRows.map(([name, data]) => barRow(name.replace('theScore Bet', 'Score'), data, maxBook, true)).join('')}
-      </div>
+        <span class="perf-caret">›</span>
+      </button>
     `;
 
-    document.querySelectorAll('.stats-inner-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.state.statsTab = btn.dataset.tab;
-        this.renderStats();
-      });
-    });
     document.getElementById('stats-snap-btn')?.addEventListener('click', () => this.showAddSnapshotModal());
     document.getElementById('stats-tx-btn')?.addEventListener('click', () => this.showLogTransactionModal());
     document.getElementById('stats-books-btn')?.addEventListener('click', () => this.showManageBooksModal());
     document.getElementById('perf-card-tap')?.addEventListener('click', () => this.showChartModal());
+    document.getElementById('v1-link')?.addEventListener('click', () => this.navigate('v1'));
     this._renderPerfCard();
   },
 
-  // ─── Daily Recon ───────────────────────────────────────
+  // ─── V1 Season Review (read-only) ─────────────────────
 
-  renderRecon() {
-    const { bets, sportsbooks } = this.state;
-    const today = this.localDateStr();
-
-    // Build last 5 days (today first)
-    const days = [];
-    for (let i = 0; i < 5; i++) {
-      const d = new Date(today + 'T12:00:00');
-      d.setDate(d.getDate() - i);
-      days.push(this.localDateStr(d));
+  async renderV1() {
+    const el = document.getElementById('v1-content');
+    if (!this.state.v1) {
+      el.innerHTML = '<div class="empty-state">Loading Season 1…</div>';
+      try {
+        this.state.v1 = await DB.getV1Bundle();
+      } catch (e) {
+        el.innerHTML = `<div class="empty-state" style="color:var(--red)">Couldn't load V1 data: ${e.message}</div>`;
+        return;
+      }
+      if (this.state.view !== 'v1') return; // user navigated away while loading
     }
 
-    if (!this.state.reconDate || !days.includes(this.state.reconDate)) {
-      this.state.reconDate = today;
-    }
-    const selDate = this.state.reconDate;
+    const { bets, transactions, snapshots } = this.state.v1;
+    const rec     = BetMath.record(bets);
+    const pnl     = BetMath.poolBetPnl(bets);
+    const streaks = BetMath.streaks(bets);
 
-    // Date pills
-    const pillLabel = (dateStr) => {
-      if (dateStr === today) return 'Today';
-      const d = new Date(dateStr + 'T12:00:00');
-      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    };
+    const deposits = transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + parseFloat(t.amount), 0);
+    const payouts  = transactions.filter(t => (t.type === 'payout' || t.type === 'disbursement'));
+    const paidBrent = payouts.filter(t => BetMath._norm(t.person) === 'brent').reduce((s, t) => s + parseFloat(t.amount), 0);
+    const paidDan   = payouts.filter(t => BetMath._norm(t.person) === 'dan').reduce((s, t) => s + parseFloat(t.amount), 0);
+    const totalWagered = bets.reduce((s, b) => s + parseFloat(b.total_wager), 0);
+    const totalPaid    = paidBrent + paidDan;
+    const adjustments  = BetMath.poolAdjustment(transactions);
 
-    const pillsHtml = days.map(d => `
-      <button class="recon-pill ${d === selDate ? 'active' : ''}" data-date="${d}">
-        ${pillLabel(d)}
-      </button>
-    `).join('');
+    // The season's headline: what actually came back vs. what went in
+    const earnings    = totalPaid - deposits;
+    const earningsPct = deposits > 0 ? earnings / deposits * 100 : 0;
 
-    // Filter bets for selected date
-    const dayBets = bets.filter(b => b.placed_at && b.placed_at.split('T')[0] === selDate);
+    const pnlCls = v => v > 0 ? 'text-green' : v < 0 ? 'text-red' : '';
+    const sign   = v => v >= 0 ? '+' : '';
 
-    // Group by sportsbook
-    const byBook = {};
-    dayBets.forEach(b => {
-      const name = b.sportsbooks?.name || 'Unknown';
-      if (!byBook[name]) byBook[name] = { bets: [], total: 0, pending: 0, won: 0, lost: 0, push: 0 };
-      byBook[name].bets.push(b);
-      byBook[name].total += parseFloat(b.total_wager) || 0;
-      byBook[name][b.status] = (byBook[name][b.status] || 0) + 1;
-    });
+    el.innerHTML = `
+      <button class="v1-back" id="v1-back">‹ Summary</button>
 
-    const bookEntries = Object.entries(byBook).sort((a, b) => b[1].total - a[1].total);
-    const totalWager  = dayBets.reduce((s, b) => s + (parseFloat(b.total_wager) || 0), 0);
+      <div class="v1-hero">
+        <div class="v1-hero-badge">SEASON 1 · CLOSED</div>
+        <div class="v1-hero-pnl ${pnlCls(earnings)}">${sign(earnings)}${BetMath.fmt(earnings)}</div>
+        <div class="v1-hero-sub">earnings — ${BetMath.fmt(totalPaid)} paid out on ${BetMath.fmt(deposits)} deposited</div>
+      </div>
 
-    const statusBadge = (count, type) => count > 0
-      ? `<span class="recon-badge recon-badge-${type}">${count}${type === 'pending' ? ' open' : type === 'won' ? ' W' : type === 'lost' ? ' L' : ' P'}</span>`
-      : '';
-
-    const bookCards = bookEntries.map(([name, data]) => `
-      <div class="recon-book-row">
-        <div class="recon-book-left">
-          <div class="recon-book-name">${name.replace('theScore Bet', 'Score')}</div>
-          <div class="recon-book-badges">
-            ${statusBadge(data.pending, 'pending')}
-            ${statusBadge(data.won, 'won')}
-            ${statusBadge(data.lost, 'lost')}
-            ${statusBadge(data.push, 'push')}
-          </div>
+      <div class="stats-hero">
+        <div class="sh-stat">
+          <div class="sh-num ${pnlCls(earningsPct)}">${sign(earningsPct)}${earningsPct.toFixed(0)}%</div>
+          <div class="sh-lbl">Return</div>
         </div>
-        <div class="recon-book-right">
-          <div class="recon-book-count">${data.bets.length} bet${data.bets.length !== 1 ? 's' : ''}</div>
-          <div class="recon-book-wager">${BetMath.fmt(data.total)}</div>
+        <div class="sh-stat">
+          <div class="sh-num">${rec.won}<span class="sh-w">W</span> ${rec.lost}<span class="sh-l">L</span>${rec.push > 0 ? ` ${rec.push}<span>P</span>` : ''}</div>
+          <div class="sh-lbl">Record</div>
+        </div>
+        <div class="sh-stat">
+          <div class="sh-num">${rec.winPct}%</div>
+          <div class="sh-lbl">Win Rate</div>
+        </div>
+        <div class="sh-stat">
+          <div class="sh-num">${streaks.bestW}W</div>
+          <div class="sh-lbl">Best Run</div>
         </div>
       </div>
-    `).join('');
 
-    const content = dayBets.length === 0
-      ? `<div class="recon-empty">No bets entered for this day</div>`
-      : `
-        <div class="card recon-card">
-          ${bookCards}
-          <div class="recon-total-row">
-            <span class="recon-total-label">${dayBets.length} total bets</span>
-            <span class="recon-total-val">${BetMath.fmt(totalWager)}</span>
-          </div>
+      <div class="section-label">Final Settlement</div>
+      <div class="person-receipt">
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Total Deposited</span>
+          <span class="person-receipt-amt">${BetMath.fmt(deposits)}</span>
         </div>
-      `;
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Bet P&amp;L (${rec.total.toLocaleString()} bets · ${BetMath.fmt(totalWagered)} wagered)</span>
+          <span class="person-receipt-amt ${pnlCls(pnl)}">${sign(pnl)}${BetMath.fmt(pnl)}</span>
+        </div>
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Promos &amp; Adjustments</span>
+          <span class="person-receipt-amt ${pnlCls(adjustments)}">${sign(adjustments)}${BetMath.fmt(adjustments)}</span>
+        </div>
+        <div class="person-receipt-divider"></div>
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Paid Out — Brent</span>
+          <span class="person-receipt-amt">${BetMath.fmt(paidBrent)}</span>
+        </div>
+        <div class="person-receipt-row">
+          <span class="person-receipt-label">Paid Out — Dan</span>
+          <span class="person-receipt-amt">${BetMath.fmt(paidDan)}</span>
+        </div>
+        <div class="person-receipt-divider person-receipt-divider-strong"></div>
+        <div class="person-receipt-row person-receipt-total">
+          <span class="person-receipt-label">Net Earnings</span>
+          <span class="person-receipt-amt ${pnlCls(earnings)}">${sign(earnings)}${BetMath.fmt(earnings)}</span>
+        </div>
+        <div class="person-receipt-row person-receipt-row-muted">
+          <span class="person-receipt-label">Season closed out</span>
+          <span class="person-receipt-amt text-green">✓ $0.00</span>
+        </div>
+      </div>
 
-    document.getElementById('recon-content').innerHTML = `
-      <div class="recon-pills">${pillsHtml}</div>
-      <div class="section-label">${selDate === today ? 'Today' : new Date(selDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</div>
-      ${content}
+      ${snapshots.length > 1 ? `
+      <div class="section-label mt-12">Pool Over Time</div>
+      <div class="card v1-chart-card">
+        <div class="v1-chart-wrap"><canvas id="v1-chart"></canvas></div>
+      </div>` : ''}
+
+      <div class="section-label mt-12">By Sport</div>
+      <div class="card">${this._breakdownHTML(this._breakdownRows(bets, b => (b.sport || '').toUpperCase()))}</div>
+
+      <div class="section-label mt-12">By Sportsbook</div>
+      <div class="card">${this._breakdownHTML(this._breakdownRows(bets, b => b.sportsbooks?.name))}</div>
     `;
 
-    document.querySelectorAll('.recon-pill').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this.state.reconDate = btn.dataset.date;
-        this.renderRecon();
-      });
+    document.getElementById('v1-back').addEventListener('click', () => this.navigate('summary'));
+    if (snapshots.length > 1) requestAnimationFrame(() => this._renderV1Chart(snapshots));
+  },
+
+  _renderV1Chart(snapshots) {
+    const canvas = document.getElementById('v1-chart');
+    if (!canvas || !window.Chart) return;
+    if (this._v1Chart) { this._v1Chart.destroy(); this._v1Chart = null; }
+
+    const ctx  = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 200);
+    grad.addColorStop(0, 'rgba(57,135,229,0.4)');
+    grad.addColorStop(1, 'rgba(57,135,229,0)');
+
+    this._v1Chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: snapshots.map(s => new Date(s.snapshot_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
+        datasets: [{
+          label: 'Pool Balance',
+          data: snapshots.map(s => parseFloat(s.cash)),
+          borderColor: '#3987e5', backgroundColor: grad,
+          fill: true, tension: 0.35, pointRadius: 0, pointHoverRadius: 6, borderWidth: 2,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#10141a', borderColor: '#2a323d', borderWidth: 1,
+            titleColor: '#9aa7b4', bodyColor: '#f2f5f8', padding: 10,
+            callbacks: { label: c => ` ${BetMath.fmt(c.parsed.y)}` },
+          },
+        },
+        scales: {
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false },
+               ticks: { color: '#64748b', font: { size: 10 }, callback: v => '$' + (v/1000).toFixed(0) + 'k' } },
+          x: { grid: { display: false }, border: { display: false },
+               ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 6 } },
+        },
+      },
     });
   },
 
-  // ─── Charts ────────────────────────────────────────────
+  // ─── Season 2 performance charts ───────────────────────
 
   _renderPerfCard() {
-    const { snapshots, transactions } = this.state;
+    const { snapshots } = this.state;
+    const el = document.getElementById('perf-growth-text');
     if (!snapshots || snapshots.length < 2) {
-      const el = document.getElementById('perf-growth-text');
-      if (el) el.textContent = 'Add snapshots to see chart';
+      if (el) el.textContent = 'Add snapshots to see the chart';
       return;
     }
 
     const first   = parseFloat(snapshots[0].cash);
     const current = parseFloat(snapshots[snapshots.length - 1].cash);
-    const pct     = ((current - first) / first * 100).toFixed(0);
-    const el      = document.getElementById('perf-growth-text');
-    if (el) el.textContent = `${BetMath.fmt(first)} → ${BetMath.fmt(current)}  ·  +${pct}%`;
+    const pct     = first > 0 ? ((current - first) / first * 100).toFixed(0) : '0';
+    if (el) el.textContent = `${BetMath.fmt(first)} → ${BetMath.fmt(current)}  ·  ${pct >= 0 ? '+' : ''}${pct}%`;
 
     const canvas = document.getElementById('mini-chart');
     if (!canvas) return;
 
     if (this._miniChart) { this._miniChart.destroy(); this._miniChart = null; }
 
-    const ctx      = canvas.getContext('2d');
-    const cashLine = snapshots.map(s => parseFloat(s.cash));
-    const grad     = ctx.createLinearGradient(0, 0, 0, 70);
-    grad.addColorStop(0, 'rgba(107,47,160,0.55)');
-    grad.addColorStop(1, 'rgba(107,47,160,0)');
+    const ctx  = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 70);
+    grad.addColorStop(0, 'rgba(57,135,229,0.45)');
+    grad.addColorStop(1, 'rgba(57,135,229,0)');
 
     this._miniChart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: snapshots.map(() => ''),
-        datasets: [{ data: cashLine, borderColor: '#9b6fd0', backgroundColor: grad, fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }],
+        datasets: [{ data: snapshots.map(s => parseFloat(s.cash)), borderColor: '#3987e5', backgroundColor: grad, fill: true, tension: 0.4, pointRadius: 0, borderWidth: 2 }],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         animation: { duration: 900, easing: 'easeInOutQuart' },
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         scales: { x: { display: false }, y: { display: false } },
@@ -1091,7 +1076,7 @@ const App = {
       this.showModal(`
         <div class="modal-header">Performance</div>
         <div class="empty-state">No snapshots yet. Add one to start tracking.</div>
-        <button class="btn-orange-full" id="add-snap-btn">+ Add Snapshot</button>
+        <button class="btn-primary-full" id="add-snap-btn">+ Add Snapshot</button>
         <button class="btn-cancel-modal" id="modal-cancel">Close</button>
       `);
       document.getElementById('add-snap-btn').addEventListener('click', () => { this.hideModal(); setTimeout(() => this.showAddSnapshotModal(), 120); });
@@ -1104,14 +1089,13 @@ const App = {
     const last     = parseFloat(snapshots[snapshots.length - 1].cash);
     const totalDep = transactions.filter(t => t.type === 'deposit').reduce((s, t) => s + parseFloat(t.amount), 0);
     const totalWdr = transactions.filter(t => t.type === 'withdrawal').reduce((s, t) => s + parseFloat(t.amount), 0);
-    const pct      = ((last - first) / first * 100).toFixed(0);
+    const pct      = first > 0 ? ((last - first) / first * 100).toFixed(0) : '0';
 
     this.showModal(`
-      <div class="modal-drag"></div>
       <div class="chart-modal-header">
         <div>
-          <div class="chart-modal-title">Pool Performance</div>
-          <div class="chart-modal-sub">Sep 2025 – Today</div>
+          <div class="chart-modal-title">Season 2 Performance</div>
+          <div class="chart-modal-sub">${new Date(snapshots[0].snapshot_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} – Today</div>
         </div>
         <button class="btn-add-snap-sm" id="add-snap-btn">+ Snapshot</button>
       </div>
@@ -1123,7 +1107,7 @@ const App = {
         </div>
         <div class="chart-stat">
           <div class="chart-stat-label">Growth</div>
-          <div class="chart-stat-val text-green">+${pct}%</div>
+          <div class="chart-stat-val ${pct >= 0 ? 'text-green' : 'text-red'}">${pct >= 0 ? '+' : ''}${pct}%</div>
         </div>
         <div class="chart-stat">
           <div class="chart-stat-label">Deposited</div>
@@ -1146,9 +1130,6 @@ const App = {
 
       <button class="btn-cancel-modal" id="modal-cancel">Close</button>
     `);
-
-    // Remove the auto-injected drag handle (showModal adds one, we have our own layout)
-    document.querySelector('.modal-drag')?.remove();
 
     document.getElementById('add-snap-btn').addEventListener('click', () => {
       this.hideModal();
@@ -1188,16 +1169,12 @@ const App = {
     if (this._fullChart) { this._fullChart.destroy(); this._fullChart = null; }
 
     const ctx      = canvas.getContext('2d');
-    const labels   = snapshots.map(s => {
-      const d = new Date(s.snapshot_date + 'T12:00:00');
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    });
+    const labels   = snapshots.map(s => new Date(s.snapshot_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
     const cashLine = snapshots.map(s => parseFloat(s.cash));
 
-    // Deposits + withdrawals per period
     const depositBars = [], withdrawalBars = [];
     for (let i = 0; i < snapshots.length; i++) {
-      const from = i === 0 ? new Date('2025-09-01') : new Date(snapshots[i-1].snapshot_date + 'T23:59:59');
+      const from = i === 0 ? new Date(0) : new Date(snapshots[i-1].snapshot_date + 'T23:59:59');
       const to   = new Date(snapshots[i].snapshot_date + 'T23:59:59');
       const deps = transactions.filter(t => t.type === 'deposit'    && new Date(t.created_at) >= from && new Date(t.created_at) <= to).reduce((s, t) => s + parseFloat(t.amount), 0);
       const wdrs = transactions.filter(t => t.type === 'withdrawal' && new Date(t.created_at) >= from && new Date(t.created_at) <= to).reduce((s, t) => s + parseFloat(t.amount), 0);
@@ -1206,8 +1183,8 @@ const App = {
     }
 
     const grad = ctx.createLinearGradient(0, 0, 0, 260);
-    grad.addColorStop(0, 'rgba(107,47,160,0.6)');
-    grad.addColorStop(1, 'rgba(107,47,160,0.02)');
+    grad.addColorStop(0, 'rgba(57,135,229,0.5)');
+    grad.addColorStop(1, 'rgba(57,135,229,0.02)');
 
     this._fullChart = new Chart(ctx, {
       type: 'bar',
@@ -1217,59 +1194,53 @@ const App = {
           {
             type: 'line', label: 'Pool Balance',
             data: cashLine,
-            borderColor: '#9b6fd0', backgroundColor: grad,
+            borderColor: '#3987e5', backgroundColor: grad,
             fill: true, tension: 0.4, borderWidth: 2.5,
-            pointBackgroundColor: '#c9a44a', pointBorderColor: '#c9a44a',
-            pointRadius: 5, pointHoverRadius: 7,
+            pointBackgroundColor: '#3987e5', pointBorderColor: '#0b0e12',
+            pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 7,
             yAxisID: 'y', order: 0,
           },
           {
             type: 'bar', label: 'Deposits',
             data: depositBars,
-            backgroundColor: 'rgba(34,197,94,0.35)', borderColor: 'rgba(34,197,94,0.65)',
+            backgroundColor: 'rgba(12,163,12,0.4)', borderColor: 'rgba(12,163,12,0.7)',
             borderWidth: 1, borderRadius: 4,
-            yAxisID: 'y2', order: 1,
+            yAxisID: 'y', order: 1,
           },
           {
             type: 'bar', label: 'Withdrawn',
             data: withdrawalBars.map(w => -w),
-            backgroundColor: 'rgba(216,82,0,0.35)', borderColor: 'rgba(216,82,0,0.65)',
+            backgroundColor: 'rgba(230,103,103,0.4)', borderColor: 'rgba(230,103,103,0.7)',
             borderWidth: 1, borderRadius: 4,
-            yAxisID: 'y2', order: 2,
+            yAxisID: 'y', order: 2,
           },
         ],
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
         animation: { duration: 700, easing: 'easeInOutQuart' },
         scales: {
           y: {
             position: 'left',
-            grid: { color: 'rgba(28,28,50,0.9)' },
-            border: { color: '#1c1c32' },
-            ticks: { color: '#6a6880', font: { size: 11 }, callback: v => '$' + (v/1000).toFixed(0) + 'k' },
-          },
-          y2: {
-            position: 'right',
-            grid: { display: false },
-            ticks: { color: '#6a6880', font: { size: 10 }, callback: v => '$' + Math.abs(v/1000).toFixed(1) + 'k' },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            border: { display: false },
+            ticks: { color: '#64748b', font: { size: 11 }, callback: v => '$' + (Math.abs(v) >= 1000 ? (v/1000).toFixed(1) + 'k' : v) },
           },
           x: {
-            grid: { color: 'rgba(28,28,50,0.5)' },
-            border: { color: '#1c1c32' },
-            ticks: { color: '#6a6880', font: { size: 10 }, maxRotation: 35 },
+            grid: { display: false },
+            border: { display: false },
+            ticks: { color: '#64748b', font: { size: 10 }, maxRotation: 35 },
           },
         },
         plugins: {
           legend: {
-            labels: { color: '#ede9f8', font: { size: 12 }, usePointStyle: true, pointStyle: 'circle', padding: 14 },
+            labels: { color: '#f2f5f8', font: { size: 12 }, usePointStyle: true, pointStyle: 'circle', padding: 14 },
           },
           tooltip: {
-            backgroundColor: '#0e0e1c', borderColor: '#6b2fa0', borderWidth: 1,
-            titleColor: '#c9a44a', titleFont: { weight: '700' },
-            bodyColor: '#ede9f8', padding: 12,
+            backgroundColor: '#10141a', borderColor: '#2a323d', borderWidth: 1,
+            titleColor: '#9aa7b4', titleFont: { weight: '700' },
+            bodyColor: '#f2f5f8', padding: 12,
             callbacks: {
               label: c => {
                 const v = Math.abs(c.parsed.y);
@@ -1282,6 +1253,162 @@ const App = {
       },
     });
   },
+
+  // ─── Modals ────────────────────────────────────────────
+
+  showModal(html) {
+    document.getElementById('modal-content').innerHTML = `<div class="modal-drag"></div>` + html;
+    document.getElementById('modal').classList.remove('hidden');
+  },
+
+  hideModal() {
+    document.getElementById('modal').classList.add('hidden');
+    document.getElementById('modal-content').innerHTML = '';
+  },
+
+  // ─── Add / Edit Bet (one form, two modes) ──────────────
+
+  showBetFormModal(bet = null) {
+    const isEdit  = !!bet;
+    const today   = this.localDateStr();
+    const dateVal = isEdit && bet.placed_at ? this.localDateStr(new Date(bet.placed_at)) : today;
+    // BetMGM is where nearly all shared bets live — preselect it for new bets
+    const selectedId = isEdit ? bet.sportsbook_id : this.state.sportsbooks.find(sb => sb.name === 'BetMGM')?.id;
+    const sbOptions = this.state.sportsbooks.map(sb =>
+      `<option value="${sb.id}" ${sb.id === selectedId ? 'selected' : ''}>${sb.name}</option>`
+    ).join('');
+
+    this.showModal(`
+      <div class="modal-header">${isEdit ? 'Edit Bet' : 'Add Bet'}</div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Date</label>
+          <input type="date" id="bet-date" class="form-input" value="${dateVal}">
+        </div>
+        <div class="form-group">
+          <label>Sport</label>
+          <input type="text" id="bet-sport" class="form-input" value="${isEdit ? bet.sport : ''}" placeholder="NFL" autocapitalize="characters" spellcheck="false">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" id="bet-desc" class="form-input" value="${isEdit ? bet.description : ''}" placeholder="Ravens ML" spellcheck="false">
+      </div>
+      <div class="form-group">
+        <label>Sportsbook</label>
+        <select id="bet-book" class="form-input">${sbOptions}</select>
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Base Odds</label>
+          <input type="number" id="bet-odds" class="form-input" value="${isEdit ? bet.base_odds : ''}" placeholder="+150 / -110" inputmode="numeric">
+        </div>
+        <div class="form-group">
+          <label>Boost %</label>
+          <input type="number" id="bet-boost" class="form-input" value="${isEdit ? parseFloat(bet.boost_pct) : 0}" step="0.1" inputmode="decimal">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Total Wager ($)</label>
+        <input type="number" id="bet-total" class="form-input" value="${isEdit ? parseFloat(bet.total_wager).toFixed(2) : ''}" placeholder="0.00" step="0.01" inputmode="decimal">
+      </div>
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Dan's Cut ($)</label>
+          <input type="number" id="bet-dan" class="form-input" value="${isEdit ? parseFloat(bet.his_wager).toFixed(2) : ''}" placeholder="0.00" step="0.01" inputmode="decimal">
+        </div>
+        <div class="form-group">
+          <label>Brent's Cut</label>
+          <input type="text" id="bet-brent" class="form-input" value="${isEdit ? parseFloat(bet.my_wager).toFixed(2) : ''}" disabled>
+        </div>
+      </div>
+      <div id="bet-form-error" class="form-error" style="display:none"></div>
+      <button class="btn-primary-full" id="save-bet">${isEdit ? 'Save Changes' : 'Place Bet'}</button>
+      <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
+    `);
+
+    // Brent's cut is always derived: total − Dan
+    const syncBrent = () => {
+      const total = parseFloat(document.getElementById('bet-total').value) || 0;
+      const dan   = parseFloat(document.getElementById('bet-dan').value) || 0;
+      document.getElementById('bet-brent').value = (Math.round((total - dan) * 100) / 100).toFixed(2);
+    };
+    document.getElementById('bet-total').addEventListener('input', syncBrent);
+    document.getElementById('bet-dan').addEventListener('input', syncBrent);
+
+    document.getElementById('save-bet').addEventListener('click', async () => {
+      const placedAt    = document.getElementById('bet-date').value;
+      const sport       = document.getElementById('bet-sport').value.trim().toUpperCase();
+      const description = document.getElementById('bet-desc').value.trim();
+      const sbId        = document.getElementById('bet-book').value;
+      const base_odds   = parseInt(document.getElementById('bet-odds').value);
+      const boost_pct   = parseFloat(document.getElementById('bet-boost').value) || 0;
+      const total_wager = parseFloat(document.getElementById('bet-total').value);
+      const his_wager   = parseFloat(document.getElementById('bet-dan').value) || 0;
+      const errEl       = document.getElementById('bet-form-error');
+
+      const fail = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+
+      if (!sport || !description) return fail('Sport and description are required.');
+      if (isNaN(base_odds) || base_odds === 0) return fail('Enter the base odds (e.g. +150 or -110).');
+      if (isNaN(total_wager) || total_wager <= 0) return fail('Enter a valid total wager.');
+      if (his_wager < 0 || his_wager > total_wager) return fail("Dan's cut must be between $0 and the total.");
+      const my_wager = Math.round((total_wager - his_wager) * 100) / 100;
+      errEl.style.display = 'none';
+
+      const btn = document.getElementById('save-bet');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      try {
+        if (isEdit) {
+          // Reconcile book balance for any change to wager/odds/boost/book
+          const netEffect = (b, status) =>
+            -parseFloat(b.total_wager) + (status === 'pending' ? 0 : this._betSettleDelta(b, status));
+          const oldNet = netEffect(bet, bet.status);
+          const newNet = netEffect({ total_wager, base_odds, boost_pct }, bet.status);
+
+          if (sbId === bet.sportsbook_id) {
+            await this._adjustBookBalance(sbId, newNet - oldNet);
+          } else {
+            await this._adjustBookBalance(bet.sportsbook_id, -oldNet);
+            await this._adjustBookBalance(sbId, newNet);
+          }
+
+          await DB.updateBet(bet.id, {
+            sport, description, sportsbook_id: sbId,
+            base_odds, boost_pct, total_wager,
+            his_wager, my_wager,
+            placed_at: new Date(placedAt + 'T12:00:00').toISOString(),
+          });
+          DB.logActivity(this.state.currentUser, 'bet_edited', { bet_id: bet.id, sport, description });
+        } else {
+          const sbName = this.state.sportsbooks.find(s => s.id === sbId)?.name;
+          await DB.addBet({
+            sport, description, sportsbook_id: sbId,
+            base_odds, boost_pct, total_wager,
+            his_wager, my_wager,
+            status: 'pending',
+            placed_at: placedAt === today ? new Date().toISOString() : new Date(placedAt + 'T12:00:00').toISOString(),
+          });
+          await this._adjustBookBalance(sbId, -total_wager);
+          DB.logActivity(this.state.currentUser, 'bets_placed', {
+            bets: [{ sport, sportsbook: sbName }],
+          });
+        }
+        await this.loadData();
+        this.hideModal();
+        this.render(this.state.view);
+      } catch (err) {
+        fail('Save failed: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = isEdit ? 'Save Changes' : 'Place Bet';
+      }
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
+  },
+
+  // ─── Snapshots / Books / Money Moves ───────────────────
 
   showAddSnapshotModal() {
     const today = this.localDateStr();
@@ -1297,6 +1424,7 @@ const App = {
     this.showModal(`
       <div class="modal-header">Add Snapshot</div>
       <div class="modal-sub">Records current balances for the performance chart.</div>
+      <div class="pikkit-warning">⚠️ Enter the <strong>shared</strong> money in each book — not what the sportsbook apps show. Your solo (Pikkit) bets aren't tracked here; differences get split 50/50 with Dan as corrections.</div>
       <div class="form-group">
         <label>Date</label>
         <input type="date" id="snap-date" class="form-input" value="${today}">
@@ -1323,10 +1451,8 @@ const App = {
         bookUpdates.push({ id: inp.dataset.id, val });
       });
 
-      // Reconcile: a snapshot re-types every book's real current balance, which
-      // can differ from what the app tracked (promos, corrections, drift). Log
-      // that difference as a split adjustment so it lands in Brent + Dan's
-      // equity instead of silently shifting the pool total.
+      // Reconcile drift as a split adjustment so it lands in both equities
+      // instead of silently shifting the pool total.
       const oldCash = this.state.sportsbooks.reduce((s, sb) => s + parseFloat(sb.current_balance), 0);
       const delta = Math.round((cash - oldCash) * 100) / 100;
 
@@ -1335,7 +1461,7 @@ const App = {
 
       if (delta !== 0) {
         const half      = Math.round((delta / 2) * 100) / 100;
-        const otherHalf = delta - half; // absorbs any odd cent so the two halves still sum to delta exactly
+        const otherHalf = delta - half; // absorbs any odd cent
         const notes     = `Snapshot reconciliation ${snapshot_date}`;
         await DB.addTransaction({ type: 'adjustment', person: 'brent', amount: half, notes });
         await DB.addTransaction({ type: 'adjustment', person: 'dan', amount: otherHalf, notes });
@@ -1344,63 +1470,7 @@ const App = {
       await DB.updateSetting('books_last_updated', new Date().toISOString());
       await this.loadData();
       this.hideModal();
-      this.navigate('pool');
-    });
-    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
-  },
-
-  // ─── Modals ────────────────────────────────────────────
-
-  showModal(html) {
-    document.getElementById('modal-content').innerHTML = `<div class="modal-drag"></div>` + html;
-    document.getElementById('modal').classList.remove('hidden');
-  },
-
-  hideModal() {
-    document.getElementById('modal').classList.add('hidden');
-    document.getElementById('modal-content').innerHTML = '';
-  },
-
-  showSettleModal(bet) {
-    const boosted     = BetMath.boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct));
-    const totalReturn = BetMath.totalReturn(parseFloat(bet.total_wager), boosted);
-    const danReturn   = BetMath.splitReturn(totalReturn, parseFloat(bet.total_wager), parseFloat(bet.his_wager));
-    const brentReturn = BetMath.splitReturn(totalReturn, parseFloat(bet.total_wager), parseFloat(bet.my_wager));
-
-    this.showModal(`
-      <div class="modal-header">Settle Bet</div>
-      <div class="settle-info">
-        <div class="settle-title">${bet.sport} · ${bet.description}</div>
-        <div class="settle-sub">${bet.sportsbooks?.name} · ${BetMath.fmtOdds(boosted)}${bet.boost_pct > 0 ? ` (+${bet.boost_pct}% boost)` : ''}</div>
-        <div class="settle-wagers">
-          <span>Total ${BetMath.fmt(bet.total_wager)}</span>
-          <span>Dan ${BetMath.fmt(bet.his_wager)}</span>
-          <span>Brent ${BetMath.fmt(bet.my_wager)}</span>
-        </div>
-      </div>
-      <div class="settle-if-won">
-        <div class="settle-if-label">If Won</div>
-        <div class="settle-if-row"><span>Dan</span><strong class="text-green">${BetMath.fmt(danReturn)}</strong></div>
-        <div class="settle-if-row"><span>Brent</span><strong class="text-green">${BetMath.fmt(brentReturn)}</strong></div>
-        <div class="settle-if-row text-muted" style="font-size:13px"><span>Total return</span><span>${BetMath.fmt(totalReturn)}</span></div>
-      </div>
-      <div class="settle-btns">
-        <button class="btn-settle btn-won"  data-result="won">Won</button>
-        <button class="btn-settle btn-lost" data-result="lost">Lost</button>
-        <button class="btn-settle btn-push" data-result="push">Push</button>
-      </div>
-      <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
-    `);
-
-    document.querySelectorAll('.btn-settle').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        btn.disabled = true;
-        await DB.settleBet(bet.id, btn.dataset.result);
-        await this._adjustBookBalance(bet.sportsbook_id, this._betSettleDelta(bet, btn.dataset.result));
-        await this.loadData();
-        this.hideModal();
-        this.render(this.state.view);
-      });
+      this.navigate('summary');
     });
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
@@ -1409,8 +1479,9 @@ const App = {
     this.showModal(`
       <div class="modal-header">Update Balance</div>
       <div class="modal-sub">${sbName}</div>
+      <div class="pikkit-warning">⚠️ Shared money only — <strong>not</strong> the balance the ${sbName} app shows. Your solo (Pikkit) bets live in the same wallet but aren't tracked here; any difference you enter gets split 50/50 with Dan as a correction.</div>
       <div class="form-group">
-        <label>Current Balance ($)</label>
+        <label>Shared Balance ($)</label>
         <input type="number" id="new-balance" class="form-input" value="${parseFloat(currentBal).toFixed(2)}" step="0.01" inputmode="decimal">
       </div>
       <button class="btn-primary-full" id="save-balance">Save</button>
@@ -1424,12 +1495,9 @@ const App = {
       const delta = Math.round((val - parseFloat(currentBal)) * 100) / 100;
       await DB.updateSportsbookBalance(sbId, val);
       if (delta !== 0) {
-        // Log the correction as a pool-level adjustment split evenly, so it
-        // shows up in both people's equity and doesn't silently orphan the
-        // pool total from Brent + Dan's totals (see "Unreconciled" on the
-        // Honeypot page).
+        // Log the correction as a pool-level adjustment split evenly
         const half = Math.round((delta / 2) * 100) / 100;
-        const otherHalf = delta - half; // absorbs any odd cent so the two halves still sum to delta exactly
+        const otherHalf = delta - half;
         const notes = `Balance correction: ${sbName} ${BetMath.fmt(currentBal)} → ${BetMath.fmt(val)}`;
         await DB.addTransaction({ type: 'adjustment', person: 'brent', amount: half, sportsbook_id: sbId, notes });
         await DB.addTransaction({ type: 'adjustment', person: 'dan', amount: otherHalf, sportsbook_id: sbId, notes });
@@ -1456,7 +1524,7 @@ const App = {
     this.showModal(`
       <div class="modal-header">Sportsbooks</div>
       <div style="margin-bottom:16px">${sbRows}</div>
-      <button class="btn-orange-full" id="add-sb-btn">+ Add Sportsbook</button>
+      <button class="btn-secondary-full" id="add-sb-btn">+ Add Sportsbook</button>
       <button class="btn-cancel-modal" id="modal-cancel">Done</button>
     `);
 
@@ -1500,128 +1568,9 @@ const App = {
     document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
   },
 
-  showEditBetModal(bet) {
-    const placedDate = bet.placed_at ? this.localDateStr(new Date(bet.placed_at)) : this.localDateStr();
-    const sbOptions  = this.state.sportsbooks.map(sb =>
-      `<option value="${sb.id}" ${sb.id === bet.sportsbook_id ? 'selected' : ''}>${sb.name}</option>`
-    ).join('');
-
-    this.showModal(`
-      <div class="modal-header">Edit Bet</div>
-      <div class="form-group">
-        <label>Date</label>
-        <input type="date" id="edit-date" class="form-input" value="${placedDate}">
-      </div>
-      <div class="form-group">
-        <label>Sport</label>
-        <input type="text" id="edit-sport" class="form-input" value="${bet.sport}" autocapitalize="characters" spellcheck="false">
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <input type="text" id="edit-desc" class="form-input" value="${bet.description}" spellcheck="false">
-      </div>
-      <div class="form-group">
-        <label>Sportsbook</label>
-        <select id="edit-book" class="form-input">${sbOptions}</select>
-      </div>
-      <div class="form-group">
-        <label>Base Odds (e.g. +150 or -110)</label>
-        <input type="number" id="edit-odds" class="form-input" value="${bet.base_odds}" inputmode="numeric">
-      </div>
-      <div class="form-group">
-        <label>Boost %</label>
-        <input type="number" id="edit-boost" class="form-input" value="${parseFloat(bet.boost_pct)}" step="0.1" inputmode="decimal">
-      </div>
-      <div class="form-group">
-        <label>Total Wager ($)</label>
-        <input type="number" id="edit-total" class="form-input" value="${parseFloat(bet.total_wager).toFixed(2)}" step="0.01" inputmode="decimal">
-      </div>
-      <div class="form-group">
-        <label>Dan Wager ($)</label>
-        <input type="number" id="edit-dan" class="form-input" value="${parseFloat(bet.his_wager).toFixed(2)}" step="0.01" inputmode="decimal">
-      </div>
-      <div class="form-group">
-        <label>Brent Wager ($)</label>
-        <input type="number" id="edit-brent" class="form-input" value="${parseFloat(bet.my_wager).toFixed(2)}" step="0.01" inputmode="decimal">
-      </div>
-      <div id="edit-bet-error" class="parse-error" style="display:none;margin-bottom:12px"></div>
-      <button class="btn-primary-full" id="save-edit-bet">Save Changes</button>
-      <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
-    `);
-
-    document.getElementById('save-edit-bet').addEventListener('click', async () => {
-      const placedAt    = document.getElementById('edit-date').value;
-      const sport       = document.getElementById('edit-sport').value.trim().toUpperCase();
-      const description = document.getElementById('edit-desc').value.trim();
-      const sbId        = document.getElementById('edit-book').value;
-      const base_odds   = parseInt(document.getElementById('edit-odds').value);
-      const boost_pct   = parseFloat(document.getElementById('edit-boost').value) || 0;
-      const total_wager = parseFloat(document.getElementById('edit-total').value);
-      const his_wager   = parseFloat(document.getElementById('edit-dan').value);
-      const my_wager    = parseFloat(document.getElementById('edit-brent').value);
-      const errEl       = document.getElementById('edit-bet-error');
-
-      if (!description || isNaN(total_wager) || total_wager <= 0) {
-        errEl.textContent = 'Description and a valid total wager are required.';
-        errEl.style.display = 'block';
-        return;
-      }
-      if (Math.abs(his_wager + my_wager - total_wager) > 0.02) {
-        errEl.textContent = `Wagers don't add up: Dan $${his_wager} + Brent $${my_wager} ≠ $${total_wager}`;
-        errEl.style.display = 'block';
-        return;
-      }
-      // Derive Brent's wager as the exact remainder so his_wager + my_wager
-      // always equals total_wager to the cent, instead of trusting both
-      // typed fields (which could be off by up to the 2¢ tolerance above).
-      const myWagerFinal = Math.round((total_wager - his_wager) * 100) / 100;
-      errEl.style.display = 'none';
-
-      const btn = document.getElementById('save-edit-bet');
-      btn.disabled = true;
-      btn.textContent = 'Saving…';
-
-      try {
-        // Reconcile the sportsbook balance(s) for any change to the fields
-        // that determine the bet's effect on book balance (wager/odds/boost/
-        // book itself) — editing a bet used to leave current_balance stale.
-        const netEffect = (b, status) =>
-          -parseFloat(b.total_wager) + (status === 'pending' ? 0 : this._betSettleDelta(b, status));
-        const oldNet = netEffect(bet, bet.status);
-        const newNet = netEffect({ total_wager, base_odds, boost_pct }, bet.status);
-
-        if (sbId === bet.sportsbook_id) {
-          await this._adjustBookBalance(sbId, newNet - oldNet);
-        } else {
-          await this._adjustBookBalance(bet.sportsbook_id, -oldNet);
-          await this._adjustBookBalance(sbId, newNet);
-        }
-
-        await DB.updateBet(bet.id, {
-          sport, description, sportsbook_id: sbId,
-          base_odds, boost_pct, total_wager,
-          his_wager, my_wager: myWagerFinal,
-          placed_at: new Date(placedAt + 'T12:00:00').toISOString(),
-        });
-        DB.logActivity(this.state.currentUser, 'bet_edited', {
-          bet_id: bet.id, sport, description,
-        });
-        await this.loadData();
-        this.hideModal();
-        this.render(this.state.view);
-      } catch (err) {
-        errEl.textContent = 'Save failed: ' + err.message;
-        errEl.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Save Changes';
-      }
-    });
-    document.getElementById('modal-cancel').addEventListener('click', () => this.hideModal());
-  },
-
   showLogTransactionModal(defaultType = 'deposit') {
     const { sportsbooks } = this.state;
-    const sbOptions = sportsbooks.map(sb => `<option value="${sb.id}">${sb.name}</option>`).join('');
+    const sbOptions = sportsbooks.map(sb => `<option value="${sb.id}" ${sb.name === 'BetMGM' ? 'selected' : ''}>${sb.name}</option>`).join('');
 
     this.showModal(`
       <div class="modal-header">Money Moves</div>
@@ -1653,14 +1602,13 @@ const App = {
         <label>Notes (optional)</label>
         <input type="text" id="tx-notes" class="form-input" placeholder="">
       </div>
-      <div id="tx-error" style="display:none;color:var(--red);font-size:13px;margin-bottom:12px;text-align:center"></div>
+      <div id="tx-error" class="form-error" style="display:none"></div>
       <button class="btn-primary-full" id="save-tx">Save</button>
       <button class="btn-cancel-modal" id="modal-cancel">Cancel</button>
     `);
 
     const updateFields = () => {
       const type = document.getElementById('tx-type').value;
-      // deposit: person + book  |  withdrawal: book only  |  redeploy: book only  |  payout: person only
       document.getElementById('tx-person-group').style.display = (type === 'withdrawal' || type === 'redeployment') ? 'none' : 'block';
       document.getElementById('tx-book-group').style.display   = type === 'payout' ? 'none' : 'block';
     };
@@ -1687,13 +1635,11 @@ const App = {
 
       try {
         const tx = { type, amount, notes };
-        // deposit/payout are attributed to a person; withdrawal/redeploy are pool-level
         tx.person = (type === 'deposit' || type === 'payout') ? person : 'brent';
         if (type !== 'payout') tx.sportsbook_id = sbId || null;
 
         await DB.addTransaction(tx);
 
-        // Auto-adjust sportsbook balance
         if (type === 'deposit' || type === 'redeployment') {
           await this._adjustBookBalance(sbId, amount);
         } else if (type === 'withdrawal') {
@@ -1721,12 +1667,12 @@ const App = {
 document.addEventListener('DOMContentLoaded', () => {
   App.init();
 
-  // Bottom nav
   document.querySelectorAll('.nav-btn[data-view]').forEach(btn => {
     btn.addEventListener('click', () => App.navigate(btn.dataset.view));
   });
 
-  // Header reload button
+  document.getElementById('fab-add-bet').addEventListener('click', () => App.showBetFormModal());
+
   document.getElementById('header-reload').addEventListener('click', async () => {
     const btn = document.getElementById('header-reload');
     btn.classList.add('reloading');
@@ -1740,7 +1686,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Bet filters
   document.querySelectorAll('.filter-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       App.state.betFilter = tab.dataset.filter;
@@ -1748,8 +1693,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-
-  // Modal backdrop dismiss
   document.getElementById('modal').addEventListener('click', e => {
     if (e.target.id === 'modal') App.hideModal();
   });

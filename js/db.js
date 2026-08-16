@@ -23,6 +23,10 @@ async function fetchAllRows(buildQuery, pageSize = 1000) {
   return rows;
 }
 
+// Season the app operates on. V1 rows are frozen history, readable via
+// the version parameter on the getters (the V1 Season review page).
+const SEASON = 2;
+
 const DB = {
   async getSettings() {
     const { data, error } = await client().from('settings').select('*');
@@ -54,10 +58,11 @@ const DB = {
     if (error) throw error;
   },
 
-  async getBets() {
+  async getBets(version = SEASON) {
     return fetchAllRows(() => client()
       .from('bets')
       .select('*, sportsbooks(name)')
+      .eq('version', version)
       .order('placed_at', { ascending: false }));
   },
 
@@ -95,10 +100,11 @@ const DB = {
     if (error) throw error;
   },
 
-  async getTransactions() {
+  async getTransactions(version = SEASON) {
     return fetchAllRows(() => client()
       .from('transactions')
       .select('*, sportsbooks(name)')
+      .eq('version', version)
       .order('created_at', { ascending: false }));
   },
 
@@ -112,10 +118,11 @@ const DB = {
     return data;
   },
 
-  async getSnapshots() {
+  async getSnapshots(version = SEASON) {
     const { data, error } = await client()
       .from('snapshots')
       .select('*')
+      .eq('version', version)
       .order('snapshot_date', { ascending: true });
     if (error) throw error;
     return data || [];
@@ -125,11 +132,20 @@ const DB = {
     const { data, error } = await client()
       .from('activity_log')
       .select('*')
-      .in('action', ['bets_placed', 'bet_settled'])
+      .eq('version', SEASON)
+      .in('action', ['bets_placed', 'bet_settled', 'bet_voided'])
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error) throw error;
     return data || [];
+  },
+
+  // Frozen V1 history for the review page — fetched once, on demand
+  async getV1Bundle() {
+    const [bets, transactions, snapshots] = await Promise.all([
+      this.getBets(1), this.getTransactions(1), this.getSnapshots(1),
+    ]);
+    return { bets, transactions, snapshots };
   },
 
   async updateSetting(key, value) {

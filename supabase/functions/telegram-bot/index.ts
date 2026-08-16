@@ -71,6 +71,12 @@ function bufferToBase64(buffer: ArrayBuffer): string {
 
 // ── Claude image parsing ──────────────────────────────────
 
+interface BetLeg {
+  team_or_player: string;
+  market: string;   // e.g. "moneyline", "spread -3.5", "over 220.5 points", "anytime TD"
+  selection: string; // the specific pick, e.g. "Ravens", "LeBron James", "Over"
+}
+
 interface ParsedSlip {
   book: string;
   sport: string;
@@ -80,6 +86,7 @@ interface ParsedSlip {
   base_odds: number;
   his_wager?: number;
   my_wager?: number;
+  legs?: BetLeg[]; // populated for parlays/SGPs so the bet can be graded later; omitted/empty for straight bets
   _editing_field?: string;
 }
 
@@ -165,7 +172,10 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
     • Never use generic labels like '3LegParlay' or 'Parlay' alone — always include at least one team or player name",
   "boost_pct": boost percentage as a number (0 if no boost shown),
   "total_wager": total wager amount as a number,
-  "base_odds": the ORIGINAL pre-boost odds as an integer in American format (e.g. 180, -110, -114). If a profit boost is applied, use the original odds shown BEFORE the boost. If no boost, use the displayed odds.
+  "base_odds": the ORIGINAL pre-boost odds as an integer in American format (e.g. 180, -110, -114). If a profit boost is applied, use the original odds shown BEFORE the boost. If no boost, use the displayed odds.,
+  "legs": ONLY include this field if the slip has more than one leg (parlay, SGP, round robin, etc). Omit it entirely for a single straight bet. When present, an array with one object per leg:
+    { "team_or_player": "the team or player name for this leg", "market": "the bet type, e.g. 'moneyline', 'spread -3.5', 'total over 220.5', 'anytime TD', 'points over 24.5'", "selection": "the specific side/pick, e.g. 'Ravens', 'Over', 'Yes'" }
+    Extract EVERY leg shown on the slip, even if the "description" field only summarizes 2-3 of them. This is used later to verify whether the bet won or lost, so it must be complete and specific enough to look up each leg's result independently.
 }
 
 Return ONLY valid JSON. No explanation.`,
@@ -376,6 +386,7 @@ async function saveBet(chatId: number, pending: any, supabase: ReturnType<typeof
     base_odds:     pd.base_odds,
     status:        "pending",
     placed_at:     pending.placed_at,
+    legs:          pd.legs && pd.legs.length > 0 ? pd.legs : null,
   });
 
   await supabase.from("pending_bets").update({ status: "confirmed" }).eq("id", pending.id);
@@ -390,6 +401,86 @@ async function saveBet(chatId: number, pending: any, supabase: ReturnType<typeof
 
   const odds = pd.base_odds > 0 ? `+${pd.base_odds}` : String(pd.base_odds);
   await reply(chatId, `✅ Saved!\n${matched.name} · ${pd.sport} · ${pd.description}\n${odds} · $${pd.total_wager} total`);
+}
+
+// ── Settle math (mirrors js/math.js — keep in sync) ───────
+
+function boostedOdds(baseOdds: number, boostPct: number): number {
+  if (!boostPct) return baseOdds;
+  if (baseOdds >= 0) return Math.floor(baseOdds * (1 + boostPct / 100));
+  const profitPer100 = (10000 / Math.abs(baseOdds)) * (1 + boostPct / 100);
+  if (profitPer100 >= 100) return Math.floor(profitPer100);
+  return -Math.floor(10000 / profitPer100);
+}
+
+function totalReturn(wager: number, odds: number): number {
+  if (!odds) return wager;
+  const rawProfit = odds > 0 ? wager * (odds / 100) : wager * (100 / Math.abs(odds));
+  return wager + Math.floor(rawProfit * 100) / 100;
+}
+
+// Sportsbook balance delta when a pending bet resolves. void/push refund the wager.
+function betSettleDelta(bet: any, result: string): number {
+  if (result === "lost") return 0;
+  if (result === "won") {
+    const boosted = boostedOdds(parseInt(bet.base_odds), parseFloat(bet.boost_pct) || 0);
+    return totalReturn(parseFloat(bet.total_wager), boosted);
+  }
+  return parseFloat(bet.total_wager); // push / void
+}
+
+// ── Grading confirmation (from grade-bets edge function's Telegram buttons) ──
+// callback_data: "gw:<betId>" won, "gl:<betId>" lost, "gp:<betId>" push,
+// "gv:<betId>" void, "gs:<betId>" skip (leave pending, dismiss the prompt)
+
+async function handleGradeCallback(
+  chatId: number,
+  data: string,
+  fromName: string,
+  supabase: ReturnType<typeof createClient>,
+): Promise<boolean> {
+  const m = data.match(/^(gw|gl|gp|gv|gs):(.+)$/);
+  if (!m) return false;
+  const [, action, betId] = m;
+
+  if (action === "gs") {
+    await reply(chatId, "👍 Left open — settle it manually when you're ready.");
+    return true;
+  }
+
+  const { data: bet } = await supabase.from("bets").select("*, sportsbooks(name)").eq("id", betId).single();
+  if (!bet) {
+    await reply(chatId, "❌ Couldn't find that bet — it may have already been settled.");
+    return true;
+  }
+  if (bet.status !== "pending") {
+    await reply(chatId, `Already marked ${bet.status.toUpperCase()} — no change made.`);
+    return true;
+  }
+
+  const result = { gw: "won", gl: "lost", gp: "push", gv: "void" }[action]!;
+  const delta = betSettleDelta(bet, result);
+
+  await supabase.from("bets").update({ status: result, settled_at: new Date().toISOString() }).eq("id", betId);
+
+  if (delta !== 0 && bet.sportsbook_id) {
+    const { data: sb } = await supabase.from("sportsbooks").select("current_balance").eq("id", bet.sportsbook_id).single();
+    if (sb) {
+      await supabase.from("sportsbooks")
+        .update({ current_balance: parseFloat(sb.current_balance) + delta })
+        .eq("id", bet.sportsbook_id);
+    }
+  }
+
+  await supabase.from("activity_log").insert({
+    user_name: fromName,
+    action: "bet_settled",
+    details: { bet_id: betId, sport: bet.sport, description: bet.description, result, sportsbook: bet.sportsbooks?.name, source: "grader_confirmed" },
+  });
+
+  const emoji = { won: "✅", lost: "❌", push: "➖", void: "⊘" }[result];
+  await reply(chatId, `${emoji} Confirmed ${result.toUpperCase()} — ${bet.sport} · ${bet.description}`);
+  return true;
 }
 
 // ── Queue helper ──────────────────────────────────────────
@@ -455,6 +546,11 @@ serve(async (req) => {
     const data   = cq.data as string;
 
     await answerCallback(cq.id);
+
+    const fromName = cq.from?.username || cq.from?.first_name || "telegram";
+    if (await handleGradeCallback(chatId, data, fromName, supabase)) {
+      return new Response("ok");
+    }
 
     const { data: pending } = await supabase
       .from("pending_bets")

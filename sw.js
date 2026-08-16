@@ -1,4 +1,4 @@
-const CACHE = 'bets-v1';
+const CACHE = 'bets-v2';
 
 // Install — activate immediately without waiting
 self.addEventListener('install', () => self.skipWaiting());
