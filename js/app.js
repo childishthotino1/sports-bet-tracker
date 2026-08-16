@@ -1586,8 +1586,8 @@ const App = {
       <div class="form-group" id="tx-person-group">
         <label>Person</label>
         <select id="tx-person" class="form-input">
+          <option value="dan" selected>Dan</option>
           <option value="brent">Brent</option>
-          <option value="dan">Dan</option>
         </select>
       </div>
       <div class="form-group" id="tx-book-group">
@@ -1617,7 +1617,7 @@ const App = {
 
     document.getElementById('save-tx').addEventListener('click', async () => {
       const type   = document.getElementById('tx-type').value;
-      const person = document.getElementById('tx-person')?.value || 'brent';
+      const person = document.getElementById('tx-person')?.value || 'dan';
       const sbId   = document.getElementById('tx-sportsbook')?.value;
       const amount = parseFloat(document.getElementById('tx-amount').value);
       const notes  = document.getElementById('tx-notes').value.trim() || null;
