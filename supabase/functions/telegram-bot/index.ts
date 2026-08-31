@@ -100,7 +100,7 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
     },
     body: JSON.stringify({
       model: "claude-opus-4-6",
-      max_tokens: 300,
+      max_tokens: 1024,
       messages: [{
         role: "user",
         content: [
@@ -165,7 +165,7 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
     - If dark background AND 'Your bet has been accepted. Good luck!' banner visible → always MGM
     - If dark background AND gold 'Done' button → always MGM
     - If dark background AND green oval 'Cash out' button + FanCash → always FAN",
-  "sport": "sport abbreviation — NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, etc.",
+  "sport": "sport abbreviation — NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, WNBA, GOLF, etc. If this is a parlay/SGP whose legs span MORE THAN ONE distinct sport, join each distinct sport's abbreviation with '/' in the order the legs appear (e.g. 'NFL/MLB') — never use a placeholder like 'MULTI'.",
   "description": "short label, no spaces or dots, that identifies the specific bet — include enough to recognize it later:
     • Single bet: team or player + bet type — e.g. LakersML, BrownsCover, CurrieO29pts, MartaHR
     • Parlay: up to 3 key teams or players from the legs + leg count — e.g. Angels-TBRays-3Leg, Wemby-Castle-2Leg, KurtzHR-SabresRL-MGM3Leg
