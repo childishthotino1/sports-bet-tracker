@@ -1,0 +1,156 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  americanToDecimal, bestBets, cardLegs, formatBet, formatStart, getOdds, normalizePromo, priceLegs,
+  type OddsEvent,
+} from "./mod.ts";
+
+// Shaped like The Odds API v4 /odds and /events/{id}/odds responses.
+const EVENTS: OddsEvent[] = [
+  {
+    id: "e1", sport_key: "basketball_nba", commence_time: "2026-11-01T00:10:00Z",
+    home_team: "New York Knicks", away_team: "Detroit Pistons",
+    bookmakers: [
+      { key: "draftkings", title: "DraftKings", markets: [
+        { key: "totals", outcomes: [{ name: "Over", price: -110, point: 220.5 }, { name: "Under", price: -110, point: 220.5 }] },
+        { key: "totals", outcomes: [] },
+        { key: "player_rebounds", outcomes: [
+          { name: "Over", description: "John Collins", price: -110, point: 6.5 },
+          { name: "Under", description: "John Collins", price: -120, point: 6.5 },
+          { name: "Over", description: "John Collins", price: 150, point: 8.5 }, // alt line Pinnacle doesn't have
+        ] },
+      ] },
+      { key: "pinnacle", title: "Pinnacle", markets: [
+        { key: "totals", outcomes: [{ name: "Over", price: -125, point: 220.5 }, { name: "Under", price: 105, point: 220.5 }] },
+        { key: "player_rebounds", outcomes: [
+          { name: "Over", description: "John Collins", price: -150, point: 6.5 },
+          { name: "Under", description: "John Collins", price: 122, point: 6.5 },
+        ] },
+      ] },
+    ],
+  },
+  {
+    id: "e2", sport_key: "basketball_nba", commence_time: "2026-11-01T03:10:00Z",
+    home_team: "Los Angeles Lakers", away_team: "Portland Trail Blazers",
+    bookmakers: [
+      { key: "draftkings", title: "DraftKings", markets: [
+        { key: "spreads", outcomes: [{ name: "Los Angeles Lakers", price: -110, point: -6.5 }, { name: "Portland Trail Blazers", price: -110, point: 6.5 }] },
+        { key: "player_points", outcomes: [
+          { name: "Over", description: "Ja Morant", price: 100, point: 15.5 },
+          { name: "Under", description: "Ja Morant", price: -130, point: 15.5 },
+        ] },
+      ] },
+      { key: "pinnacle", title: "Pinnacle", markets: [
+        { key: "spreads", outcomes: [{ name: "Los Angeles Lakers", price: -104, point: -6.5 }, { name: "Portland Trail Blazers", price: -108, point: 6.5 }] },
+        { key: "player_points", outcomes: [
+          { name: "Over", description: "Ja Morant", price: -118, point: 15.5 },
+          { name: "Under", description: "Ja Morant", price: -102, point: 15.5 },
+        ] },
+      ] },
+    ],
+  },
+  {
+    id: "e3", sport_key: "basketball_nba", commence_time: "2026-11-01T00:40:00Z",
+    home_team: "Miami Heat", away_team: "Boston Celtics",
+    bookmakers: [ // no Pinnacle here: nothing from this game can be priced
+      { key: "draftkings", title: "DraftKings", markets: [
+        { key: "h2h", outcomes: [{ name: "Boston Celtics", price: -200 }, { name: "Miami Heat", price: 170 }] },
+      ] },
+    ],
+  },
+];
+
+const nbaParlayBoost = (over: Record<string, unknown> = {}) => normalizePromo({
+  book: "DraftKings", title: "DK 50% NBA Profit Boost", type: "profit_boost", boost_pct: 50, max_stake: 25,
+  min_total_odds: 200, min_legs: null, max_legs: null, legs_apply_to: [], bet_kinds: ["parlay"], leagues: ["NBA"],
+  live: true, pregame: true, paid_in: null, expires_at: null, notes: null, ...over,
+});
+
+test("prices only legs the sharp book has on the same line", () => {
+  const legs = priceLegs(EVENTS, "draftkings");
+  const labels = legs.map((l) => l.selection).sort();
+  assert.deepEqual(labels, [
+    "Ja Morant Over 15.5 Points",
+    "Ja Morant Under 15.5 Points",
+    "John Collins Over 6.5 Rebounds",
+    "John Collins Under 6.5 Rebounds",
+    "Los Angeles Lakers -6.5",
+    "Over 220.5",
+    "Portland Trail Blazers +6.5",
+    "Under 220.5",
+  ]); // no alt 8.5 line, nothing from the Pinnacle-less game
+  const collins = legs.find((l) => l.selection === "John Collins Over 6.5 Rebounds")!;
+  assert.equal(collins.game, "Detroit Pistons @ New York Knicks");
+  assert.deepEqual(collins.sharp, { sides: [{ label: "Over 6.5", odds: -150 }, { label: "Under 6.5", odds: 122 }], betIndex: 0 });
+  assert.ok(Math.abs(collins.edge - (collins.fair * americanToDecimal(-110) - 1)) < 1e-12);
+  // Sorted best edge first.
+  for (let i = 1; i < legs.length; i++) assert.ok(legs[i - 1].edge >= legs[i].edge);
+});
+
+test("spreads pair each side with the opposite point", () => {
+  const blazers = priceLegs(EVENTS, "draftkings").find((l) => l.selection === "Portland Trail Blazers +6.5")!;
+  assert.equal(blazers.sharp.betIndex, 1);
+  assert.deepEqual(blazers.sharp.sides.map((s) => s.odds), [-104, -108]);
+  assert.deepEqual(blazers.sharp.sides.map((s) => s.label), ["Los Angeles Lakers -6.5", "Portland Trail Blazers +6.5"]);
+});
+
+test("picks qualifying parlays from different games, best boosted EV first", () => {
+  const picks = bestBets(priceLegs(EVENTS, "draftkings"), nbaParlayBoost(), { league: "NBA" });
+  assert.ok(picks.length > 0);
+  for (const p of picks) {
+    assert.equal(p.kind, "parlay");
+    assert.equal(new Set(p.legs.map((l) => l.eventId)).size, p.legs.length, "one leg per game");
+    assert.ok(americanToDecimal(p.americanOdds) >= americanToDecimal(200));
+    assert.ok(p.eval.ev > 0);
+  }
+  for (let i = 1; i < picks.length; i++) assert.ok(picks[i - 1].eval.ev >= picks[i].eval.ev);
+  // Collins over + Morant over (the brief's DK example legs) is the best pair.
+  assert.deepEqual(picks[0].legs.map((l) => l.selection).sort(), ["Ja Morant Over 15.5 Points", "John Collins Over 6.5 Rebounds"]);
+});
+
+test("respects the promo's rules", () => {
+  const legs = priceLegs(EVENTS, "draftkings");
+  assert.deepEqual(bestBets(legs, nbaParlayBoost({ leagues: ["NFL"] }), { league: "NBA" }), [], "wrong league");
+  assert.deepEqual(bestBets(legs, nbaParlayBoost({ min_total_odds: 2000 }), { league: "NBA" }), [], "nothing long enough");
+  assert.deepEqual(bestBets(legs, nbaParlayBoost({ bet_kinds: ["sgp"] }), { league: "NBA" }), [], "SGPs aren't auto-picked");
+  const singles = bestBets(legs, nbaParlayBoost({ bet_kinds: ["single"], min_total_odds: null }), { league: "NBA" });
+  assert.ok(singles.every((p) => p.kind === "single" && p.legs.length === 1));
+});
+
+test("a pick prints as the brief's bet card", () => {
+  const [best] = bestBets(priceLegs(EVENTS, "draftkings"), nbaParlayBoost(), { league: "NBA" });
+  const { text } = formatBet({
+    title: "DK 50% NBA Profit Boost", book: "DraftKings", bookOdds: best.americanOdds, boost: 0.5,
+    sharpSource: "Pinnacle", legs: cardLegs(best),
+  });
+  assert.match(text, /^BET TO BUILD: 2-leg parlay on DraftKings$/m);
+  assert.match(text, /^\d\. John Collins Over 6\.5 Rebounds \| Detroit Pistons @ New York Knicks, Sat 8:10 PM ET$/m);
+  assert.match(text, /^Leg \d: Over 6\.5 -150 \/ Under 6\.5 \+122 -> fair -1\d\d \(5\d\.\d%\)$/m);
+  assert.match(text, /^EV: \+\d+\.\d%$/m);
+});
+
+test("formats start times in Eastern", () => {
+  assert.equal(formatStart("2026-11-01T00:10:00Z"), "Sat 8:10 PM ET");
+});
+
+test("odds client sends the right query and reads the credit headers", async () => {
+  const real = globalThis.fetch;
+  let url = "";
+  globalThis.fetch = (async (u: string) => {
+    url = u;
+    return new Response(JSON.stringify(EVENTS), { headers: { "x-requests-remaining": "494", "x-requests-used": "6" } });
+  }) as typeof fetch;
+  try {
+    const r = await getOdds("KEY", "basketball_nba", { markets: ["h2h", "totals"], bookmakers: ["draftkings", "pinnacle"] });
+    const q = new URL(url).searchParams;
+    assert.equal(new URL(url).pathname, "/v4/sports/basketball_nba/odds");
+    assert.equal(q.get("markets"), "h2h,totals");
+    assert.equal(q.get("bookmakers"), "draftkings,pinnacle");
+    assert.equal(q.get("oddsFormat"), "american");
+    assert.equal(r.remaining, 494);
+    assert.equal(r.used, 6);
+    assert.equal(r.data.length, 3);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
