@@ -1,9 +1,12 @@
 import { test } from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
   americanToDecimal, bestBets, cardLegs, formatBet, formatStart, getOdds, normalizePromo, priceLegs,
   type OddsEvent,
 } from "./mod.ts";
+
+const BEFORE = new Date("2026-10-31T00:00:00Z"); // before every sample game
 
 // Shaped like The Odds API v4 /odds and /events/{id}/odds responses.
 const EVENTS: OddsEvent[] = [
@@ -67,7 +70,7 @@ const nbaParlayBoost = (over: Record<string, unknown> = {}) => normalizePromo({
 });
 
 test("prices only legs the sharp book has on the same line", () => {
-  const legs = priceLegs(EVENTS, "draftkings");
+  const legs = priceLegs(EVENTS, "draftkings", { now: BEFORE });
   const labels = legs.map((l) => l.selection).sort();
   assert.deepEqual(labels, [
     "Ja Morant Over 15.5 Points",
@@ -88,14 +91,14 @@ test("prices only legs the sharp book has on the same line", () => {
 });
 
 test("spreads pair each side with the opposite point", () => {
-  const blazers = priceLegs(EVENTS, "draftkings").find((l) => l.selection === "Portland Trail Blazers +6.5")!;
+  const blazers = priceLegs(EVENTS, "draftkings", { now: BEFORE }).find((l) => l.selection === "Portland Trail Blazers +6.5")!;
   assert.equal(blazers.sharp.betIndex, 1);
   assert.deepEqual(blazers.sharp.sides.map((s) => s.odds), [-104, -108]);
   assert.deepEqual(blazers.sharp.sides.map((s) => s.label), ["Los Angeles Lakers -6.5", "Portland Trail Blazers +6.5"]);
 });
 
 test("picks qualifying parlays from different games, best boosted EV first", () => {
-  const picks = bestBets(priceLegs(EVENTS, "draftkings"), nbaParlayBoost(), { league: "NBA" });
+  const picks = bestBets(priceLegs(EVENTS, "draftkings", { now: BEFORE }), nbaParlayBoost(), { league: "NBA" });
   assert.ok(picks.length > 0);
   for (const p of picks) {
     assert.equal(p.kind, "parlay");
@@ -109,7 +112,7 @@ test("picks qualifying parlays from different games, best boosted EV first", () 
 });
 
 test("respects the promo's rules", () => {
-  const legs = priceLegs(EVENTS, "draftkings");
+  const legs = priceLegs(EVENTS, "draftkings", { now: BEFORE });
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ leagues: ["NFL"] }), { league: "NBA" }), [], "wrong league");
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ min_total_odds: 2000 }), { league: "NBA" }), [], "nothing long enough");
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ bet_kinds: ["sgp"] }), { league: "NBA" }), [], "SGPs aren't auto-picked");
@@ -118,7 +121,7 @@ test("respects the promo's rules", () => {
 });
 
 test("a pick prints as the brief's bet card", () => {
-  const [best] = bestBets(priceLegs(EVENTS, "draftkings"), nbaParlayBoost(), { league: "NBA" });
+  const [best] = bestBets(priceLegs(EVENTS, "draftkings", { now: BEFORE }), nbaParlayBoost(), { league: "NBA" });
   const { text } = formatBet({
     title: "DK 50% NBA Profit Boost", book: "DraftKings", bookOdds: best.americanOdds, boost: 0.5,
     sharpSource: "Pinnacle", legs: cardLegs(best),
@@ -153,4 +156,36 @@ test("odds client sends the right query and reads the credit headers", async () 
   } finally {
     globalThis.fetch = real;
   }
+});
+
+// A real /odds pull (NBA, 2026-10-29 01:29 UTC), trimmed to four games:
+// MEM @ POR and OKC @ DAL hadn't started and Pinnacle priced both; SAC @ NOP
+// had no Pinnacle line yet; MIA @ ATL was live with BetMGM's market frozen.
+const REAL: OddsEvent[] = JSON.parse(readFileSync(new URL("./samples/nba-2026-10-29.json", import.meta.url), "utf8"));
+const PULLED = new Date("2026-10-29T01:29:30Z");
+
+test("real pull: started games are skipped, so frozen live prices aren't picked", () => {
+  const legs = priceLegs(REAL, "betmgm", { now: PULLED });
+  assert.deepEqual([...new Set(legs.map((l) => l.game))].sort(), [
+    "Memphis Grizzlies @ Portland Trail Blazers",
+    "Oklahoma City Thunder @ Dallas Mavericks",
+  ]);
+  // After tip-off, nothing from that game is priced.
+  assert.equal(priceLegs(REAL, "betmgm", { now: new Date("2026-10-30T03:00:00Z") }).length, 0);
+});
+
+test("real pull: legs match only where BetMGM and Pinnacle share the line", () => {
+  const labels = priceLegs(REAL, "betmgm", { now: PULLED }).map((l) => `${l.game} | ${l.selection}`).sort();
+  assert.deepEqual(labels, [
+    "Memphis Grizzlies @ Portland Trail Blazers | Memphis Grizzlies +7.5",
+    "Memphis Grizzlies @ Portland Trail Blazers | Memphis Grizzlies ML",
+    "Memphis Grizzlies @ Portland Trail Blazers | Over 234.5",
+    "Memphis Grizzlies @ Portland Trail Blazers | Portland Trail Blazers -7.5",
+    "Memphis Grizzlies @ Portland Trail Blazers | Portland Trail Blazers ML",
+    "Memphis Grizzlies @ Portland Trail Blazers | Under 234.5",
+    "Oklahoma City Thunder @ Dallas Mavericks | Dallas Mavericks ML",
+    "Oklahoma City Thunder @ Dallas Mavericks | Oklahoma City Thunder ML",
+    "Oklahoma City Thunder @ Dallas Mavericks | Over 228.5",
+    "Oklahoma City Thunder @ Dallas Mavericks | Under 228.5",
+  ]); // DAL/OKC spreads differ (BetMGM 5.5, Pinnacle 5.0), so they're skipped
 });

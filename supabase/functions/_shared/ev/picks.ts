@@ -56,10 +56,17 @@ export function selectionLabel(market: string, o: Outcome): string {
   return [o.description, o.name, o.point, statLabel(market)].filter((x) => x !== undefined && x !== "").join(" ");
 }
 
+export type PriceOptions = { sharpKey?: string; now?: Date; includeStarted?: boolean };
+
 // Every leg the book offers that the sharp book also prices on the same line.
-export function priceLegs(events: OddsEvent[], bookKey: string, sharpKey = "pinnacle"): PricedLeg[] {
+// Games that have started are skipped unless asked for: live lines from two
+// books are captured at different moments, so comparing them shows false
+// edges (and a suspended live market can sit at +1400).
+export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptions = {}): PricedLeg[] {
+  const { sharpKey = "pinnacle", now = new Date(), includeStarted = false } = opts;
   const legs: PricedLeg[] = [];
   for (const ev of events) {
+    if (!includeStarted && new Date(ev.commence_time).getTime() <= now.getTime()) continue;
     const book = ev.bookmakers.find((b) => b.key === bookKey);
     const sharp = ev.bookmakers.find((b) => b.key === sharpKey);
     if (!book || !sharp) continue;
