@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { example, EXAMPLES } from "./examples.test-helper.ts";
 import { readFileSync } from "node:fs";
 import { PROMO_EXAMPLES_MD } from "./promo-examples.ts";
-import { americanToDecimal, breakEvenProb, normalizePromo, PROMO_JSON_SCHEMA, promoPrompt, promoStake, promoViolations } from "./mod.ts";
+import { americanToDecimal, breakEvenProb, IMAGE_JSON_SCHEMA, normalizePromo, PROMO_JSON_SCHEMA, promoPrompt, promoStake, promoViolations } from "./mod.ts";
 
 const BETMGM_WS_SGP_BOOST = example("BetMGM: MLB World Series 10% SGP Boost Token");
 const MLB_33_SGP_BOOST = example("Unknown book: 33% MLB Same Game Parlay Profit Boost");
@@ -126,4 +126,26 @@ test("the vision schema's enums match their declared types", () => {
     }
     if (prop.items?.enum) for (const v of prop.items.enum) assert.equal(typeOf(v), prop.items.type, name);
   }
+});
+
+// The API caps structured-output schemas at 16 union-typed parameters (type
+// lists like ["string", "null"], or anyOf); the combined promo + slip schema
+// hit 17. Count them across everything the vision call sends.
+test("the vision schema stays under the API's union-type limit", () => {
+  let unions = 0;
+  const walk = (node: any) => {
+    if (!node || typeof node !== "object") return;
+    if (Array.isArray(node.type) || node.anyOf) unions++;
+    for (const v of Object.values(node)) walk(v);
+  };
+  walk(IMAGE_JSON_SCHEMA);
+  assert.ok(unions <= 16, `${unions} union-typed parameters`);
+});
+
+test("the vision call's 0 and \"\" placeholders read back as unknown", () => {
+  const p = normalizePromo({ book: "", title: "X", type: "profit_boost", boost_pct: 0, max_stake: 0, min_total_odds: 0,
+    min_legs: 0, max_legs: 0, legs_apply_to: [], bet_kinds: [], leagues: [], live: true, pregame: true, paid_in: "unknown",
+    expires_at: "", notes: "" });
+  assert.deepEqual([p.book, p.boost_pct, p.max_stake, p.min_total_odds, p.min_legs, p.max_legs, p.paid_in, p.expires_at, p.notes],
+    [null, null, null, null, null, null, null, null, null]);
 });

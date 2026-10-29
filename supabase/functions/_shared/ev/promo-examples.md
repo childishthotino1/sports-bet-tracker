@@ -230,3 +230,36 @@ wager. No book name or logo is on screen.
   "notes": "Carolina Panthers @ Green Bay Packers only; SGP+ also qualifies"
 }
 ```
+
+## Unknown book: Soccer 20% SGP(x) Boost
+
+Shows: "SOCCER" banner, "Reward Claimed", "ID: 425172", "Expires 5h", "Soccer
+20% SGP(x) Boost", tiles "$100 Max Bet", "+400 Min. Odds", "4 Min. Legs", a
+"Soccer" tag, and "Eligible Bet Types: SGP, SGPx".
+
+Gotcha: the rules sit in tiles, not a list: "Max Bet" is `max_stake`, "Min.
+Odds" is `min_total_odds`, "Min. Legs" is `min_legs`. "SGPx" (same-game parlays
+across several games) is still SGP-style pricing, so `bet_kinds` is `["sgp"]`
+and SGPx goes in `notes`. Soccer has no single league here, so `leagues` is
+`["SOCCER"]`. "Expires 5h" is relative, so `expires_at` is null.
+
+```json
+{
+  "book": null,
+  "title": "Soccer 20% SGP(x) Boost",
+  "type": "profit_boost",
+  "boost_pct": 20,
+  "max_stake": 100,
+  "min_total_odds": 400,
+  "min_legs": 4,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["sgp"],
+  "leagues": ["SOCCER"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": null,
+  "notes": "SGPx (multi-game same-game parlays) also qualifies"
+}
+```

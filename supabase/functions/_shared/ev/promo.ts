@@ -37,23 +37,22 @@ export const PROMO_JSON_SCHEMA = {
     "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
   ],
   properties: {
-    book: { type: ["string", "null"] },
+    book: { type: "string" },
     title: { type: "string" },
     type: { type: "string", enum: ["profit_boost", "free_bet", "no_sweat", "other"] },
-    boost_pct: { type: ["number", "null"] },
-    max_stake: { type: ["number", "null"] },
-    min_total_odds: { type: ["integer", "null"] },
-    min_legs: { type: ["integer", "null"] },
-    max_legs: { type: ["integer", "null"] },
+    boost_pct: { type: "number" },
+    max_stake: { type: "number" },
+    min_total_odds: { type: "integer" },
+    min_legs: { type: "integer" },
+    max_legs: { type: "integer" },
     legs_apply_to: { type: "array", items: { type: "string", enum: ["single", "parlay", "sgp"] } },
     bet_kinds: { type: "array", items: { type: "string", enum: ["single", "parlay", "sgp"] } },
     leagues: { type: "array", items: { type: "string" } },
     live: { type: "boolean" },
     pregame: { type: "boolean" },
-    // anyOf, not type: [..., "null"] + enum: the API rejects a null inside enum.
-    paid_in: { anyOf: [{ type: "string", enum: ["cash", "bonus"] }, { type: "null" }] },
-    expires_at: { type: ["string", "null"] },
-    notes: { type: ["string", "null"] },
+    paid_in: { type: "string", enum: ["cash", "bonus", "unknown"] },
+    expires_at: { type: "string" },
+    notes: { type: "string" },
   },
 } as const;
 
@@ -73,7 +72,7 @@ export const PROMO_PROMPT = `If it's a sportsbook promotion, read its rules into
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.
 - notes: any other rule that limits which bets qualify (a specific event, a required market); null if none.
 
-Use null for anything the screenshot doesn't state. Don't guess.`;
+For anything the screenshot doesn't state, use "" for text, 0 for numbers and "unknown" for paid_in (the examples below write those as null). Don't guess.`;
 
 // PROMO_PROMPT plus the worked examples from promo-examples.md, so new
 // screenshots are read the same way as the ones already checked.
@@ -94,6 +93,8 @@ export function normalizePromo(raw: unknown): Promo {
   if (!raw || typeof raw !== "object") throw new Error("Promo JSON is not an object");
   const r = raw as Record<string, unknown>;
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  // The vision schema has no nulls (union types are capped), so 0 means unknown.
+  const pos = (v: unknown) => { const n = num(v); return n !== null && n > 0 ? n : null; };
   const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   const kinds = (v: unknown) => list(v).filter((k): k is BetKind => k === "single" || k === "parlay" || k === "sgp");
@@ -106,11 +107,11 @@ export function normalizePromo(raw: unknown): Promo {
     book,
     title: str(r.title) ?? book ?? "Promo",
     type,
-    boost_pct: num(r.boost_pct),
-    max_stake: num(r.max_stake),
+    boost_pct: pos(r.boost_pct),
+    max_stake: pos(r.max_stake),
     min_total_odds: minOdds !== null && Math.abs(minOdds) >= 100 ? Math.round(minOdds) : null,
-    min_legs: num(r.min_legs),
-    max_legs: num(r.max_legs),
+    min_legs: pos(r.min_legs),
+    max_legs: pos(r.max_legs),
     legs_apply_to: kinds(r.legs_apply_to),
     bet_kinds: kinds(r.bet_kinds),
     leagues: list(r.leagues).map((l) => l.toUpperCase()),

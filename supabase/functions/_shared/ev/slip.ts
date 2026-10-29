@@ -41,18 +41,16 @@ export type Slip = {
   legs: SlipLeg[];
 };
 
-const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: "null" }] });
-
 export const SLIP_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["book", "league", "bet_kind", "total_odds", "game", "legs"],
   properties: {
-    book: { type: ["string", "null"] },
-    league: { type: ["string", "null"] },
+    book: { type: "string" },
+    league: { type: "string" },
     bet_kind: { type: "string", enum: ["single", "parlay", "sgp"] },
-    total_odds: { type: ["integer", "null"] },
-    game: { type: ["string", "null"] },
+    total_odds: { type: "integer" },
+    game: { type: "string" },
     legs: {
       type: "array",
       items: {
@@ -60,7 +58,7 @@ export const SLIP_JSON_SCHEMA = {
         additionalProperties: false,
         required: ["team_or_player", "market", "line", "side"],
         properties: {
-          team_or_player: { type: ["string", "null"] },
+          team_or_player: { type: "string" },
           market: { type: "string", enum: [...SLIP_MARKETS] },
           line: { type: ["number", "null"] },
           side: { type: "string" },
@@ -70,14 +68,14 @@ export const SLIP_JSON_SCHEMA = {
   },
 } as const;
 
-export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already placed), fill "slip":
-- book: the sportsbook, only if its name or logo is on screen; otherwise null.
+export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already placed), fill "slip". Use "" for unknown text and 0 for unknown numbers:
+- book: the sportsbook, only if its name or logo is on screen; otherwise "".
 - league: NFL, NCAAF, NBA, NCAAB, MLB or NHL, from the teams.
 - bet_kind: "sgp" if the slip says SGP / Same Game Parlay; "parlay" for legs from different games; "single" for one leg.
 - total_odds: the slip's total odds before any boost, as American odds (+990 -> 990).
-- game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else null.
+- game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
 - legs: one per selection.
-  - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; null for game totals.
+  - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
   - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_rush_yds, player_reception_yds, player_points, ...); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
   - side: "Over" or "Under" for totals and over/under props, "Yes" for anytime scorer props, the team name for spreads and moneylines.`;
