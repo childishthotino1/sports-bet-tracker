@@ -109,4 +109,8 @@ SQL migrations live in the repo root (not a `migrations/` folder). Apply manuall
 
 ## +EV Core (`supabase/functions/_shared/ev/`)
 
-Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odds conversions, four devig methods (multiplicative, additive, power, Shin) plus worst-case, profit-boost EV, Kelly, free-bet value, and the plain-text bet card. No Telegram, DB, or Deno APIs, so a Discord adapter can reuse it. Imports use `.ts` extensions, so it runs under Deno and Node. Tests: `node --test supabase/functions/_shared/ev/ev.test.ts` (or `deno test`); the DK 50% boost worked example is pinned there.
+Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odds conversions, four devig methods (multiplicative, additive, power, Shin) plus worst-case, profit-boost EV, Kelly, free-bet value, and the plain-text bet card. No Telegram, DB, or Deno APIs, so a Discord adapter can reuse it. Imports use `.ts` extensions, so it runs under Deno and Node. Tests: `node --test supabase/functions/_shared/ev/*.test.ts` (or `deno test`); the DK 50% boost worked example and a BetMGM SGP boost-token promo are pinned there.
+
+`promo.ts` holds the promo JSON schema, the vision prompt, `normalizePromo`, and the rule checks (`promoViolations`, `promoStake`, `breakEvenProb`). `promo-vision.ts` is the Claude vision call that fills it; it imports `npm:@anthropic-ai/sdk`, so it's Deno-only and not re-exported from `mod.ts`.
+
+**Keep the promo bot out of `telegram-bot`.** That function treats every incoming photo as a bet slip and queues it in `pending_bets`, so a promo screenshot sent there becomes a bogus pending bet. The promo bot gets its own edge function and its own Telegram bot token (its own webhook); nothing in `_shared/ev/` is imported by the live bet-tracking functions. The Supabase CLI doesn't deploy `_`-prefixed folders as functions.
