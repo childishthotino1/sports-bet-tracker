@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NFL_30_PARLAY_BOOST } from "./fixtures.ts";
+import { example } from "./examples.test-helper.ts";
+const NFL_30_PARLAY_BOOST = example("Unknown book: 30% NFL Parlay Profit Boost");
 import { normalizePromo, parseAmerican, prompt, startFlow, step, type FlowState } from "./mod.ts";
 
 // The 33% MLB SGP boost screenshot: no book shown, max $50, min +300.

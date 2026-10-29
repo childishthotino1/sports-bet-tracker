@@ -1,14 +1,16 @@
 // Reads a promo screenshot into a Promo with Claude vision. Deno-only (npm:
-// import), so it's kept out of mod.ts and the Node-run tests.
+// import), so it's kept out of mod.ts and the Node-run tests. The caller
+// passes promo-examples.md's text (the bot reads it at startup).
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
-import { normalizePromo, PROMO_JSON_SCHEMA, PROMO_PROMPT, type Promo } from "./promo.ts";
+import { normalizePromo, PROMO_JSON_SCHEMA, promoPrompt, type Promo } from "./promo.ts";
 
 type ImageType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
 export async function parsePromoImage(
   client: Anthropic,
   base64: string,
+  examplesMd: string,
   mediaType: ImageType = "image/jpeg",
 ): Promise<Promo> {
   const res = await client.beta.messages.create({
@@ -21,7 +23,7 @@ export async function parsePromoImage(
       role: "user",
       content: [
         { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: PROMO_PROMPT },
+        { type: "text", text: promoPrompt(examplesMd) },
       ],
     }],
   });

@@ -74,6 +74,20 @@ export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Rea
 
 Use null for anything the screenshot doesn't state. Don't guess.`;
 
+// PROMO_PROMPT plus the worked examples from promo-examples.md, so new
+// screenshots are read the same way as the ones already checked.
+export function promoPrompt(examplesMd: string): string {
+  return examplesMd.trim() ? `${PROMO_PROMPT}\n\nPromos already read correctly, for reference:\n\n${examplesMd.trim()}` : PROMO_PROMPT;
+}
+
+// Each "## " section's title and its ```json block from promo-examples.md.
+export function parseExamples(md: string): { title: string; json: unknown }[] {
+  return md.split(/^## /m).slice(1).flatMap((section) => {
+    const block = section.match(/```json\n([\s\S]*?)```/);
+    return block ? [{ title: section.split("\n")[0].trim(), json: JSON.parse(block[1]) }] : [];
+  });
+}
+
 // Validates and coerces the model's JSON. Throws on a shape that can't be a promo.
 export function normalizePromo(raw: unknown): Promo {
   if (!raw || typeof raw !== "object") throw new Error("Promo JSON is not an object");

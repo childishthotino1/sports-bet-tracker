@@ -109,7 +109,9 @@ SQL migrations live in the repo root (not a `migrations/` folder). Apply manuall
 
 ## +EV Core (`supabase/functions/_shared/ev/`)
 
-Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odds conversions, four devig methods (multiplicative, additive, power, Shin) plus worst-case, profit-boost EV, Kelly, free-bet value, and the plain-text bet card. No Telegram, DB, or Deno APIs, so a Discord adapter can reuse it. Imports use `.ts` extensions, so it runs under Deno and Node. Tests: `node --test supabase/functions/_shared/ev/*.test.ts` (or `deno test`); the DK 50% boost worked example and real promo screenshots (as JSON, some in `fixtures.ts`) are pinned there.
+Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odds conversions, four devig methods (multiplicative, additive, power, Shin) plus worst-case, profit-boost EV, Kelly, free-bet value, and the plain-text bet card. No Telegram, DB, or Deno APIs, so a Discord adapter can reuse it. Imports use `.ts` extensions, so it runs under Deno and Node. Tests: `node --test supabase/functions/_shared/ev/*.test.ts` (or `deno test`); the DK 50% boost worked example is pinned there.
+
+`promo-examples.md` is the bot's reference for reading promos: real screenshots described in words, the gotcha each one teaches, and the JSON it should produce. Its whole text goes into the vision prompt (`promoPrompt()`), and the tests check every JSON block in it, so it doubles as the promo test cases. To teach the bot a new kind of promo, add a section there; no code change needed. It's context, not a database: there's no promo log.
 
 `promo-flow.ts` is the conversation after a screenshot is read: buttons for whatever the screenshot didn't show (book, max wager), then "check a bet I'm building" → book price → fair price (an assumed book margin, or a typed price) → EV verdict. It's stateless; the bot stores `FlowState` per chat (its own table) and calls `step()` with each tap or reply.
 

@@ -1,29 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { NFL_30_PARLAY_BOOST } from "./fixtures.ts";
-import { americanToDecimal, breakEvenProb, normalizePromo, promoStake, promoViolations } from "./mod.ts";
+import { example, EXAMPLES } from "./examples.test-helper.ts";
+import { americanToDecimal, breakEvenProb, normalizePromo, promoPrompt, promoStake, promoViolations } from "./mod.ts";
+
+const BETMGM_WS_SGP_BOOST = example("BetMGM: MLB World Series 10% SGP Boost Token");
+const MLB_33_SGP_BOOST = example("Unknown book: 33% MLB Same Game Parlay Profit Boost");
+const NFL_30_PARLAY_BOOST = example("Unknown book: 30% NFL Parlay Profit Boost");
+
+test("every example in promo-examples.md is a promo that reads back unchanged", () => {
+  assert.ok(EXAMPLES.length >= 3);
+  for (const { title, json } of EXAMPLES) assert.deepEqual(normalizePromo(json), json, title);
+});
+
+test("the vision prompt carries the examples", () => {
+  const p = promoPrompt("## X\n```json\n{}\n```");
+  assert.match(p, /Promos already read correctly/);
+  assert.match(p, /## X/);
+  assert.doesNotMatch(promoPrompt("  "), /already read/);
+});
 
 // What the vision call should return for the BetMGM "MLB World Series 10% SGP
 // Boost Token" screenshot (max stake $25, SGP only, min total odds +400, paid
 // in cash, live or pre-game, expires 10/29/26 08:07 AM).
-const BETMGM_WS_SGP_BOOST = {
-  book: "BetMGM",
-  title: "MLB World Series 10% SGP Boost Token",
-  type: "profit_boost",
-  boost_pct: 10,
-  max_stake: 25,
-  min_total_odds: 400,
-  min_legs: null,
-  max_legs: null,
-  legs_apply_to: [],
-  bet_kinds: ["sgp"],
-  leagues: ["MLB"],
-  live: true,
-  pregame: true,
-  paid_in: "cash",
-  expires_at: "2026-10-29T08:07",
-  notes: "World Series games only",
-};
 
 test("normalizes the BetMGM World Series SGP boost", () => {
   const promo = normalizePromo(BETMGM_WS_SGP_BOOST);
@@ -79,24 +77,6 @@ test("stake is Kelly capped at the promo max", () => {
 // Second real screenshot: "33% MLB Same Game Parlay Profit Boost". It never
 // names the book (no logo or name on screen), so book must come back null
 // rather than the promo being rejected.
-const MLB_33_SGP_BOOST = {
-  book: null,
-  title: "33% MLB Same Game Parlay Profit Boost",
-  type: "profit_boost",
-  boost_pct: 33,
-  max_stake: 50,
-  min_total_odds: 300,
-  min_legs: null,
-  max_legs: null,
-  legs_apply_to: [],
-  bet_kinds: ["sgp"],
-  leagues: ["MLB"],
-  live: true,
-  pregame: true,
-  paid_in: null,
-  expires_at: "2026-10-29T03:00",
-  notes: null,
-};
 
 test("normalizes a promo whose screenshot doesn't show the book", () => {
   const promo = normalizePromo(MLB_33_SGP_BOOST);
