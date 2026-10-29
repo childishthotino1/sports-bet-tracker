@@ -71,6 +71,10 @@ async function saveState(chatId: number, state: FlowState) {
   await db.from("promo_bot_state").upsert({ chat_id: String(chatId), state, updated_at: new Date().toISOString() });
 }
 
+async function clearState(chatId: number) {
+  await db.from("promo_bot_state").delete().eq("chat_id", String(chatId));
+}
+
 // ── Odds ──────────────────────────────────────────────────
 
 // One game's odds. Not every sport or plan offers every market (alternate
@@ -214,7 +218,15 @@ async function priceSlip(chatId: number, s: FlowState) {
 // ── Handler ───────────────────────────────────────────────
 
 const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
-  "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.";
+  "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
+  "/skip drops the promo in progress so you can start over.";
+
+// The commands Telegram shows in its menu. /cancel, /new and /reset also work.
+const COMMANDS = [
+  { command: "skip", description: "Drop the current promo and start over" },
+  { command: "help", description: "What this bot does" },
+];
+const RESET_COMMANDS = ["skip", "cancel", "new", "reset"];
 
 function allowed(chatId: number, username?: string): boolean {
   return ALLOWED.includes(String(chatId)) || (!!username && ALLOWED.includes(`@${username.toLowerCase()}`));
@@ -240,7 +252,15 @@ async function handle(update: any) {
   }
 
   const text = (update.message.text ?? "").trim();
-  if (text === "/start" || text === "/help") return send(chatId, HELP);
+  // "/skip" or "/skip@Bmorepromobot"
+  const command = text.match(/^\/([a-z]+)(@\w+)?\b/i)?.[1].toLowerCase();
+  if (command) await tg("setMyCommands", { commands: COMMANDS }); // keeps the menu current; cheap and idempotent
+  if (command === "start" || command === "help") return send(chatId, HELP);
+  if (command && RESET_COMMANDS.includes(command)) {
+    await clearState(chatId);
+    return send(chatId, "🧹 Cleared. Send a promo or bet slip screenshot to start fresh.");
+  }
+  if (command) return send(chatId, `I don't know /${command}.\n\n${HELP}`);
 
   // Screenshot: a promo starts a new promo; a slip is priced with the promo in play, if any.
   if (update.message.photo) {
