@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { NFL_30_PARLAY_BOOST } from "./fixtures.ts";
 import { americanToDecimal, breakEvenProb, normalizePromo, promoStake, promoViolations } from "./mod.ts";
 
 // What the vision call should return for the BetMGM "MLB World Series 10% SGP
@@ -13,6 +14,8 @@ const BETMGM_WS_SGP_BOOST = {
   max_stake: 25,
   min_total_odds: 400,
   min_legs: null,
+  max_legs: null,
+  legs_apply_to: [],
   bet_kinds: ["sgp"],
   leagues: ["MLB"],
   live: true,
@@ -84,6 +87,8 @@ const MLB_33_SGP_BOOST = {
   max_stake: 50,
   min_total_odds: 300,
   min_legs: null,
+  max_legs: null,
+  legs_apply_to: [],
   bet_kinds: ["sgp"],
   leagues: ["MLB"],
   live: true,
@@ -107,4 +112,15 @@ test("a 33% boost at +300 beats a hold of up to 24.75%", () => {
   const p = breakEvenProb(300, 33); // +300 boosted 33% pays +399
   assert.ok(Math.abs(1 / p - 4.99) < 1e-12);
   assert.ok(Math.abs((1 / americanToDecimal(300)) / p - 1 - 0.2475) < 1e-12);
+});
+
+test("leg limits only cover the bet kinds they name", () => {
+  const promo = normalizePromo(NFL_30_PARLAY_BOOST);
+  assert.deepEqual(promo, NFL_30_PARLAY_BOOST);
+  assert.deepEqual(promoViolations(promo, { americanOdds: 350, legs: 2, kind: "sgp", league: "NFL" }), []);
+  assert.deepEqual(promoViolations(promo, { americanOdds: 600, legs: 3, kind: "parlay" }), ["parlay needs 4-25 legs, not 3"]);
+  assert.deepEqual(promoViolations(promo, { americanOdds: 600, legs: 26, kind: "parlay" }), ["parlay needs 4-25 legs, not 26"]);
+  assert.deepEqual(promoViolations(promo, { americanOdds: 1200, legs: 4, kind: "parlay" }), []);
+  // Limits with no legs_apply_to cover every kind.
+  assert.deepEqual(promoViolations({ ...promo, legs_apply_to: [] }, { legs: 2, kind: "sgp" }), ["sgp needs 4-25 legs, not 2"]);
 });

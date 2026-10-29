@@ -6,20 +6,24 @@
 
 import { decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet } from "./bet.ts";
-import { promoViolations, type Promo } from "./promo.ts";
+import { legLimitsApply, promoViolations, type BetKind, type Promo } from "./promo.ts";
 
 export type Button = { label: string; value: string };
 export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; [] = expects typed text
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "odds" | "fair" | "end";
-  bookOdds?: number; // the parlay price the user is checking, pre-boost
+  step: "book" | "max_stake" | "action" | "kind" | "legs" | "odds" | "fair" | "end";
+  // The bet being checked; cleared after each verdict.
+  kind?: BetKind;
+  legs?: number;
+  bookOdds?: number; // pre-boost
 };
 
 // BetMGM first: nearly all shared bets are there.
 export const BOOKS = ["BetMGM", "DraftKings", "FanDuel", "Caesars", "Fanatics", "bet365", "theScore Bet"];
 const MARGINS = [15, 20, 25, 30];
+const KIND_LABELS: Record<BetKind, string> = { sgp: "Same Game Parlay", parlay: "Parlay", single: "Straight bet" };
 
 export function startFlow(promo: Promo): FlowState {
   return advance({ promo, step: "book" });
@@ -49,6 +53,18 @@ export function prompt(s: FlowState): Prompt {
         text: `${summary(s.promo)}\n\nWhat do you want to do?`,
         buttons: [[{ label: "🔍 Check a bet I'm building", value: "check" }], [{ label: "✅ Done", value: "done" }]],
       };
+    case "kind":
+      return {
+        text: "What kind of bet?",
+        buttons: [s.promo.bet_kinds.map((k) => ({ label: KIND_LABELS[k], value: k }))],
+      };
+    case "legs": {
+      const min = s.promo.min_legs ?? 2;
+      return {
+        text: `How many legs? (${legRange(s.promo)} to qualify)`,
+        buttons: [[0, 1, 2, 3, 4].map((i) => ({ label: `${min + i}`, value: `${min + i}` }))],
+      };
+    }
     case "odds":
       return { text: `Send the price for the whole bet on ${s.promo.book ?? "the book"}, before the boost (e.g. +350).`, buttons: [] };
     case "fair":
@@ -64,12 +80,23 @@ export function prompt(s: FlowState): Prompt {
 export function summary(p: Promo): string {
   const rules = [
     p.boost_pct !== null ? `${p.boost_pct}% boost` : null,
-    p.bet_kinds.length ? p.bet_kinds.map((k) => k.toUpperCase()).join("/") + " only" : null,
+    p.bet_kinds.length
+      ? p.bet_kinds.map((k) => (legLimitsApply(p, k) ? `${KIND_LABELS[k]} (${legRange(p)})` : KIND_LABELS[k])).join(" / ")
+      : null,
     p.leagues.length ? p.leagues.join(", ") : null,
     p.min_total_odds !== null ? `min ${formatAmerican(p.min_total_odds)}` : null,
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
-  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}`;
+  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+}
+
+function legRange(p: Promo): string {
+  return p.max_legs !== null ? `${p.min_legs ?? 2}-${p.max_legs} legs` : `${p.min_legs ?? 2}+ legs`;
+}
+
+// After the bet kind is known: ask legs only when a leg limit covers it.
+function afterKind(s: FlowState, kind: BetKind): FlowState {
+  return { ...s, kind, step: legLimitsApply(s.promo, kind) ? "legs" : "odds" };
 }
 
 // American odds from "+350", "350", "-120". Null for anything else.
@@ -97,14 +124,28 @@ export function step(s: FlowState, input: string): StepResult {
       return { state: { ...s, promo: { ...s.promo, max_stake: max }, step: "action" } };
     }
     case "action":
-      if (v === "check") return { state: { ...s, step: "odds" } };
+      if (v === "check") {
+        if (s.promo.bet_kinds.length > 1) return { state: { ...s, step: "kind" } };
+        return { state: afterKind(s, s.promo.bet_kinds[0] ?? "parlay") };
+      }
       if (v === "done") return { state: { ...s, step: "end" } };
       return { state: s, reply: "Pick an option above." };
+    case "kind": {
+      const kind = s.promo.bet_kinds.find((k) => k === v);
+      if (!kind) return { state: s, reply: "Pick a bet type above." };
+      return { state: afterKind(s, kind) };
+    }
+    case "legs": {
+      const legs = Number(v);
+      if (!Number.isInteger(legs) || legs < 1) return { state: s, reply: "Send the number of legs, like 4." };
+      const broken = promoViolations(s.promo, { kind: s.kind!, legs });
+      if (broken.length) return { state: s, reply: `❌ Doesn't qualify: ${broken.join("; ")}. How many legs?` };
+      return { state: { ...s, legs, step: "odds" } };
+    }
     case "odds": {
       const odds = parseAmerican(v);
       if (odds === null) return { state: s, reply: "I need American odds like +350." };
-      const kind = s.promo.bet_kinds.length === 1 ? s.promo.bet_kinds[0] : "parlay";
-      const broken = promoViolations(s.promo, { americanOdds: odds, kind });
+      const broken = promoViolations(s.promo, { americanOdds: odds, kind: s.kind!, legs: s.legs });
       if (broken.length) return { state: s, reply: `❌ Doesn't qualify: ${broken.join("; ")}. Send a different price.` };
       return { state: { ...s, step: "fair", bookOdds: odds } };
     }
@@ -115,7 +156,8 @@ export function step(s: FlowState, input: string): StepResult {
       const bookOdds = s.bookOdds!;
       const fairP = margin !== null ? impliedProb(bookOdds) / (1 + margin / 100) : impliedProb(typed!);
       const basis = margin !== null ? `assumes a ${margin}% book margin` : "your price";
-      return { state: { ...s, step: "action", bookOdds: undefined }, reply: verdict(s.promo, bookOdds, fairP, basis) };
+      const next: FlowState = { ...s, step: "action", kind: undefined, legs: undefined, bookOdds: undefined };
+      return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis) };
     }
     case "end":
       return { state: s };

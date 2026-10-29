@@ -16,6 +16,8 @@ export type Promo = {
   max_stake: number | null; // dollars
   min_total_odds: number | null; // American, on the whole bet before the boost
   min_legs: number | null;
+  max_legs: number | null;
+  legs_apply_to: BetKind[]; // which bet kinds the leg limits cover; empty = all
   bet_kinds: BetKind[]; // empty = any
   leagues: string[]; // empty = any
   live: boolean;
@@ -32,7 +34,7 @@ export const PROMO_JSON_SCHEMA = {
   additionalProperties: false,
   required: [
     "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
-    "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
+    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
   ],
   properties: {
     book: { type: ["string", "null"] },
@@ -42,6 +44,8 @@ export const PROMO_JSON_SCHEMA = {
     max_stake: { type: ["number", "null"] },
     min_total_odds: { type: ["integer", "null"] },
     min_legs: { type: ["integer", "null"] },
+    max_legs: { type: ["integer", "null"] },
+    legs_apply_to: { type: "array", items: { type: "string", enum: ["single", "parlay", "sgp"] } },
     bet_kinds: { type: "array", items: { type: "string", enum: ["single", "parlay", "sgp"] } },
     leagues: { type: "array", items: { type: "string" } },
     live: { type: "boolean" },
@@ -60,6 +64,8 @@ export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Rea
 - max_stake: the maximum wager in dollars.
 - min_total_odds: the minimum total odds in American format (+400 -> 400).
 - bet_kinds: "sgp" for same game parlays, "parlay" for regular parlays, "single" for straight bets. Empty if any bet qualifies.
+- min_legs / max_legs: leg-count limits, e.g. "4-25 Leg Parlays" -> 4 and 25.
+- legs_apply_to: the bet_kinds those leg limits cover. "Same Game Parlay, 4-25 Leg Parlays" -> ["parlay"] (the SGP has no leg limit). Empty if the limits cover every eligible bet.
 - leagues: league abbreviations such as "MLB" or "NBA". Empty if any league qualifies.
 - live / pregame: whether live and pre-game bets qualify. If the promo doesn't say, both are true.
 - paid_in: "cash" or "bonus", for how the boosted winnings are paid.
@@ -75,6 +81,7 @@ export function normalizePromo(raw: unknown): Promo {
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
   const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  const kinds = (v: unknown) => list(v).filter((k): k is BetKind => k === "single" || k === "parlay" || k === "sgp");
 
   const book = str(r.book);
   const type = (["profit_boost", "free_bet", "no_sweat", "other"] as const).find((t) => t === r.type) ?? "other";
@@ -88,7 +95,9 @@ export function normalizePromo(raw: unknown): Promo {
     max_stake: num(r.max_stake),
     min_total_odds: minOdds !== null && Math.abs(minOdds) >= 100 ? Math.round(minOdds) : null,
     min_legs: num(r.min_legs),
-    bet_kinds: list(r.bet_kinds).filter((k): k is BetKind => k === "single" || k === "parlay" || k === "sgp"),
+    max_legs: num(r.max_legs),
+    legs_apply_to: kinds(r.legs_apply_to),
+    bet_kinds: kinds(r.bet_kinds),
     leagues: list(r.leagues).map((l) => l.toUpperCase()),
     live: r.live !== false,
     pregame: r.pregame !== false,
@@ -99,7 +108,7 @@ export function normalizePromo(raw: unknown): Promo {
 }
 
 export type CandidateBet = {
-  americanOdds: number; // whole bet, pre-boost
+  americanOdds?: number; // whole bet, pre-boost
   legs?: number;
   kind: BetKind;
   league?: string;
@@ -113,10 +122,15 @@ export function promoViolations(promo: Promo, bet: CandidateBet): string[] {
   if (promo.bet_kinds.length && !promo.bet_kinds.includes(bet.kind)) {
     out.push(`must be ${promo.bet_kinds.join(" or ")}, not ${bet.kind}`);
   }
-  if (promo.min_total_odds !== null && americanToDecimal(bet.americanOdds) < americanToDecimal(promo.min_total_odds)) {
+  if (bet.americanOdds !== undefined && promo.min_total_odds !== null && americanToDecimal(bet.americanOdds) < americanToDecimal(promo.min_total_odds)) {
     out.push(`odds ${formatAmerican(bet.americanOdds)} below minimum ${formatAmerican(promo.min_total_odds)}`);
   }
-  if (promo.min_legs !== null && bet.legs !== undefined && bet.legs < promo.min_legs) out.push(`needs ${promo.min_legs}+ legs`);
+  if (bet.legs !== undefined && legLimitsApply(promo, bet.kind)) {
+    const { min_legs: min, max_legs: max } = promo;
+    if ((min !== null && bet.legs < min) || (max !== null && bet.legs > max)) {
+      out.push(`${bet.kind} needs ${min ?? 1}${max !== null ? `-${max}` : "+"} legs, not ${bet.legs}`);
+    }
+  }
   if (bet.league && promo.leagues.length && !promo.leagues.includes(bet.league.toUpperCase())) {
     out.push(`${bet.league} not eligible (${promo.leagues.join(", ")} only)`);
   }
@@ -126,6 +140,11 @@ export function promoViolations(promo: Promo, bet: CandidateBet): string[] {
     out.push(`stake $${bet.stake} over max $${promo.max_stake}`);
   }
   return out;
+}
+
+export function legLimitsApply(promo: Promo, kind: BetKind): boolean {
+  if (promo.min_legs === null && promo.max_legs === null) return false;
+  return !promo.legs_apply_to.length || promo.legs_apply_to.includes(kind);
 }
 
 // The lowest fair win probability at which a boosted bet at these odds is

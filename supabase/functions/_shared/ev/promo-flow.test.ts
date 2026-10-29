@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { NFL_30_PARLAY_BOOST } from "./fixtures.ts";
 import { normalizePromo, parseAmerican, prompt, startFlow, step, type FlowState } from "./mod.ts";
 
 // The 33% MLB SGP boost screenshot: no book shown, max $50, min +300.
 const promo = () => normalizePromo({
   book: null, title: "33% MLB Same Game Parlay Profit Boost", type: "profit_boost", boost_pct: 33,
-  max_stake: 50, min_total_odds: 300, min_legs: null, bet_kinds: ["sgp"], leagues: ["MLB"],
+  max_stake: 50, min_total_odds: 300, min_legs: null, max_legs: null, legs_apply_to: [], bet_kinds: ["sgp"], leagues: ["MLB"],
   live: true, pregame: true, paid_in: null, expires_at: "2026-10-29T03:00", notes: null,
 });
 
@@ -25,7 +26,7 @@ test("asks only for what the screenshot didn't show", () => {
   assert.equal(prompt(s).buttons.flat()[0].value, "BetMGM");
   s = tap(s, "DraftKings").s;
   assert.equal(s.step, "action"); // max wager was shown, so it isn't asked
-  assert.match(prompt(s).text, /33% boost · SGP only · MLB · min \+300 · max \$50/);
+  assert.match(prompt(s).text, /33% boost · Same Game Parlay · MLB · min \+300 · max \$50/);
 
   const noMax = startFlow({ ...promo(), book: "BetMGM", max_stake: null });
   assert.equal(noMax.step, "max_stake");
@@ -68,4 +69,23 @@ test("button values fit Telegram's 64-byte callback_data", () => {
     { promo: promo(), step: "fair", bookOdds: 320 },
   ];
   for (const s of states) for (const b of prompt(s).buttons.flat()) assert.ok(new TextEncoder().encode(`pf:${b.value}`).length <= 64);
+});
+
+test("multi-kind promo asks the bet kind, and legs only where a limit applies", () => {
+  const nfl = normalizePromo(NFL_30_PARLAY_BOOST);
+  let s = tap(startFlow(nfl), "DraftKings", "check").s;
+  assert.equal(s.step, "kind");
+  assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["sgp", "parlay"]);
+
+  // SGP: no leg question, straight to the price.
+  assert.equal(tap(s, "sgp").s.step, "odds");
+
+  // Parlay: legs asked; 3 is rejected, 4 moves on.
+  const r = tap(s, "parlay", "3", "4", "+1228", "+1500");
+  assert.equal(r.replies[0], "❌ Doesn't qualify: parlay needs 4-25 legs, not 3. How many legs?");
+  // Four -110 legs: book +1228, no-vig fair +1500; boosted +1596 beats it.
+  assert.match(r.replies[1], /^DraftKings: \+1228, boosted to \+1596$/m);
+  assert.match(r.replies[1], /^EV: \+6\.0%$/m);
+  assert.equal(r.s.step, "action");
+  assert.equal(r.s.kind, undefined);
 });
