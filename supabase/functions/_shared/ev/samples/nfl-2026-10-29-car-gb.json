@@ -1,0 +1,77 @@
+{
+  "_note": "Real /events/{id}/odds pull, 2026-10-29 ~20:00 ET, includeBetLimits=true. Trimmed: two books, Pinnacle and the four exchanges; Josh Jacobs anytime TD and a few Tetairoa McMillan receiving-yards lines.",
+  "id": "ab2865e9f2d4b012de8bc6fb6de11a7c",
+  "sport_key": "americanfootball_nfl",
+  "commence_time": "2026-10-30T00:15:00Z",
+  "home_team": "Green Bay Packers",
+  "away_team": "Carolina Panthers",
+  "bookmakers": [
+    { "key": "betmgm", "title": "BetMGM", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Carolina Panthers", "price": 165 }, { "name": "Green Bay Packers", "price": -200 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 4.0, "price": -110 }, { "name": "Green Bay Packers", "point": -4.0, "price": -108 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 47.0, "price": -110 }, { "name": "Under", "point": 47.0, "price": -108 }] },
+      { "key": "player_anytime_td", "outcomes": [{ "name": "Yes", "description": "Josh Jacobs", "price": -155 }] },
+      { "key": "player_reception_yds", "outcomes": [
+        { "name": "Over", "description": "Tetairoa McMillan", "point": 74.5, "price": -115 },
+        { "name": "Under", "description": "Tetairoa McMillan", "point": 74.5, "price": -115 }
+      ] }
+    ] },
+    { "key": "draftkings", "title": "DraftKings", "markets": [
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 3.5, "price": -108 }, { "name": "Green Bay Packers", "point": -3.5, "price": -112 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 47.5, "price": -105 }, { "name": "Under", "point": 47.5, "price": -115 }] }
+    ] },
+    { "key": "pinnacle", "title": "Pinnacle", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Carolina Panthers", "price": 171, "bet_limit": 20000 }, { "name": "Green Bay Packers", "price": -196, "bet_limit": 20000 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 4.0, "price": -114, "bet_limit": 40000 }, { "name": "Green Bay Packers", "point": -4.0, "price": 102, "bet_limit": 40000 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 47.5, "price": 100, "bet_limit": 10000 }, { "name": "Under", "point": 47.5, "price": -116, "bet_limit": 10000 }] },
+      { "key": "player_reception_yds", "outcomes": [
+        { "name": "Over", "description": "Tetairoa McMillan", "point": 74.5, "price": -118, "bet_limit": 500 },
+        { "name": "Under", "description": "Tetairoa McMillan", "point": 74.5, "price": -107, "bet_limit": 500 }
+      ] }
+    ] },
+    { "key": "kalshi", "title": "Kalshi", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Carolina Panthers", "price": 178, "bet_limit": 1401569 }, { "name": "Green Bay Packers", "price": -186, "bet_limit": 3170759 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 3.5, "price": 100, "bet_limit": 812369 }, { "name": "Green Bay Packers", "point": -3.5, "price": -104, "bet_limit": 813075 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 47.5, "price": 104, "bet_limit": 468518 }, { "name": "Under", "point": 47.5, "price": -108, "bet_limit": 433024 }] }
+    ] },
+    { "key": "novig", "title": "Novig", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Carolina Panthers", "price": 178, "bet_limit": 30875 }, { "name": "Green Bay Packers", "price": -186, "bet_limit": 56812 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 3.5, "price": 102, "bet_limit": 20414 }, { "name": "Green Bay Packers", "point": -3.5, "price": -104, "bet_limit": 6777 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 47.5, "price": 108, "bet_limit": 165 }, { "name": "Under", "point": 47.5, "price": -111, "bet_limit": 1055 }] },
+      { "key": "player_anytime_td", "outcomes": [
+        { "name": "Yes", "description": "Josh Jacobs", "price": -125, "bet_limit": 3963 },
+        { "name": "No", "description": "Josh Jacobs", "price": 120, "bet_limit": 1041 }
+      ] },
+      { "key": "player_reception_yds", "outcomes": [
+        { "name": "Over", "description": "Tetairoa McMillan", "point": 71.5, "price": -113, "bet_limit": 176 },
+        { "name": "Under", "description": "Tetairoa McMillan", "point": 71.5, "price": -113, "bet_limit": 176 },
+        { "name": "Over", "description": "Tetairoa McMillan", "point": 74.5, "price": -113, "bet_limit": 12 },
+        { "name": "Under", "description": "Tetairoa McMillan", "point": 74.5, "price": -104, "bet_limit": 266 },
+        { "name": "Over", "description": "Tetairoa McMillan", "point": 75.5, "price": -120, "bet_limit": 11 },
+        { "name": "Under", "description": "Tetairoa McMillan", "point": 75.5, "price": -217, "bet_limit": 21 }
+      ] }
+    ] },
+    { "key": "polymarket", "title": "Polymarket", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Carolina Panthers", "price": 178, "bet_limit": 64946 }, { "name": "Green Bay Packers", "price": -186, "bet_limit": 247176 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 3.5, "price": 100, "bet_limit": 12709 }, { "name": "Green Bay Packers", "point": -3.5, "price": -104, "bet_limit": 86043 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 46.5, "price": -117, "bet_limit": 19145 }, { "name": "Under", "point": 46.5, "price": 113, "bet_limit": 6242 }] },
+      { "key": "player_anytime_td", "outcomes": [
+        { "name": "Yes", "description": "Josh Jacobs", "price": -133, "bet_limit": 393 },
+        { "name": "No", "description": "Josh Jacobs", "price": 127, "bet_limit": 60 }
+      ] }
+    ] },
+    { "key": "prophetx", "title": "ProphetX", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Carolina Panthers", "price": 178, "bet_limit": 3934 }, { "name": "Green Bay Packers", "price": -180, "bet_limit": 79 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Carolina Panthers", "point": 3.5, "price": 105, "bet_limit": 4669 }, { "name": "Green Bay Packers", "point": -3.5, "price": -106, "bet_limit": 1966 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 47.5, "price": 108, "bet_limit": 338 }, { "name": "Under", "point": 47.5, "price": -109, "bet_limit": 124 }] },
+      { "key": "player_anytime_td", "outcomes": [
+        { "name": "No", "description": "Josh Jacobs", "price": 117, "bet_limit": 23 },
+        { "name": "No", "description": "Josh Jacobs", "price": 115, "bet_limit": 83 },
+        { "name": "No", "description": "Josh Jacobs", "price": 113, "bet_limit": 2347 },
+        { "name": "Yes", "description": "Josh Jacobs", "price": -132, "bet_limit": 2844 },
+        { "name": "Yes", "description": "Josh Jacobs", "price": -134, "bet_limit": 7 },
+        { "name": "Yes", "description": "Josh Jacobs", "price": -136, "bet_limit": 155 }
+      ] }
+    ] }
+  ]
+}

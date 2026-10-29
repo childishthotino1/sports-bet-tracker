@@ -84,7 +84,10 @@ test("prices only legs the sharp book has on the same line", () => {
   ]); // no alt 8.5 line, nothing from the Pinnacle-less game
   const collins = legs.find((l) => l.selection === "John Collins Over 6.5 Rebounds")!;
   assert.equal(collins.game, "Detroit Pistons @ New York Knicks");
-  assert.deepEqual(collins.sharp, { sides: [{ label: "Over 6.5", odds: -150 }, { label: "Under 6.5", odds: 122 }], betIndex: 0 });
+  assert.equal(collins.quotes.length, 1);
+  assert.equal(collins.quotes[0].source, "Pinnacle");
+  assert.deepEqual(collins.quotes[0].sides, [{ label: "Over 6.5", odds: -150 }, { label: "Under 6.5", odds: 122 }]);
+  assert.equal(collins.quotes[0].betIndex, 0);
   assert.ok(Math.abs(collins.edge - (collins.fair * americanToDecimal(-110) - 1)) < 1e-12);
   // Sorted best edge first.
   for (let i = 1; i < legs.length; i++) assert.ok(legs[i - 1].edge >= legs[i].edge);
@@ -92,9 +95,10 @@ test("prices only legs the sharp book has on the same line", () => {
 
 test("spreads pair each side with the opposite point", () => {
   const blazers = priceLegs(EVENTS, "draftkings", { now: BEFORE }).find((l) => l.selection === "Portland Trail Blazers +6.5")!;
-  assert.equal(blazers.sharp.betIndex, 1);
-  assert.deepEqual(blazers.sharp.sides.map((s) => s.odds), [-104, -108]);
-  assert.deepEqual(blazers.sharp.sides.map((s) => s.label), ["Los Angeles Lakers -6.5", "Portland Trail Blazers +6.5"]);
+  const [q] = blazers.quotes;
+  assert.equal(q.betIndex, 1);
+  assert.deepEqual(q.sides.map((s) => s.odds), [-104, -108]);
+  assert.deepEqual(q.sides.map((s) => s.label), ["Los Angeles Lakers -6.5", "Portland Trail Blazers +6.5"]);
 });
 
 test("picks qualifying parlays from different games, best boosted EV first", () => {
@@ -124,11 +128,13 @@ test("a pick prints as the brief's bet card", () => {
   const [best] = bestBets(priceLegs(EVENTS, "draftkings", { now: BEFORE }), nbaParlayBoost(), { league: "NBA" });
   const { text } = formatBet({
     title: "DK 50% NBA Profit Boost", book: "DraftKings", bookOdds: best.americanOdds, boost: 0.5,
-    sharpSource: "Pinnacle", legs: cardLegs(best),
+    legs: cardLegs(best),
   });
+  assert.match(text, /^DEVIG \(sharp source: Pinnacle\)$/m);
   assert.match(text, /^BET TO BUILD: 2-leg parlay on DraftKings$/m);
   assert.match(text, /^\d\. John Collins Over 6\.5 Rebounds \| Detroit Pistons @ New York Knicks, Sat 8:10 PM ET$/m);
-  assert.match(text, /^Leg \d: Over 6\.5 -150 \/ Under 6\.5 \+122 -> fair -1\d\d \(5\d\.\d%\)$/m);
+  assert.match(text, /^Leg \d: Pinnacle -150\/\+122 \(\d\.\d%\) -> fair -1\d\d \(5\d\.\d%\)$/m);
+  assert.match(text, /^Method: worst-case of multiplicative, additive, power, Shin$/m);
   assert.match(text, /^EV: \+\d+\.\d%$/m);
 });
 

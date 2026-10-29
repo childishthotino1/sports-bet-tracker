@@ -4,6 +4,7 @@
 import { DEVIG_METHODS, worstCaseDevig } from "./devig.ts";
 import { correlatedLegs, evaluateBet, type BetEval } from "./bet.ts";
 import { decimalToAmerican, formatAmerican, formatPct, probToAmerican } from "./odds.ts";
+import { formatQuote, type Quote } from "./sharp.ts";
 
 export type SharpSide = { label: string; odds: number };
 
@@ -13,6 +14,7 @@ export type Leg = {
   start?: string; // "8:10 PM"
   sharp?: { sides: SharpSide[]; betIndex?: number }; // raw sharp market to devig
   fairProb?: number; // or a fair probability supplied directly
+  quotes?: Quote[]; // the sharp sources behind fairProb, shown on the card
 };
 
 export type BetCard = {
@@ -21,7 +23,7 @@ export type BetCard = {
   legs: Leg[];
   bookOdds: number; // the book's American price for the whole bet (pre-boost)
   boost?: number; // fraction
-  sharpSource?: string;
+  sharpSource?: string; // defaults to the sources in the legs' quotes
 };
 
 export type FormattedBet = { text: string; eval: BetEval; correlated: number[] };
@@ -51,15 +53,20 @@ export function formatBet(card: BetCard): FormattedBet {
   out.push(boost ? `${bookLine}, boosted to ${formatAmerican(decimalToAmerican(ev.boostedDecimal))}` : bookLine);
   out.push("");
 
-  out.push(card.sharpSource ? `DEVIG (sharp source: ${card.sharpSource})` : "DEVIG");
+  const sources = card.sharpSource ?? [...new Set(card.legs.flatMap((l) => l.quotes?.map((q) => q.source) ?? []))].join(", ");
+  out.push(sources ? `DEVIG (sharp source: ${sources})` : "DEVIG");
   card.legs.forEach((leg, i) => {
     const fair = `fair ${formatAmerican(probToAmerican(probs[i]))} (${formatPct(probs[i])})`;
-    const raw = leg.sharp
+    const raw = leg.quotes?.length
+      ? leg.quotes.map(formatQuote).join(", ") + " -> "
+      : leg.sharp
       ? leg.sharp.sides.map((s) => `${s.label} ${formatAmerican(s.odds)}`).join(" / ") + " -> "
       : "";
     out.push(`Leg ${i + 1}: ${raw}${fair}`);
   });
-  if (card.legs.some((l) => l.sharp)) out.push(`Method: worst-case of ${DEVIG_METHODS.join(", ").replace("shin", "Shin")}`);
+  const methods = DEVIG_METHODS.join(", ").replace("shin", "Shin");
+  if (card.legs.some((l) => (l.quotes?.length ?? 0) > 1)) out.push(`Method: worst-case of ${methods} per source, averaged across sources (% = hold)`);
+  else if (card.legs.some((l) => l.sharp || l.quotes?.length)) out.push(`Method: worst-case of ${methods}`);
   if (n > 1) {
     out.push(`Parlay fair: ${formatPct(ev.fairProb)} -> FV ${formatAmerican(probToAmerican(ev.fairProb))}`);
     if (correlated.length) {

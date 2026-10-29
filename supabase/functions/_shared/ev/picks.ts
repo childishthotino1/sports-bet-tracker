@@ -1,13 +1,13 @@
-// Bot picks: price every leg the promo's book offers against the sharp book's
-// devigged line, then build the singles and parlays that qualify for the promo
+// Bot picks: price every leg the promo's book offers against the sharp sources'
+// devigged lines, then build the singles and parlays that qualify for the promo
 // and rank them by boosted EV.
 
 import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } from "./odds.ts";
-import { worstCaseDevig } from "./devig.ts";
 import { evaluateBet, type BetEval } from "./bet.ts";
 import { promoViolations, type BetKind, type Promo } from "./promo.ts";
-import type { Leg as CardLeg, SharpSide } from "./format.ts";
-import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
+import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
+import type { Leg as CardLeg } from "./format.ts";
+import type { OddsEvent, Outcome } from "./odds-api.ts";
 
 export type PricedLeg = {
   eventId: string;
@@ -16,42 +16,18 @@ export type PricedLeg = {
   market: string; // "h2h", "totals", "player_points", ...
   selection: string; // "Ja Morant Over 15.5 Points"
   bookOdds: number;
-  fair: number; // worst-case devigged probability from the sharp book
-  sharp: { sides: SharpSide[]; betIndex: number };
+  fair: number; // average of the sharp sources' worst-case devigged probabilities
+  quotes: Quote[]; // each sharp source's line
   edge: number; // fair × book decimal − 1, before any promo
 };
 
-// Outcomes that make up one two-way (or n-way) line: the same player and the
-// same line. Spreads pair -3.5 with +3.5, so they group on the absolute point.
-function lineKey(market: string, o: Outcome): string {
-  const point = o.point === undefined ? "" : market === "spreads" ? Math.abs(o.point) : o.point;
-  return `${o.description ?? ""}|${point}`;
-}
-
-function groups(m: Market): Map<string, Outcome[]> {
-  const out = new Map<string, Outcome[]>();
-  for (const o of m.outcomes) {
-    const k = lineKey(m.key, o);
-    out.set(k, [...(out.get(k) ?? []), o]);
-  }
-  return out;
-}
-
-const signed = (n: number) => (n > 0 ? `+${n}` : `${n}`);
-
-function sideLabel(market: string, o: Outcome): string {
-  if (o.point === undefined) return o.name;
-  return `${o.name} ${market === "spreads" ? signed(o.point) : o.point}`;
-}
-
 function statLabel(market: string): string {
-  return market.replace(/^player_/, "").split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
+  return market.replace(/^player_/, "").replace(/_alternate$/, "").split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
 }
 
 export function selectionLabel(market: string, o: Outcome): string {
   if (market === "h2h") return `${o.name} ML`;
-  if (market === "spreads") return `${o.name} ${signed(o.point!)}`;
-  if (market === "totals") return `${o.name} ${o.point}`;
+  if (market.includes("spreads") || market.includes("totals")) return sideLabel(market, o);
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;
   if (market === "player_goal_scorer_anytime") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime Goal`;
@@ -59,39 +35,38 @@ export function selectionLabel(market: string, o: Outcome): string {
   return [o.description, o.name, o.point, statLabel(market)].filter((x) => x !== undefined && x !== "").join(" ");
 }
 
-export type PriceOptions = { sharpKey?: string; now?: Date; includeStarted?: boolean };
+export type PriceOptions = { sharpKeys?: string[]; now?: Date; includeStarted?: boolean };
 
-// Every leg the book offers that the sharp book also prices on the same line.
-// Games that have started are skipped unless asked for: live lines from two
-// books are captured at different moments, so comparing them shows false
+// Every leg the book offers that at least one sharp source prices on the same
+// line. Games that have started are skipped unless asked for: live lines from
+// two books are captured at different moments, so comparing them shows false
 // edges (and a suspended live market can sit at +1400).
 export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptions = {}): PricedLeg[] {
-  const { sharpKey = "pinnacle", now = new Date(), includeStarted = false } = opts;
+  const { sharpKeys = SHARP_KEYS, now = new Date(), includeStarted = false } = opts;
+  const sharps = sharpKeys.filter((k) => k !== bookKey);
   const legs: PricedLeg[] = [];
+  const seen = new Set<string>();
   for (const ev of events) {
     if (!includeStarted && new Date(ev.commence_time).getTime() <= now.getTime()) continue;
     const book = ev.bookmakers.find((b) => b.key === bookKey);
-    const sharp = ev.bookmakers.find((b) => b.key === sharpKey);
-    if (!book || !sharp) continue;
+    if (!book) continue;
     for (const m of book.markets) {
-      const sm = sharp.markets.find((x) => x.key === m.key);
-      if (!sm) continue;
-      const sharpGroups = groups(sm);
       for (const o of m.outcomes) {
-        const sides = sharpGroups.get(lineKey(m.key, o));
-        if (!sides || sides.length < 2) continue;
-        const betIndex = sides.findIndex((s) => s.name === o.name && s.point === o.point);
-        if (betIndex < 0) continue;
-        const { fair } = worstCaseDevig(sides.map((s) => s.price), betIndex);
+        const selection = selectionLabel(m.key, o);
+        if (seen.has(`${ev.id}|${selection}`)) continue; // the same line in a main and an alternate market
+        const quotes = sharpQuotes(ev.bookmakers, m.key, o, sharps);
+        if (!quotes.length) continue;
+        seen.add(`${ev.id}|${selection}`);
+        const fair = consensus(quotes);
         legs.push({
           eventId: ev.id,
           game: `${ev.away_team} @ ${ev.home_team}`,
           start: ev.commence_time,
           market: m.key,
-          selection: selectionLabel(m.key, o),
+          selection,
           bookOdds: o.price,
           fair,
-          sharp: { sides: sides.map((s) => ({ label: sideLabel(m.key, s), odds: s.price })), betIndex },
+          quotes,
           edge: fair * americanToDecimal(o.price) - 1,
         });
       }
@@ -148,12 +123,12 @@ export function formatStart(iso: string): string {
 
 // A pick's legs in the shape formatBet() prints.
 export function cardLegs(p: Pick): CardLeg[] {
-  return p.legs.map((l) => ({ selection: l.selection, game: l.game, start: formatStart(l.start), sharp: l.sharp }));
+  return p.legs.map((l) => ({ selection: l.selection, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes }));
 }
 
 // Why bestBets() came back empty, in words the bot can send.
 export function noPicksReason(legs: PricedLeg[], promo: Promo): string {
-  if (!legs.length) return "No games on this book have sharp (Pinnacle) lines yet. Try closer to game time.";
+  if (!legs.length) return "No games on this book have sharp lines yet (Pinnacle or the exchanges). Try closer to game time.";
   const games = new Set(legs.map((l) => l.eventId)).size;
   const parlayOnly = promo.bet_kinds.length > 0 && !promo.bet_kinds.includes("single");
   const minLegs = Math.max(parlayOnly ? 2 : 1, promo.min_legs ?? 0);
@@ -169,9 +144,9 @@ export function noPicksReason(legs: PricedLeg[], promo: Promo): string {
 export type SgpSuggestion = { game: string; eventId: string; legs: PricedLeg[] };
 
 // SGP-only promos can't be auto-priced (no SGP prices in the feed), so suggest
-// the best-priced legs vs Pinnacle in one game for the user to build. At most
-// one game-result leg (moneyline or spread), one total, and one per player
-// prop, so it never bets both sides of the game.
+// the best-priced legs vs the sharp price in one game for the user to build.
+// At most one game-result leg (moneyline or spread), one total, and one per
+// player prop, so it never bets both sides of the game.
 export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: string): SgpSuggestion | null {
   const byEvent = new Map<string, PricedLeg[]>();
   for (const l of legs) if (!eventId || l.eventId === eventId) byEvent.set(l.eventId, [...(byEvent.get(l.eventId) ?? []), l]);
@@ -194,11 +169,11 @@ export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: strin
 
 export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
   const lines = sg.legs.map((l, i) =>
-    `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}% vs Pinnacle)`);
+    `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}% vs sharp)`);
   return [
     `🧩 SGP legs to build on ${book}: ${sg.game}`,
     ...lines,
     "",
-    `These are the best-priced legs in this game against Pinnacle. ${book}'s SGP price depends on how the legs move together, which the odds feed doesn't show, so build the SGP (swap legs if you like) and send me a screenshot of the slip. I'll price the whole thing.`,
+    `These are the best-priced legs in this game against the sharp price (Pinnacle and the exchanges). ${book}'s SGP price depends on how the legs move together, which the odds feed doesn't show, so build the SGP (swap legs if you like) and send me a screenshot of the slip. I'll price the whole thing.`,
   ].join("\n");
 }

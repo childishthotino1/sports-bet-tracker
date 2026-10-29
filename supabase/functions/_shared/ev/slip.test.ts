@@ -114,8 +114,8 @@ test("SGP: keeps FanDuel's correlation, swaps in fair leg prices, applies the 30
 
   const text = formatSlipCheck(slip, "FanDuel", c, fdSgpBoost());
   assert.match(text, /^🧾 SGP on FanDuel: Carolina Panthers @ Green Bay Packers$/m);
-  assert.match(text, /^1\. Carolina Panthers \+3\.5 -125 -> fair .* \(no Pinnacle line; the book's own price, devigged\)$/m);
-  assert.match(text, /^2\. Green Bay Packers ML -175 \| Pinnacle Green Bay Packers -165 \/ Carolina Panthers \+150 -> fair/m);
+  assert.match(text, /^1\. Carolina Panthers \+3\.5 -125 -> fair .* \(no sharp line; the book's own price, devigged\)$/m);
+  assert.match(text, /^2\. Green Bay Packers ML -175 \| Pinnacle -165\/\+150 \(\d\.\d%\) -> fair/m);
   assert.match(text, /^Slip: \+990, boosted 30% to \+1287$/m);
   assert.match(text, /work against each other \(×0\.4\d\)/);
   assert.match(text, /^Fair \(est\.\): /m);
@@ -167,7 +167,7 @@ const MATCH: OddsEvent = {
 test("soccer: 3-way results devig across home, draw and away", () => {
   const legs = priceLegs([MATCH], "draftkings", { now: NOW });
   const draw = legs.find((l) => l.selection === "Draw ML")!;
-  assert.equal(draw.sharp.sides.length, 3);
+  assert.equal(draw.quotes[0].sides.length, 3);
   const total = legs.filter((l) => l.market === "h2h").reduce((a, l) => a + l.fair, 0);
   assert.ok(total <= 1 + 1e-9, "worst-case fair prices never sum past 100%");
   assert.ok(legs.some((l) => l.selection === "Both Teams To Score: Yes"));

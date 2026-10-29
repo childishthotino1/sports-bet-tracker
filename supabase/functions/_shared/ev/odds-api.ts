@@ -32,7 +32,7 @@ export const BOOK_KEYS: Record<string, string> = {
   Pinnacle: "pinnacle",
 };
 
-export type Outcome = { name: string; price: number; point?: number; description?: string };
+export type Outcome = { name: string; price: number; point?: number; description?: string; bet_limit?: number | null };
 export type Market = { key: string; last_update?: string; outcomes: Outcome[] };
 export type Bookmaker = { key: string; title: string; last_update?: string; markets: Market[] };
 export type OddsEvent = {
@@ -54,6 +54,7 @@ async function get<T>(path: string, apiKey: string, q: Query): Promise<OddsResul
     markets: q.markets.join(","),
     bookmakers: q.bookmakers.join(","), // takes priority over regions, and is billed like one region per 10 books
     oddsFormat: "american",
+    includeBetLimits: "true", // exchanges: how much each offer takes, to skip stale few-dollar offers
   });
   const res = await fetch(`${BASE}${path}?${params}`);
   if (!res.ok) throw new Error(`The Odds API ${res.status}: ${await res.text()}`);

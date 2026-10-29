@@ -1,5 +1,6 @@
 // @Bmorepromobot: a promo screenshot → rules → best bets; a bet slip screenshot
-// → each leg devigged against Pinnacle → EV, with the active promo's boost.
+// → each leg devigged against Pinnacle and the exchanges → EV, with the active
+// promo's boost.
 // Its own bot, token, webhook, and table — it never touches the bet tracker's
 // tables, and telegram-bot never sees its messages.
 //
@@ -14,7 +15,7 @@ import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
   bestBets, BOOK_KEYS, cardLegs, checkSlip, findEvent, formatBet, formatSgpSuggestion, formatSlipCheck, getEventOdds,
   getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, priceSlipLegs, prompt, PROP_MARKETS, slipOnly,
-  SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type OddsEvent, type Prompt,
+  SHARP_KEYS, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type OddsEvent, type Prompt,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
@@ -22,6 +23,10 @@ const WEBHOOK_SECRET = Deno.env.get("PROMO_WEBHOOK_SECRET")!;
 const ODDS_API_KEY = Deno.env.get("ODDS_API_KEY")!;
 const ALLOWED = (Deno.env.get("PROMO_ALLOWED") ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const MAIN_MARKETS = ["h2h", "spreads", "totals"];
+
+// The book plus every sharp source in one request: up to 10 bookmakers cost
+// the same credits as one.
+const withSharps = (bookKey: string) => [bookKey, ...SHARP_KEYS.filter((k) => k !== bookKey)];
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -72,7 +77,7 @@ async function saveState(chatId: number, state: FlowState) {
 // lines, soccer props), so a refused request is retried without alternates,
 // then with main lines only.
 async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string) {
-  const bookmakers = [bookKey, BOOK_KEYS.Pinnacle];
+  const bookmakers = withSharps(bookKey);
   const attempts = [
     markets,
     markets.filter((m) => !m.startsWith("alternate_")),
@@ -101,10 +106,10 @@ async function sendPicks(chatId: number, s: FlowState) {
   if (!league) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
   if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp") return sendSgpLegs(chatId, s, bookKey, league);
 
-  await send(chatId, `🔎 Pulling ${promo.book} and Pinnacle ${league} lines…`);
+  await send(chatId, `🔎 Pulling ${promo.book} ${league} lines and the sharp prices (Pinnacle + exchanges)…`);
   const { data: events, remaining } = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], {
     markets: MAIN_MARKETS,
-    bookmakers: [bookKey, BOOK_KEYS.Pinnacle],
+    bookmakers: withSharps(bookKey),
   });
   const legs = priceLegs(events, bookKey);
   const picks = bestBets(legs, promo, { league });
@@ -115,7 +120,6 @@ async function sendPicks(chatId: number, s: FlowState) {
       book: promo.book!,
       bookOdds: p.americanOdds,
       boost: (promo.boost_pct ?? 0) / 100,
-      sharpSource: "Pinnacle",
       legs: cardLegs(p),
     }).text);
   }
@@ -128,26 +132,26 @@ async function sendPicks(chatId: number, s: FlowState) {
 async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league: string) {
   const { promo } = s;
   const sportKey = SPORT_KEYS[league];
-  await send(chatId, `🔎 Pulling ${promo.book} and Pinnacle lines for SGP legs…`);
+  await send(chatId, `🔎 Pulling ${promo.book} and sharp lines for SGP legs…`);
   const events = await getEvents(ODDS_API_KEY, sportKey);
   let target = findEvent(events, [promo.notes, promo.title]);
   let remaining: number | null = null;
   if (!target) {
     // No game named: pick the game with the best-priced main lines.
-    const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: [bookKey, BOOK_KEYS.Pinnacle] });
+    const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
     remaining = main.remaining;
     const id = suggestSgpLegs(priceLegs(main.data, bookKey), 2)?.eventId;
     target = events.find((e) => e.id === id) ?? null;
   }
   if (!target) {
-    await send(chatId, "Pinnacle doesn't have lines up for these games yet. Try closer to game time, or build an SGP and send me the slip.");
+    await send(chatId, "No sharp lines are up for these games yet. Try closer to game time, or build an SGP and send me the slip.");
     return sendPrompt(chatId, prompt(s));
   }
   const odds = await eventOdds(sportKey, target.id, [...MAIN_MARKETS, ...(PROP_MARKETS[league] ?? [])], bookKey);
   remaining = odds.remaining;
   const sg = suggestSgpLegs(priceLegs([odds.data], bookKey), Math.max(3, promo.min_legs ?? 3), target.id);
   if (!sg) {
-    await send(chatId, `Pinnacle doesn't price enough lines on ${target.away_team} @ ${target.home_team} yet. Build an SGP and send me the slip; I'll price it.`);
+    await send(chatId, `The sharp sources don't price enough lines on ${target.away_team} @ ${target.home_team} yet. Build an SGP and send me the slip; I'll price it.`);
   } else {
     await send(chatId, formatSgpSuggestion(sg, promo.book!));
   }
@@ -176,7 +180,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   if (!bookKey) return send(chatId, `I can't pull odds for ${book} yet.`);
   if (!sportKey) return send(chatId, `I can only price ${Object.keys(SPORT_KEYS).join(", ")} slips so far.`);
 
-  await send(chatId, `🔎 Pricing the slip against Pinnacle…`);
+  await send(chatId, `🔎 Pricing the slip against Pinnacle and the exchanges…`);
   const events = await getEvents(ODDS_API_KEY, sportKey);
   const ids = legEventIds(slip, events);
   const lost = slip.legs.filter((_, i) => !ids[i]);
@@ -197,7 +201,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   if (!c) {
     const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
     await send(chatId, missing.length
-      ? `I couldn't find ${book} or Pinnacle prices for: ${missing.join(", ")}. Type the slip's price to check it with an assumed margin instead.`
+      ? `I couldn't find ${book} or sharp prices for: ${missing.join(", ")}. Type the slip's price to check it with an assumed margin instead.`
       : "I couldn't read the slip's total price. Type it (e.g. +350) to check it with an assumed margin.");
     if (!s.noPromo) { const typed: FlowState = { ...done, step: "slip" }; await saveState(chatId, typed); }
     return;
@@ -210,7 +214,7 @@ async function priceSlip(chatId: number, s: FlowState) {
 // ── Handler ───────────────────────────────────────────────
 
 const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
-  "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle: fair value, EV and Kelly.";
+  "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.";
 
 function allowed(chatId: number, username?: string): boolean {
   return ALLOWED.includes(String(chatId)) || (!!username && ALLOWED.includes(`@${username.toLowerCase()}`));

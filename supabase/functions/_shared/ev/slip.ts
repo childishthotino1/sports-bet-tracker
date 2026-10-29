@@ -1,5 +1,5 @@
 // A bet slip screenshot (built, not yet placed) → each leg priced against the
-// sharp book → fair value and EV, with the promo's boost if one applies.
+// sharp sources → fair value and EV, with the promo's boost if one applies.
 //
 // Same-game parlays: the book's SGP price already includes how the legs move
 // together (Packers ML and Jacobs TD win together; Panthers +3.5 and Packers ML
@@ -13,6 +13,7 @@ import { americanToDecimal, decimalToAmerican, formatAmerican, formatPct, implie
 import { worstCaseDevig } from "./devig.ts";
 import { evaluateBet, type BetEval } from "./bet.ts";
 import { promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { consensus, formatQuote, marketFamily, sameLine, sharpQuotes, SHARP_KEYS, type Quote } from "./sharp.ts";
 import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
 
 // Markets the vision call may name; they're The Odds API's market keys.
@@ -180,17 +181,13 @@ function matches(marketKey: string, o: Outcome, leg: SlipLeg): boolean {
     sideMatches(o, leg) && (leg.line === null || o.point === leg.line);
 }
 
-const ALIASES: Record<string, string[]> = { spreads: ["spreads", "alternate_spreads"], totals: ["totals", "alternate_totals"] };
-
 // The outcome for a leg in one bookmaker's markets, and the other side(s) of that line.
-function locate(markets: Market[], leg: SlipLeg): { outcome: Outcome; sides: Outcome[] } | null {
-  for (const key of ALIASES[leg.market] ?? [leg.market]) {
+function locate(markets: Market[], leg: SlipLeg): { key: string; outcome: Outcome; sides: Outcome[] } | null {
+  for (const key of marketFamily(leg.market)) {
     const m = markets.find((x) => x.key === key);
     const outcome = m?.outcomes.find((o) => matches(key, o, leg));
     if (!m || !outcome) continue;
-    const sameLine = (o: Outcome) => (o.description ?? "") === (outcome.description ?? "") &&
-      (key.includes("spreads") ? Math.abs(o.point ?? 0) === Math.abs(outcome.point ?? 0) : o.point === outcome.point);
-    return { outcome, sides: m.outcomes.filter(sameLine) };
+    return { key, outcome, sides: m.outcomes.filter((o) => sameLine(key, outcome, o)) };
   }
   return null;
 }
@@ -203,7 +200,7 @@ export type PricedSlipLeg = {
   bookOdds: number | null; // the book's own price for this leg, if the feed has it
   fair: number | null;
   source: "sharp" | "sharp-1way" | "book" | "book-1way" | "none";
-  sharpSides?: { label: string; odds: number }[];
+  quotes?: Quote[]; // each sharp source's line, when source is "sharp"
 };
 
 function fairFrom(sides: Outcome[], outcome: Outcome): { fair: number; oneWay: boolean } {
@@ -225,20 +222,23 @@ export function legLabel(leg: SlipLeg): string {
 }
 
 // legEvents[i] is the feed's odds for leg i's game (null if it wasn't found).
-export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string, sharpKey = "pinnacle"): PricedSlipLeg[] {
+// Each sharp source that has the leg's line gives a quote; their fair prices
+// are averaged. With none, a Pinnacle line posted one way only gets an assumed
+// margin, and after that the book's own price is devigged.
+export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string, sharpKeys = SHARP_KEYS): PricedSlipLeg[] {
   return slip.legs.map((leg, i) => {
     const event = legEvents[i];
-    const book = event?.bookmakers.find((b) => b.key === bookKey)?.markets ?? [];
-    const sharp = event?.bookmakers.find((b) => b.key === sharpKey)?.markets ?? [];
+    const markets = (key: string) => event?.bookmakers.find((b) => b.key === key)?.markets ?? [];
     const label = legLabel(leg);
-    const b = locate(book, leg);
-    const s = locate(sharp, leg);
+    const b = locate(markets(bookKey), leg);
     const bookOdds = b?.outcome.price ?? null;
-    if (s) {
-      const { fair, oneWay } = fairFrom(s.sides, s.outcome);
-      const sharpSides = s.sides.map((o) => ({ label: o.point === undefined ? o.name : `${o.name} ${o.point}`, odds: o.price }));
-      return { label, bookOdds, fair, source: oneWay ? "sharp-1way" : "sharp", sharpSides };
-    }
+    const quotes = sharpKeys.filter((k) => k !== bookKey).flatMap((k) => {
+      const hit = locate(markets(k), leg);
+      return hit ? sharpQuotes(event!.bookmakers, hit.key, hit.outcome, [k]) : [];
+    });
+    if (quotes.length) return { label, bookOdds, fair: consensus(quotes), source: "sharp", quotes };
+    const p = locate(markets("pinnacle"), leg);
+    if (p && p.sides.length === 1) return { label, bookOdds, fair: fairFrom(p.sides, p.outcome).fair, source: "sharp-1way" };
     if (b) {
       const { fair, oneWay } = fairFrom(b.sides, b.outcome);
       return { label, bookOdds, fair, source: oneWay ? "book-1way" : "book" };
@@ -284,8 +284,8 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
 const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
   sharp: "",
   "sharp-1way": ` (Pinnacle posts only this side; assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
-  book: " (no Pinnacle line; the book's own price, devigged)",
-  "book-1way": ` (no Pinnacle line; the book's price, assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
+  book: " (no sharp line; the book's own price, devigged)",
+  "book-1way": ` (no sharp line; the book's price, assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
   none: "",
 };
 
@@ -294,7 +294,7 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   const out = [`🧾 ${kind} on ${book}${slip.game ? `: ${slip.game}` : ""}`];
   c.priced.forEach((l, i) => {
     const bookPart = l.bookOdds !== null ? ` ${formatAmerican(l.bookOdds)}` : "";
-    const sharp = l.sharpSides ? ` | Pinnacle ${l.sharpSides.map((s) => `${s.label} ${formatAmerican(s.odds)}`).join(" / ")}` : "";
+    const sharp = l.quotes ? ` | ${l.quotes.map(formatQuote).join(", ")}` : "";
     out.push(`${i + 1}. ${l.label}${bookPart}${sharp} -> fair ${formatAmerican(probToAmerican(l.fair!))} (${formatPct(l.fair!)})${SOURCE_NOTE[l.source]}`);
   });
   out.push("");
