@@ -165,3 +165,36 @@ the same token showed 10/29/26 09:52 AM, so `expires_at` is null here.
   "notes": null
 }
 ```
+
+## Unknown book: 25% Profit Boost (any event, any bet)
+
+Shows: "25% Profit Boost", lightning-bolt icon, Exp 11/02/2026, "Any event",
+"Any bet type", "Pre-game or Live bets", "No Min | $25 Max Wager", "-200 Min |
++200000 Max Odds", and a "Find bet" button.
+
+Gotcha: "Any event" and "Any bet type" mean no limits, so `leagues` and
+`bet_kinds` are empty (the bot asks which sport to search). "-200 Min" is a
+minimum *odds* of -200, so `min_total_odds` is -200; "No Min" is about the
+wager. The +200000 maximum doesn't limit any real bet, so it's left out. Only a date is
+shown for the expiry, so `expires_at` has no time. No book name or logo is shown.
+
+```json
+{
+  "book": null,
+  "title": "25% Profit Boost",
+  "type": "profit_boost",
+  "boost_pct": 25,
+  "max_stake": 25,
+  "min_total_odds": -200,
+  "min_legs": null,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": [],
+  "leagues": [],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": "2026-11-02",
+  "notes": null
+}
+```

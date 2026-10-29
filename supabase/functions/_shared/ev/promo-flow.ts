@@ -7,13 +7,15 @@
 import { decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet } from "./bet.ts";
 import { legLimitsApply, promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { SPORT_KEYS } from "./odds-api.ts";
 
 export type Button = { label: string; value: string };
 export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; [] = expects typed text
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "kind" | "legs" | "odds" | "fair" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "kind" | "legs" | "odds" | "fair" | "end";
+  sport?: string; // league to search for picks, e.g. "NBA"
   // The bet being checked; cleared after each verdict.
   kind?: BetKind;
   legs?: number;
@@ -57,6 +59,13 @@ export function prompt(s: FlowState): Prompt {
           [{ label: "✅ Done", value: "done" }],
         ],
       };
+    case "sport": {
+      const options = searchable(s.promo);
+      const list = options.length ? options : Object.keys(SPORT_KEYS);
+      const rows: Button[][] = [];
+      for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: l, value: l })));
+      return { text: "Which sport should I search?", buttons: rows };
+    }
     case "kind":
       return {
         text: "What kind of bet?",
@@ -92,6 +101,11 @@ export function summary(p: Promo): string {
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
   return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+}
+
+// The promo's leagues that the odds feed covers.
+function searchable(p: Promo): string[] {
+  return p.leagues.filter((l) => SPORT_KEYS[l]);
 }
 
 function legRange(p: Promo): string {
@@ -133,9 +147,20 @@ export function step(s: FlowState, input: string): StepResult {
         if (s.promo.bet_kinds.length > 1) return { state: { ...s, step: "kind" } };
         return { state: afterKind(s, s.promo.bet_kinds[0] ?? "parlay") };
       }
-      if (v === "picks") return { state: s, action: "picks" };
+      if (v === "picks") {
+        // One searchable league: go. None named ("Any event") or several: ask.
+        const leagues = searchable(s.promo);
+        if (leagues.length === 1) return { state: { ...s, sport: leagues[0] }, action: "picks" };
+        return { state: { ...s, step: "sport" } };
+      }
       if (v === "done") return { state: { ...s, step: "end" } };
       return { state: s, reply: "Pick an option above." };
+    case "sport": {
+      const sport = v.toUpperCase();
+      const options = searchable(s.promo);
+      if (!SPORT_KEYS[sport] || (options.length && !options.includes(sport))) return { state: s, reply: "Pick a sport above." };
+      return { state: { ...s, step: "action", sport }, action: "picks" };
+    }
     case "kind": {
       const kind = s.promo.bet_kinds.find((k) => k === v);
       if (!kind) return { state: s, reply: "Pick a bet type above." };

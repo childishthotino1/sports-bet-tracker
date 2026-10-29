@@ -68,7 +68,7 @@ async function saveState(chatId: number, state: FlowState) {
 async function sendPicks(chatId: number, s: FlowState) {
   const { promo } = s;
   const bookKey = promo.book ? BOOK_KEYS[promo.book] : undefined;
-  const league = promo.leagues.find((l) => SPORT_KEYS[l]);
+  const league = s.sport ?? promo.leagues.find((l) => SPORT_KEYS[l]);
   if (!bookKey) return send(chatId, `I can't pull odds for ${promo.book ?? "this book"} yet.`);
   if (!league) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
 

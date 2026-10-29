@@ -51,7 +51,8 @@ export const PROMO_JSON_SCHEMA = {
     leagues: { type: "array", items: { type: "string" } },
     live: { type: "boolean" },
     pregame: { type: "boolean" },
-    paid_in: { type: ["string", "null"], enum: ["cash", "bonus", null] },
+    // anyOf, not type: [..., "null"] + enum: the API rejects a null inside enum.
+    paid_in: { anyOf: [{ type: "string", enum: ["cash", "bonus"] }, { type: "null" }] },
     expires_at: { type: ["string", "null"] },
     notes: { type: ["string", "null"] },
   },
@@ -70,7 +71,7 @@ export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Rea
 - leagues: league abbreviations such as "MLB" or "NBA". Empty if any league qualifies.
 - live / pregame: whether live and pre-game bets qualify. If the promo doesn't say, both are true.
 - paid_in: "cash" or "bonus", for how the boosted winnings are paid.
-- expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown; null if none is shown.
+- expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.
 - notes: any other rule that limits which bets qualify (a specific event, a required market); null if none.
 
 Use null for anything the screenshot doesn't state. Don't guess.

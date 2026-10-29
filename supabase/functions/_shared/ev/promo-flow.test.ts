@@ -97,6 +97,7 @@ test("Find the best bets hands the odds lookup to the bot", () => {
   const r = step(s, "picks");
   assert.equal(r.action, "picks");
   assert.equal(r.state.step, "action");
+  assert.equal(r.state.sport, "MLB"); // the promo's one league, no question
 });
 
 test("a price typed at the legs question isn't taken as a leg count", () => {
@@ -106,4 +107,18 @@ test("a price typed at the legs question isn't taken as a leg count", () => {
   assert.equal(r.replies[0], "Send the number of legs, like 4.");
   assert.equal(tap(r.s, "99").s.step, "legs");
   assert.equal(tap(r.s, "5").s.step, "odds");
+});
+
+test("picks ask for the sport when the promo names none", () => {
+  const any = normalizePromo({ book: "DraftKings", title: "25% Profit Boost", type: "profit_boost", boost_pct: 25, max_stake: 25,
+    min_total_odds: -200, bet_kinds: [], leagues: [] });
+  let r = step(startFlow(any), "picks");
+  assert.equal(r.action, undefined);
+  assert.equal(r.state.step, "sport");
+  assert.deepEqual(prompt(r.state).buttons.flat().map((b) => b.value), ["NFL", "NCAAF", "NBA", "NCAAB", "MLB", "NHL"]);
+  assert.equal(step(r.state, "Soccer").reply, "Pick a sport above.");
+  r = step(r.state, "NBA");
+  assert.equal(r.action, "picks");
+  assert.equal(r.state.sport, "NBA");
+  assert.equal(r.state.step, "action");
 });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { example, EXAMPLES } from "./examples.test-helper.ts";
 import { readFileSync } from "node:fs";
 import { PROMO_EXAMPLES_MD } from "./promo-examples.ts";
-import { americanToDecimal, breakEvenProb, normalizePromo, promoPrompt, promoStake, promoViolations } from "./mod.ts";
+import { americanToDecimal, breakEvenProb, normalizePromo, PROMO_JSON_SCHEMA, promoPrompt, promoStake, promoViolations } from "./mod.ts";
 
 const BETMGM_WS_SGP_BOOST = example("BetMGM: MLB World Series 10% SGP Boost Token");
 const MLB_33_SGP_BOOST = example("Unknown book: 33% MLB Same Game Parlay Profit Boost");
@@ -110,4 +110,20 @@ test("leg limits only cover the bet kinds they name", () => {
 test("promo-examples.ts is regenerated from promo-examples.md", () => {
   const md = readFileSync(new URL("./promo-examples.md", import.meta.url), "utf8");
   assert.equal(PROMO_EXAMPLES_MD, md, "run: node supabase/functions/_shared/ev/gen-examples.mjs");
+});
+
+// The API rejected "Enum value 'cash' does not match declared type ['string', 'null']":
+// with type as a list, enum values must not mix in null. Check every enum's values
+// fit a single declared type.
+test("the vision schema's enums match their declared types", () => {
+  const typeOf = (v: unknown) => (v === null ? "null" : typeof v);
+  for (const [name, prop] of Object.entries(PROMO_JSON_SCHEMA.properties) as [string, any][]) {
+    const branches = prop.anyOf ?? [prop];
+    for (const b of branches) {
+      if (!b.enum) continue;
+      assert.equal(typeof b.type, "string", `${name}: enum needs a single type`);
+      for (const v of b.enum) assert.equal(typeOf(v), b.type, `${name}: ${v}`);
+    }
+    if (prop.items?.enum) for (const v of prop.items.enum) assert.equal(typeOf(v), prop.items.type, name);
+  }
 });
