@@ -42,7 +42,7 @@ test("normalizePromo coerces sloppy model output", () => {
   assert.equal(promo.live, true);
   assert.equal(promo.paid_in, null);
   assert.equal(promo.notes, null);
-  assert.throws(() => normalizePromo({ title: "no book" }));
+  assert.equal(normalizePromo({ title: "33% boost" }).book, null);
   assert.throws(() => normalizePromo("not json"));
 });
 
@@ -71,4 +71,40 @@ test("stake is Kelly capped at the promo max", () => {
   assert.equal(promoStake(promo, 0.002, 4000), 8);
   assert.equal(promoStake(promo, -0.05, 4000), 0);
   assert.equal(promoStake({ ...promo, max_stake: null }, 0.02, 4000), 80);
+});
+
+// Second real screenshot: "33% MLB Same Game Parlay Profit Boost". It never
+// names the book (no logo or name on screen), so book must come back null
+// rather than the promo being rejected.
+const MLB_33_SGP_BOOST = {
+  book: null,
+  title: "33% MLB Same Game Parlay Profit Boost",
+  type: "profit_boost",
+  boost_pct: 33,
+  max_stake: 50,
+  min_total_odds: 300,
+  min_legs: null,
+  bet_kinds: ["sgp"],
+  leagues: ["MLB"],
+  live: true,
+  pregame: true,
+  paid_in: null,
+  expires_at: "2026-10-29T03:00",
+  notes: null,
+};
+
+test("normalizes a promo whose screenshot doesn't show the book", () => {
+  const promo = normalizePromo(MLB_33_SGP_BOOST);
+  assert.deepEqual(promo, MLB_33_SGP_BOOST);
+  assert.deepEqual(promoViolations(promo, { americanOdds: 300, legs: 2, kind: "sgp", league: "MLB", stake: 50 }), []);
+  assert.deepEqual(promoViolations(promo, { americanOdds: 280, legs: 2, kind: "sgp", stake: 60 }), [
+    "odds +280 below minimum +300",
+    "stake $60 over max $50",
+  ]);
+});
+
+test("a 33% boost at +300 beats a hold of up to 24.75%", () => {
+  const p = breakEvenProb(300, 33); // +300 boosted 33% pays +399
+  assert.ok(Math.abs(1 / p - 4.99) < 1e-12);
+  assert.ok(Math.abs((1 / americanToDecimal(300)) / p - 1 - 0.2475) < 1e-12);
 });

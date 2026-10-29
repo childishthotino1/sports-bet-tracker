@@ -9,7 +9,7 @@ export type PromoType = "profit_boost" | "free_bet" | "no_sweat" | "other";
 export type BetKind = "single" | "parlay" | "sgp";
 
 export type Promo = {
-  book: string; // "BetMGM"
+  book: string | null; // "BetMGM"; null when the screenshot doesn't show it — ask or use the chat's default
   title: string; // "MLB World Series 10% SGP Boost Token"
   type: PromoType;
   boost_pct: number | null; // 10 for a 10% profit boost
@@ -35,7 +35,7 @@ export const PROMO_JSON_SCHEMA = {
     "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
   ],
   properties: {
-    book: { type: "string" },
+    book: { type: ["string", "null"] },
     title: { type: "string" },
     type: { type: "string", enum: ["profit_boost", "free_bet", "no_sweat", "other"] },
     boost_pct: { type: ["number", "null"] },
@@ -54,7 +54,7 @@ export const PROMO_JSON_SCHEMA = {
 
 export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Read its rules into the JSON schema.
 
-- book: the sportsbook's name as it brands itself (e.g. "BetMGM", "DraftKings").
+- book: the sportsbook's name as it brands itself (e.g. "BetMGM", "DraftKings"), only if its name or logo appears in the screenshot; otherwise null. Don't infer it from colors or layout.
 - type: profit_boost for odds/profit boosts and boost tokens; free_bet for bonus bets; no_sweat for refunds on a loss.
 - boost_pct: the boost percentage as a number (10 for "10%").
 - max_stake: the maximum wager in dollars.
@@ -77,13 +77,12 @@ export function normalizePromo(raw: unknown): Promo {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
   const book = str(r.book);
-  if (!book) throw new Error("Promo has no book");
   const type = (["profit_boost", "free_bet", "no_sweat", "other"] as const).find((t) => t === r.type) ?? "other";
   const minOdds = num(r.min_total_odds);
 
   return {
     book,
-    title: str(r.title) ?? book,
+    title: str(r.title) ?? book ?? "Promo",
     type,
     boost_pct: num(r.boost_pct),
     max_stake: num(r.max_stake),
