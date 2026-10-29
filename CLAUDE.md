@@ -46,6 +46,7 @@ supabase/functions/
   telegram-bot/     # Webhook: photo → Claude vision → conversational intake → save
   parse-bet/        # Simple CORS endpoint for direct image parsing (legacy)
   grade-bets/       # Daily auto-checker: Claude + web search verifies open bets, recommend-and-confirm
+  _shared/ev/       # +EV promo bot core: devig, EV, Kelly, bet-card formatter (pure; not wired to a command yet)
 ```
 
 **Load order matters:** `config.js` must load before `db.js`; `math.js` before `app.js`.
@@ -105,3 +106,7 @@ Runs daily via `pg_cron` (job `grade-bets-daily`, `0 13 * * *` UTC, calls the ed
 ## Migrations
 
 SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above).
+
+## +EV Core (`supabase/functions/_shared/ev/`)
+
+Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odds conversions, four devig methods (multiplicative, additive, power, Shin) plus worst-case, profit-boost EV, Kelly, free-bet value, and the plain-text bet card. No Telegram, DB, or Deno APIs, so a Discord adapter can reuse it. Imports use `.ts` extensions, so it runs under Deno and Node. Tests: `node --test supabase/functions/_shared/ev/ev.test.ts` (or `deno test`); the DK 50% boost worked example is pinned there.
