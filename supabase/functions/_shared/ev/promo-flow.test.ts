@@ -98,7 +98,7 @@ test("picks ask for the sport when the promo names none", () => {
   assert.equal(r.action, undefined);
   assert.equal(r.state.step, "sport");
   const values = prompt(r.state).buttons.flat().map((b) => b.value);
-  assert.deepEqual(values.slice(0, 6), ["NFL", "NCAAF", "NBA", "NCAAB", "MLB", "NHL"]);
+  assert.deepEqual(values.slice(0, 6), ["NFL", "NCAAF", "NBA", "WNBA", "NCAAB", "MLB"]);
   assert.ok(values.includes("EPL"));
   assert.equal(step(r.state, "Soccer").reply, "Pick a sport above.");
   r = step(r.state, "NBA");
@@ -130,4 +130,20 @@ test("a Soccer promo asks which league, with readable names", () => {
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "EPL");
   assert.match(prompt({ ...r.state, step: "action" }).text, /Same Game Parlay \(4\+ legs\) · Soccer · min \+400 · max \$100/);
+});
+
+test("a league the feed doesn't cover says so instead of offering other sports", () => {
+  const cfl = normalizePromo({ book: "DraftKings", title: "CFL 20% SGP Boost", type: "profit_boost", boost_pct: 20, max_stake: 50, bet_kinds: ["sgp"], leagues: ["CFL"] });
+  const r = step(startFlow(cfl), "picks");
+  assert.equal(r.action, undefined);
+  assert.equal(r.state.step, "action");
+  assert.match(r.reply!, /don't have odds for CFL/);
+});
+
+test("WNBA promos search the WNBA", () => {
+  const wnba = normalizePromo({ book: "DraftKings", title: "WNBA 20% SGP Boost", type: "profit_boost", boost_pct: 20, max_stake: 50,
+    min_total_odds: 400, min_legs: 4, bet_kinds: ["sgp"], leagues: ["WNBA"] });
+  const r = step(startFlow(wnba), "picks");
+  assert.equal(r.action, "picks");
+  assert.equal(r.state.sport, "WNBA");
 });

@@ -144,6 +144,10 @@ export function step(s: FlowState, input: string): StepResult {
       if (v === "picks") {
         // One searchable league: go. None named ("Any event") or several: ask.
         const leagues = searchable(s.promo);
+        if (s.promo.leagues.length && !leagues.length) {
+          // A league the odds feed isn't wired up for: say so rather than offer other sports.
+          return { state: s, reply: `I don't have odds for ${s.promo.leagues.join(", ")} yet, so I can't search for picks. Build a bet and send me the slip screenshot instead.` };
+        }
         if (leagues.length === 1) return { state: { ...s, sport: leagues[0] }, action: "picks" };
         return { state: { ...s, step: "sport" } };
       }

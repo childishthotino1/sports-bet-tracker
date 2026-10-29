@@ -72,7 +72,7 @@ export const SLIP_JSON_SCHEMA = {
 
 export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already placed), fill "slip". Use "" for unknown text and 0 for unknown numbers:
 - book: the sportsbook, only if its name or logo is on screen; otherwise "".
-- league: NFL, NCAAF, NBA, NCAAB, MLB or NHL, or for soccer EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA, from the teams and competition.
+- league: NFL, NCAAF, NBA, WNBA, NCAAB, MLB or NHL, or for soccer EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA, from the teams and competition.
 - bet_kind: "sgp" if the slip says SGP / Same Game Parlay; "parlay" for legs from different games; "single" for one leg.
 - total_odds: the slip's total odds before any boost, as American odds (+990 -> 990).
 - game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
