@@ -133,3 +133,35 @@ reading "no minimum". No book name or logo is on screen; the user said BetMGM
   "notes": "Screenshot cut off below 'Bet on'; other rules (min odds, SGP) not visible"
 }
 ```
+
+## BetMGM: NBA 10% Parlay Boost Token (full rules)
+
+Shows: the same token scrolled down: "Choose your NBA parlay bet with a max
+stake of $25", "Receive a 10% boost increase paid in Cash", applicable sport
+Basketball, league NBA, bet on Pre-Game, Live, valid bets Parlay, Same Game
+Parlay, minimum legs 3, minimum total odds +400.
+
+Gotcha: "Minimum legs: 3" covers both parlays and SGPs, so `legs_apply_to` is
+empty. The expiry isn't on this part of the screen; the earlier screenshot of
+the same token showed 10/29/26 09:52 AM, so `expires_at` is null here.
+
+```json
+{
+  "book": "BetMGM",
+  "title": "NBA 10% Parlay Boost Token",
+  "type": "profit_boost",
+  "boost_pct": 10,
+  "max_stake": 25,
+  "min_total_odds": 400,
+  "min_legs": 3,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["parlay", "sgp"],
+  "leagues": ["NBA"],
+  "live": true,
+  "pregame": true,
+  "paid_in": "cash",
+  "expires_at": null,
+  "notes": null
+}
+```

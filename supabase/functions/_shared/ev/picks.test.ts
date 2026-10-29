@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
-  americanToDecimal, bestBets, cardLegs, formatBet, formatStart, getOdds, normalizePromo, priceLegs,
+  americanToDecimal, bestBets, noPicksReason, cardLegs, formatBet, formatStart, getOdds, normalizePromo, priceLegs,
   type OddsEvent,
 } from "./mod.ts";
 
@@ -188,4 +188,18 @@ test("real pull: legs match only where BetMGM and Pinnacle share the line", () =
     "Oklahoma City Thunder @ Dallas Mavericks | Over 228.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Under 228.5",
   ]); // DAL/OKC spreads differ (BetMGM 5.5, Pinnacle 5.0), so they're skipped
+});
+
+test("explains an empty pick list", () => {
+  const legs = priceLegs(REAL, "betmgm", { now: PULLED }); // two games with sharp lines
+  const mgm10 = normalizePromo({
+    book: "BetMGM", title: "NBA 10% Parlay Boost Token", type: "profit_boost", boost_pct: 10, max_stake: 25,
+    min_total_odds: 400, min_legs: 3, max_legs: null, legs_apply_to: [], bet_kinds: ["parlay", "sgp"], leagues: ["NBA"],
+    live: true, pregame: true, paid_in: "cash", expires_at: null, notes: null,
+  });
+  assert.deepEqual(bestBets(legs, mgm10, { league: "NBA" }), []);
+  assert.match(noPicksReason(legs, mgm10), /needs 3\+ legs, but only 2 games have sharp lines/);
+  assert.match(noPicksReason([], mgm10), /No games on this book have sharp/);
+  assert.match(noPicksReason(legs, { ...mgm10, bet_kinds: ["sgp"] }), /same-game parlays only/);
+  assert.match(noPicksReason(legs, { ...mgm10, min_legs: 2, boost_pct: 0 }), /No bet that qualifies/);
 });

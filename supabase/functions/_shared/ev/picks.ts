@@ -147,3 +147,18 @@ export function formatStart(iso: string): string {
 export function cardLegs(p: Pick): CardLeg[] {
   return p.legs.map((l) => ({ selection: l.selection, game: l.game, start: formatStart(l.start), sharp: l.sharp }));
 }
+
+// Why bestBets() came back empty, in words the bot can send.
+export function noPicksReason(legs: PricedLeg[], promo: Promo): string {
+  if (!legs.length) return "No games on this book have sharp (Pinnacle) lines yet. Try closer to game time.";
+  const games = new Set(legs.map((l) => l.eventId)).size;
+  const parlayOnly = promo.bet_kinds.length > 0 && !promo.bet_kinds.includes("single");
+  const minLegs = Math.max(parlayOnly ? 2 : 1, promo.min_legs ?? 0);
+  if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp") {
+    return "This promo is same-game parlays only, and I can't price SGPs from the odds feed. Build one and send me its price to check it.";
+  }
+  if (games < minLegs) {
+    return `This promo needs ${minLegs}+ legs, but only ${games} game${games === 1 ? " has" : "s have"} sharp lines right now, and I only combine legs from different games. Try closer to game time.`;
+  }
+  return "No bet that qualifies for this promo is +EV right now: the boost doesn't cover the book's margin. Skip it, or use it on a bet you already like.";
+}
