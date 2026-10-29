@@ -11,6 +11,7 @@ export * from "./promo.ts";
 export * from "./promo-flow.ts";
 export * from "./odds-api.ts";
 export * from "./sharp.ts";
+export * from "./sgp-rules.ts";
 export * from "./picks.ts";
 export * from "./slip.ts";
 export * from "./image.ts";

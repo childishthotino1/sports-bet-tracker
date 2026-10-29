@@ -15,6 +15,10 @@ import { evaluateBet, type BetEval } from "./bet.ts";
 import { promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, formatQuote, marketFamily, sameLine, sharpQuotes, SHARP_KEYS, type Quote } from "./sharp.ts";
 import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
+import { lastWord, norm, samePerson, sameTeam } from "./names.ts";
+import { blockJoint, findRuleBlocks, type RuleLeg, type SgpRule } from "./sgp-rules.ts";
+
+export { samePerson, sameTeam };
 
 // Markets the vision call may name; they're The Odds API's market keys.
 export const SLIP_MARKETS = [
@@ -32,6 +36,7 @@ export type SlipLeg = {
   market: string; // one of SLIP_MARKETS
   line: number | null; // signed for spreads (+3.5 → 3.5, -3.5 → -3.5)
   side: string; // "Over" / "Under" / "Yes" / a team name
+  team: string | null; // the team the leg is on (a player's team for props), for the SGP rules
 };
 
 export type Slip = {
@@ -58,9 +63,10 @@ export const SLIP_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["team_or_player", "market", "line", "side"],
+        required: ["team_or_player", "market", "line", "side", "team"],
         properties: {
           team_or_player: { type: "string" },
+          team: { type: "string" },
           market: { type: "string", enum: [...SLIP_MARKETS] },
           line: { type: ["number", "null"] },
           side: { type: "string" },
@@ -80,6 +86,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
   - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_rush_yds, player_reception_yds, player_points, ...; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
+  - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
   - side: "Over" or "Under" for totals and over/under props, "Yes" (or "No") for anytime scorer props and btts, the team name (or "Draw") for spreads and moneylines.`;
 
 export function normalizeSlip(raw: unknown): Slip | null {
@@ -93,7 +100,7 @@ export function normalizeSlip(raw: unknown): Slip | null {
     const side = str(o.side);
     if (!side) return [];
     const market = (SLIP_MARKETS as readonly string[]).includes(String(o.market)) ? String(o.market) : "other";
-    return [{ team_or_player: str(o.team_or_player), market, line: num(o.line), side }];
+    return [{ team_or_player: str(o.team_or_player), market, line: num(o.line), side, team: str(o.team) }];
   });
   if (!legs.length) return null;
   const total = num(r.total_odds);
@@ -109,21 +116,6 @@ export function normalizeSlip(raw: unknown): Slip | null {
 }
 
 // ── Matching slip text to the feed ────────────────────────
-
-const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
-const lastWord = (s: string) => norm(s).split(" ").pop() ?? "";
-
-// "Packers", "Green Bay Packers" and "GB Packers" all name the Green Bay Packers.
-export function sameTeam(a: string, b: string): boolean {
-  const x = norm(a), y = norm(b);
-  return x === y || x.includes(y) || y.includes(x) || (lastWord(x).length > 2 && lastWord(x) === lastWord(y));
-}
-
-// "Josh Jacobs" vs "J. Jacobs" vs "Josh Jacobs Jr.": same last name and first initial.
-export function samePerson(a: string, b: string): boolean {
-  const x = norm(a).replace(/ (jr|sr|ii|iii|iv)$/, "").split(" "), y = norm(b).replace(/ (jr|sr|ii|iii|iv)$/, "").split(" ");
-  return x[x.length - 1] === y[y.length - 1] && x[0][0] === y[0][0];
-}
 
 // Does free text ("Carolina Panthers @ Green Bay Packers", "Packers ML") name this team?
 function mentions(text: string, team: string): boolean {
@@ -247,6 +239,8 @@ export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookK
   });
 }
 
+export type RuleUse = { rule: SgpRule; legs: [number, number]; joint: number }; // fair chance both legs hit
+
 export type SlipCheck = {
   priced: PricedSlipLeg[];
   missing: string[]; // legs with no price anywhere
@@ -257,9 +251,17 @@ export type SlipCheck = {
   eval: BetEval;
   boost: number;
   promoIssues: string[];
+  rules: RuleUse[]; // redundant pairs priced exactly (sgp-rules.ts)
 };
 
-export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | null): SlipCheck | null {
+const toRuleLeg = (l: SlipLeg): RuleLeg => ({
+  market: l.market, side: l.side, line: l.line,
+  team: l.team ?? (l.market === "h2h" || l.market === "spreads" ? l.side : null),
+  player: l.market === "h2h" || l.market === "spreads" ? null : l.team_or_player,
+});
+
+// book: the slip's book, for its SGP rules.
+export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | null, book: string | null = null): SlipCheck | null {
   const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
   if (missing.length) return null;
   const fairs = priced.map((l) => l.fair!);
@@ -270,15 +272,28 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
   if (!Number.isFinite(totalOdds)) return null;
 
   let fairProb = independent, method: SlipCheck["method"] = "independent", correlation: number | null = null;
+  const blocks = slip.bet_kind === "sgp" ? findRuleBlocks(slip.legs.map(toRuleLeg), book) : [];
+  const rules = blocks.map((b) => ({ ...b, joint: blockJoint(b, fairs[b.legs[0]], fairs[b.legs[1]]) }));
+  // Each rule pair's exact joint over what independence would say.
+  const ruleLift = (p: number[]) => blocks.reduce((m, b) => {
+    const [i, j] = b.legs;
+    return m * blockJoint(b, p[i], p[j]) / (p[i] * p[j]);
+  }, 1);
   if (slip.bet_kind === "sgp" && slip.legs.length > 1 && bookLegs.every((o) => o !== null)) {
     correlation = impliedProb(totalOdds) / bookLegs.reduce((p, o) => p * impliedProb(o!), 1);
-    fairProb = Math.min(0.99, independent * correlation);
+    // The book's correlation is kept for the legs no rule covers; each rule
+    // pair swaps the book's view of it (the same rule on the book's own
+    // prices) for its exact fair joint.
+    const bookP = bookLegs.map((o) => impliedProb(o!));
+    fairProb = Math.min(0.99, independent * correlation * ruleLift(fairs) / ruleLift(bookP));
     method = "correlation";
+  } else if (rules.length) {
+    fairProb = independent * ruleLift(fairs);
   }
 
   const promoIssues = promo ? promoViolations(promo, { americanOdds: totalOdds, legs: slip.legs.length, kind: slip.bet_kind, league: slip.league ?? undefined }) : [];
   const boost = promo && !promoIssues.length ? (promo.boost_pct ?? 0) / 100 : 0;
-  return { priced, missing, totalOdds, fairProb, method, correlation, eval: evaluateBet([fairProb], [totalOdds], boost), boost, promoIssues };
+  return { priced, missing, totalOdds, fairProb, method, correlation, eval: evaluateBet([fairProb], [totalOdds], boost), boost, promoIssues, rules };
 }
 
 const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
@@ -304,6 +319,10 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   if (c.method === "correlation" && c.correlation !== null) {
     const legsAlone = c.priced.reduce((d, l) => d * americanToDecimal(l.bookOdds!), 1);
     out.push(`Legs alone on ${book}: ${formatAmerican(decimalToAmerican(legsAlone))}. The SGP price implies the legs ${c.correlation >= 1 ? "win together" : "work against each other"} (×${c.correlation.toFixed(2)}).`);
+  }
+  for (const r of c.rules) {
+    const [i, j] = r.legs;
+    out.push(`🧩 ${r.rule.title}: legs ${i + 1} + ${j + 1} together are worth ${formatPct(r.joint)} (FV ${formatAmerican(probToAmerican(r.joint))}), about leg ${i + 1} alone. ${r.rule.why}`);
   }
   out.push(`Fair${c.method === "correlation" ? " (est.)" : ""}: ${formatPct(c.fairProb)} -> FV ${formatAmerican(probToAmerican(c.fairProb))}`);
   out.push("");

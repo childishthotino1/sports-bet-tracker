@@ -13,9 +13,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  bestBets, BOOK_KEYS, cardLegs, checkSlip, findEvent, formatBet, formatSgpSuggestion, formatSlipCheck, getEventOdds,
-  getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, priceSlipLegs, prompt, PROP_MARKETS, slipOnly,
-  SHARP_KEYS, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type OddsEvent, type Prompt,
+  bestBets, BOOK_KEYS, cardLegs, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  formatSlipCheck, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, priceSlipLegs,
+  prompt, PROP_MARKETS, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
+  type OddsEvent, type Prompt,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
@@ -27,6 +28,11 @@ const MAIN_MARKETS = ["h2h", "spreads", "totals"];
 // The book plus every sharp source in one request: up to 10 bookmakers cost
 // the same credits as one.
 const withSharps = (bookKey: string) => [bookKey, ...SHARP_KEYS.filter((k) => k !== bookKey)];
+
+// Props need one odds call per game, so picks with props check the next few
+// games only, and skip props when credits run low.
+const PROP_GAMES = 4;
+const PROP_CREDIT_FLOOR = 60;
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -75,6 +81,32 @@ async function clearState(chatId: number) {
   await db.from("promo_bot_state").delete().eq("chat_id", String(chatId));
 }
 
+// Per-chat settings, kept through /skip.
+type Settings = { markets: MarketMode };
+const DEFAULT_SETTINGS: Settings = { markets: "all" };
+
+async function loadSettings(chatId: number): Promise<Settings> {
+  const { data } = await db.from("promo_bot_settings").select("settings").eq("chat_id", String(chatId)).maybeSingle();
+  return { ...DEFAULT_SETTINGS, ...(data?.settings ?? {}) };
+}
+
+async function saveSettings(chatId: number, settings: Settings) {
+  await db.from("promo_bot_settings").upsert({ chat_id: String(chatId), settings, updated_at: new Date().toISOString() });
+}
+
+const MODE_LABELS: Record<MarketMode, string> = { all: "Main lines + props", main: "Main lines only", props: "Props only" };
+
+function sendSettings(chatId: number, settings: Settings) {
+  const buttons = (Object.keys(MODE_LABELS) as MarketMode[]).map((m) =>
+    [{ label: `${settings.markets === m ? "✅ " : ""}${MODE_LABELS[m]}`, value: m }]);
+  const keyboard = buttons.map((row) => row.map((b) => ({ text: b.label, callback_data: `ps:${b.value}` })));
+  return tg("sendMessage", {
+    chat_id: chatId,
+    text: "⚙️ Which markets should picks use? Main lines are healthier for your accounts: books limit prop bettors sooner.",
+    reply_markup: { inline_keyboard: keyboard },
+  });
+}
+
 // ── Odds ──────────────────────────────────────────────────
 
 // One game's odds. Not every sport or plan offers every market (alternate
@@ -110,17 +142,43 @@ async function sendPicks(chatId: number, s: FlowState) {
   if (!league) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
   if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp") return sendSgpLegs(chatId, s, bookKey, league);
 
-  await send(chatId, `🔎 Pulling ${promo.book} ${league} lines and the sharp prices (Pinnacle + exchanges)…`);
-  const { data: events, remaining } = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], {
-    markets: MAIN_MARKETS,
-    bookmakers: withSharps(bookKey),
-  });
-  const legs = priceLegs(events, bookKey);
-  const picks = bestBets(legs, promo, { league });
-  if (!picks.length) await send(chatId, noPicksReason(legs, promo));
+  const { markets: mode } = await loadSettings(chatId);
+  const what = mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
+  await send(chatId, `🔎 Pulling ${promo.book} ${league} ${what} and the sharp prices (Pinnacle + exchanges)…`);
+  const sportKey = SPORT_KEYS[league];
+  const events: OddsEvent[] = [];
+  let remaining: number | null = null;
+  if (mode !== "props") {
+    const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
+    events.push(...main.data);
+    remaining = main.remaining;
+  }
+  const propMarkets = PROP_MARKETS[league] ?? [];
+  if (mode !== "main" && propMarkets.length) {
+    if (remaining !== null && remaining < PROP_CREDIT_FLOOR) {
+      await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props this time.`);
+    } else {
+      const now = Date.now();
+      const games = (await getEvents(ODDS_API_KEY, sportKey))
+        .filter((e) => new Date(e.commence_time).getTime() > now)
+        .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
+        .slice(0, PROP_GAMES);
+      for (const g of games) {
+        const r = await eventOdds(sportKey, g.id, propMarkets, bookKey);
+        events.push(r.data);
+        remaining = r.remaining;
+      }
+    }
+  }
+  const legs = filterMode(priceLegs(events, bookKey), mode);
+  const picks = bestBets(legs, promo, { league, target: s.target });
+  if (!picks.length) {
+    const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
+    await send(chatId, noPicksReason(legs, promo, s.target) + setting);
+  }
   for (const p of picks) {
     await send(chatId, formatBet({
-      title: `${promo.book} ${promo.title}`,
+      title: `${promo.book} ${promo.title}${s.target ? ` (target ${formatRange(s.target)})` : ""}`,
       book: promo.book!,
       bookOdds: p.americanOdds,
       boost: (promo.boost_pct ?? 0) / 100,
@@ -153,9 +211,11 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
   }
   const odds = await eventOdds(sportKey, target.id, [...MAIN_MARKETS, ...(PROP_MARKETS[league] ?? [])], bookKey);
   remaining = odds.remaining;
-  const sg = suggestSgpLegs(priceLegs([odds.data], bookKey), Math.max(3, promo.min_legs ?? 3), target.id);
+  const { markets: mode } = await loadSettings(chatId);
+  const sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), mode), Math.max(3, promo.min_legs ?? 3), target.id, promo.book!);
   if (!sg) {
-    await send(chatId, `The sharp sources don't price enough lines on ${target.away_team} @ ${target.home_team} yet. Build an SGP and send me the slip; I'll price it.`);
+    const setting = mode === "all" ? "" : ` (picks are set to ${MODE_LABELS[mode]}; /settings to change)`;
+    await send(chatId, `The sharp sources don't price enough lines on ${target.away_team} @ ${target.home_team} yet${setting}. Build an SGP and send me the slip; I'll price it.`);
   } else {
     await send(chatId, formatSgpSuggestion(sg, promo.book!));
   }
@@ -201,7 +261,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   }
   const priced = priceSlipLegs(slip, ids.map((id) => odds.get(id!) ?? null), bookKey);
   const promo = s.noPromo ? null : s.promo;
-  const c = checkSlip(slip, priced, promo);
+  const c = checkSlip(slip, priced, promo, book);
   if (!c) {
     const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
     await send(chatId, missing.length
@@ -219,11 +279,12 @@ async function priceSlip(chatId: number, s: FlowState) {
 
 const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
-  "/skip drops the promo in progress so you can start over.";
+  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both.";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
 const COMMANDS = [
   { command: "skip", description: "Drop the current promo and start over" },
+  { command: "settings", description: "Main lines, props, or both" },
   { command: "help", description: "What this bot does" },
 ];
 const RESET_COMMANDS = ["skip", "cancel", "new", "reset"];
@@ -247,6 +308,12 @@ async function handle(update: any) {
   if (update.callback_query) {
     await tg("answerCallbackQuery", { callback_query_id: update.callback_query.id });
     const data = String(update.callback_query.data ?? "");
+    if (data.startsWith("ps:")) {
+      const mode = data.slice(3) as MarketMode;
+      if (!MODE_LABELS[mode]) return;
+      await saveSettings(chatId, { ...(await loadSettings(chatId)), markets: mode });
+      return send(chatId, `⚙️ Picks will use: ${MODE_LABELS[mode]}.`);
+    }
     if (!data.startsWith("pf:")) return;
     return advance(chatId, data.slice(3));
   }
@@ -256,6 +323,7 @@ async function handle(update: any) {
   const command = text.match(/^\/([a-z]+)(@\w+)?\b/i)?.[1].toLowerCase();
   if (command) await tg("setMyCommands", { commands: COMMANDS }); // keeps the menu current; cheap and idempotent
   if (command === "start" || command === "help") return send(chatId, HELP);
+  if (command === "settings") return sendSettings(chatId, await loadSettings(chatId));
   if (command && RESET_COMMANDS.includes(command)) {
     await clearState(chatId);
     return send(chatId, "🧹 Cleared. Send a promo or bet slip screenshot to start fresh.");

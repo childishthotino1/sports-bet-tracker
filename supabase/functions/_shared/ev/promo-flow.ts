@@ -5,19 +5,21 @@
 // chat between messages and calls step() with each button tap or text reply.
 // Button values stay short: Telegram caps callback_data at 64 bytes.
 
-import { decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
+import { americanToDecimal, decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet } from "./bet.ts";
 import { eligibleLeagues, legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
 import type { Slip } from "./slip.ts";
+import type { OddsRange } from "./picks.ts";
 
 export type Button = { label: string; value: string };
 export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; [] = expects typed text
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "sport" | "slip" | "fair" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "target" | "slip" | "fair" | "end";
   sport?: string; // league to search for picks, e.g. "NBA"
+  target?: OddsRange; // odds the picks should land in; unset = any price that qualifies
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
   slip?: Slip; // a slip screenshot waiting to be priced (only while asking which book)
   noPromo?: boolean; // a slip sent with no promo in play: priced without a boost
@@ -26,6 +28,7 @@ export type FlowState = {
 // BetMGM first: nearly all shared bets are there.
 export const BOOKS = ["BetMGM", "DraftKings", "FanDuel", "Caesars", "Fanatics", "bet365", "theScore Bet"];
 const MARGINS = [15, 20, 25, 30];
+const TARGETS = [200, 300, 400, 600, 1000];
 const KIND_LABELS: Record<BetKind, string> = { sgp: "Same Game Parlay", parlay: "Parlay", single: "Straight bet" };
 
 // State for a slip sent with no promo in play.
@@ -58,11 +61,11 @@ export function prompt(s: FlowState): Prompt {
       };
     case "action":
       return {
-        text: `${summary(s.promo)}\n\nWhat do you want to do?`,
+        text: `${summary(s.promo)}${s.target ? `\n🎚 Target ${formatRange(s.target)}` : ""}\n\nWhat do you want to do?`,
         buttons: [
           [{ label: "🎯 Find the best bets", value: "picks" }],
           [{ label: "🔍 Check a bet I'm building", value: "check" }],
-          [{ label: "✅ Done", value: "done" }],
+          [{ label: s.target ? "🎚 Change target odds" : "🎚 Set target odds", value: "target" }, { label: "✅ Done", value: "done" }],
         ],
       };
     case "sport": {
@@ -72,6 +75,14 @@ export function prompt(s: FlowState): Prompt {
       for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: LEAGUE_LABELS[l] ?? l, value: l })));
       return { text: options.length > 1 ? "Which league should I search?" : "Which sport should I search?", buttons: rows };
     }
+    case "target":
+      return {
+        text: "What odds should the picks add up to? Tap one, or type a price or a range (e.g. +450, or +400-600).",
+        buttons: [
+          TARGETS.slice(0, 3).map((t) => ({ label: `${formatAmerican(t)}+`, value: String(t) })),
+          [...TARGETS.slice(3).map((t) => ({ label: `${formatAmerican(t)}+`, value: String(t) })), { label: "Any", value: "any" }],
+        ],
+      };
     case "slip":
       return { text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`, buttons: [] };
     case "fair":
@@ -119,6 +130,25 @@ export function parseAmerican(text: string): number | null {
   return Math.abs(n) >= 100 ? n : null;
 }
 
+// "+400" means +400 up to +600 (profit no more than 1.5x the target's), so the
+// picks land near the number rather than anywhere above it. "+400-600" or
+// "+400 to +600" is an exact range. Null for anything else.
+export function parseTarget(text: string): OddsRange | null {
+  const parts = text.trim().replace(/(?<=\d)\s*(?:to|-|–)\s*(?=[+-]?\d)/i, " ").split(/\s+/);
+  const min = parseAmerican(parts[0] ?? "");
+  if (min === null || parts.length > 2) return null;
+  if (parts.length === 2) {
+    const max = parseAmerican(parts[1]);
+    return max !== null && americanToDecimal(max) >= americanToDecimal(min) ? { min, max } : null;
+  }
+  const max = Math.round(decimalToAmerican(1 + 1.5 * (americanToDecimal(min) - 1)));
+  return { min, max };
+}
+
+export function formatRange(r: OddsRange): string {
+  return `${formatAmerican(r.min)} to ${formatAmerican(r.max)}`;
+}
+
 // action: work step() can't do itself (it's pure); the bot runs it and replies.
 export type StepResult = { state: FlowState; reply?: string; action?: "picks" | "slip" };
 
@@ -151,8 +181,15 @@ export function step(s: FlowState, input: string): StepResult {
         if (leagues.length === 1) return { state: { ...s, sport: leagues[0] }, action: "picks" };
         return { state: { ...s, step: "sport" } };
       }
+      if (v === "target") return { state: { ...s, step: "target" } };
       if (v === "done") return { state: { ...s, step: "end" } };
       return { state: s, reply: "Pick an option above." };
+    case "target": {
+      if (v.toLowerCase() === "any") return { state: { ...s, step: "action", target: undefined } };
+      const target = parseTarget(v);
+      if (!target) return { state: s, reply: "Tap a target, or type a price like +450 or a range like +400-600." };
+      return { state: { ...s, step: "action", target } };
+    }
     case "sport": {
       const sport = v.toUpperCase();
       const options = searchable(s.promo);

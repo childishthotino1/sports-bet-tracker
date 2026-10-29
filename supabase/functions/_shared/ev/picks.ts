@@ -6,6 +6,7 @@ import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } 
 import { evaluateBet, type BetEval } from "./bet.ts";
 import { promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
+import { findRuleBlocks, type SgpRule } from "./sgp-rules.ts";
 import type { Leg as CardLeg } from "./format.ts";
 import type { OddsEvent, Outcome } from "./odds-api.ts";
 
@@ -15,6 +16,8 @@ export type PricedLeg = {
   start: string; // ISO
   market: string; // "h2h", "totals", "player_points", ...
   selection: string; // "Ja Morant Over 15.5 Points"
+  side: string; // the outcome's name: a team, "Over", "Yes"
+  point?: number;
   bookOdds: number;
   fair: number; // average of the sharp sources' worst-case devigged probabilities
   quotes: Quote[]; // each sharp source's line
@@ -64,6 +67,8 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
           start: ev.commence_time,
           market: m.key,
           selection,
+          side: o.name,
+          point: o.point,
           bookOdds: o.price,
           fair,
           quotes,
@@ -77,18 +82,36 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
 
 export type Pick = { kind: BetKind; legs: PricedLeg[]; americanOdds: number; eval: BetEval };
 
+// Which markets picks may use: everything (the default), or one of the two
+// toggles. Main lines are healthier for an account: books limit prop bettors
+// sooner.
+export type MarketMode = "all" | "main" | "props";
+
+export const isPropMarket = (market: string) => /^(player|batter|pitcher)_/.test(market);
+
+export function filterMode<L extends { market: string }>(legs: L[], mode: MarketMode): L[] {
+  if (mode === "all") return legs;
+  return legs.filter((l) => isPropMarket(l.market) === (mode === "props"));
+}
+
+// Odds the bet should land in, both ends inclusive (American odds).
+export type OddsRange = { min: number; max: number };
+
+const inRange = (odds: number, r: OddsRange) =>
+  americanToDecimal(odds) >= americanToDecimal(r.min) && americanToDecimal(odds) <= americanToDecimal(r.max);
+
 function* combos<T>(items: T[], size: number, start = 0, acc: T[] = []): Generator<T[]> {
   if (acc.length === size) { yield acc; return; }
   for (let i = start; i < items.length; i++) yield* combos(items, size, i + 1, [...acc, items[i]]);
 }
 
-export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number };
+export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange };
 
 // Best qualifying bets for a promo. Parlays only combine legs from different
 // games, so independence holds; same-game parlays aren't auto-picked (the
 // book's SGP price includes correlation the feed doesn't give us).
 export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
-  const { league, top = 3, pool = 15, maxLegs = 4 } = opts;
+  const { league, top = 3, pool = 15, maxLegs = 4, target } = opts;
   const boost = (promo.boost_pct ?? 0) / 100;
   const allows = (k: BetKind) => !promo.bet_kinds.length || promo.bet_kinds.includes(k);
   const candidates: Pick[] = [];
@@ -97,6 +120,7 @@ export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}
     const decimal = chosen.reduce((d, l) => d * americanToDecimal(l.bookOdds), 1);
     const americanOdds = Math.round(decimalToAmerican(decimal));
     if (promoViolations(promo, { americanOdds, legs: chosen.length, kind, league }).length) return;
+    if (target && !inRange(americanOdds, target)) return;
     const e = evaluateBet(chosen.map((l) => l.fair), chosen.map((l) => l.bookOdds), boost);
     if (e.ev > 0) candidates.push({ kind, legs: chosen, americanOdds, eval: e });
   };
@@ -127,7 +151,7 @@ export function cardLegs(p: Pick): CardLeg[] {
 }
 
 // Why bestBets() came back empty, in words the bot can send.
-export function noPicksReason(legs: PricedLeg[], promo: Promo): string {
+export function noPicksReason(legs: PricedLeg[], promo: Promo, target?: OddsRange): string {
   if (!legs.length) return "No games on this book have sharp lines yet (Pinnacle or the exchanges). Try closer to game time.";
   const games = new Set(legs.map((l) => l.eventId)).size;
   const parlayOnly = promo.bet_kinds.length > 0 && !promo.bet_kinds.includes("single");
@@ -138,16 +162,24 @@ export function noPicksReason(legs: PricedLeg[], promo: Promo): string {
   if (games < minLegs) {
     return `This promo needs ${minLegs}+ legs, but only ${games} game${games === 1 ? " has" : "s have"} sharp lines right now, and I only combine legs from different games. Try closer to game time.`;
   }
+  if (target && bestBets(legs, promo).length) {
+    return `Nothing +EV lands between ${formatAmerican(target.min)} and ${formatAmerican(target.max)} right now. Widen the target, or clear it to see the best bets at any price.`;
+  }
   return "No bet that qualifies for this promo is +EV right now: the boost doesn't cover the book's margin. Skip it, or use it on a bet you already like.";
 }
 
-export type SgpSuggestion = { game: string; eventId: string; legs: PricedLeg[] };
+export type SgpSuggestion = {
+  game: string;
+  eventId: string;
+  legs: PricedLeg[];
+  free: { leg: number; with: number; rule: SgpRule }[]; // legs a rule makes free: indexes into legs
+};
 
 // SGP-only promos can't be auto-priced (no SGP prices in the feed), so suggest
 // the best-priced legs vs the sharp price in one game for the user to build.
 // At most one game-result leg (moneyline or spread), one total, and one per
 // player prop, so it never bets both sides of the game.
-export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: string): SgpSuggestion | null {
+export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: string, book?: string): SgpSuggestion | null {
   const byEvent = new Map<string, PricedLeg[]>();
   for (const l of legs) if (!eventId || l.eventId === eventId) byEvent.set(l.eventId, [...(byEvent.get(l.eventId) ?? []), l]);
   let best: SgpSuggestion | null = null, bestScore = -Infinity;
@@ -160,19 +192,52 @@ export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: strin
       seen.add(key);
       return true;
     }).slice(0, count);
-    if (picked.length < count) continue;
-    const score = picked.reduce((a, l) => a + l.edge, 0);
-    if (score > bestScore) { best = { game: picked[0].game, eventId: id, legs: picked }; bestScore = score; }
+    // A free leg counts toward the leg count: it takes the place of the
+    // weakest other leg.
+    const free = freeLeg(picked, evLegs, book);
+    if (free) picked.splice(picked.indexOf(free.with) + 1, 0, free.leg);
+    const chosen = [...picked];
+    for (let k = chosen.length - 1; chosen.length > count && k >= 0; k--) {
+      if (chosen[k] !== free?.leg && chosen[k] !== free?.with) chosen.splice(k, 1);
+    }
+    if (chosen.length < count) continue;
+    const score = chosen.filter((l) => l !== free?.leg).reduce((a, l) => a + l.edge, 0);
+    if (score > bestScore) {
+      const freeInfo = free && chosen.includes(free.leg) && chosen.includes(free.with)
+        ? [{ leg: chosen.indexOf(free.leg), with: chosen.indexOf(free.with), rule: free.rule }] : [];
+      best = { game: chosen[0].game, eventId: id, legs: chosen, free: freeInfo };
+      bestScore = score;
+    }
   }
   return best;
 }
 
+// A favorite's spread the book lets you pair with the same team's moneyline:
+// covering means winning, so the moneyline rides along for free
+// (sgp-rules.ts). An underdog's pair is worth its moneyline, not a free leg.
+function freeLeg(picked: PricedLeg[], evLegs: PricedLeg[], book?: string) {
+  for (const spread of picked.filter((l) => l.market === "spreads" && (l.point ?? 0) < 0)) {
+    const ml = evLegs.find((l) => l.market === "h2h" && l.side === spread.side);
+    if (!ml) continue;
+    const [block] = findRuleBlocks([ruleLeg(spread), ruleLeg(ml)], book ?? null);
+    if (block) return { leg: ml, with: spread, rule: block.rule };
+  }
+  return null;
+}
+
+const ruleLeg = (l: PricedLeg) => ({ market: l.market, side: l.side, line: l.point ?? null, team: null, player: null });
+
 export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
-  const lines = sg.legs.map((l, i) =>
-    `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}% vs sharp)`);
+  const lines = sg.legs.map((l, i) => {
+    const f = sg.free.find((x) => x.leg === i);
+    if (f) return `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (free with leg ${f.with + 1}: ${f.rule.title})`;
+    return `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}% vs sharp)`;
+  });
+  const why = sg.free.map((f) => `🧩 ${f.rule.why}`);
   return [
     `🧩 SGP legs to build on ${book}: ${sg.game}`,
     ...lines,
+    ...(why.length ? ["", ...why] : []),
     "",
     `These are the best-priced legs in this game against the sharp price (Pinnacle and the exchanges). ${book}'s SGP price depends on how the legs move together, which the odds feed doesn't show, so build the SGP (swap legs if you like) and send me a screenshot of the slip. I'll price the whole thing.`,
   ].join("\n");

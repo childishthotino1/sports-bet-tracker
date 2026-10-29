@@ -30,6 +30,7 @@ export const BOOK_KEYS: Record<string, string> = {
   FanDuel: "fanduel",
   Caesars: "williamhill_us",
   Fanatics: "fanatics",
+  "theScore Bet": "espnbet", // formerly ESPN Bet
   Pinnacle: "pinnacle",
 };
 
