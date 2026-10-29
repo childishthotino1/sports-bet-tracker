@@ -99,3 +99,37 @@ bet kinds, so it goes in `notes`.
   "notes": "Super Parlays also qualify"
 }
 ```
+
+## BetMGM: NBA 10% Parlay Boost Token (cut-off screenshot)
+
+Shows: "NBA 10% Parlay Boost Token", "Odds Boost", expires 10/29/26 09:52 AM,
+"Choose your NBA parlay bet with a max stake of $25", "Receive a 10% boost
+increase paid in Cash", applicable sport Basketball, league NBA, and a last
+line cut off mid-word: "Bet on: Pre-Game, Live". Buttons "View Full Details"
+and "Bet Now" cover the rest.
+
+Gotcha: the screenshot is cut off, so rules below it (minimum odds, whether
+SGPs count) aren't visible: leave them null and say so in `notes`, rather than
+reading "no minimum". No book name or logo is on screen; the user said BetMGM
+(the "boost token paid in Cash" layout matches BetMGM's other tokens).
+
+```json
+{
+  "book": "BetMGM",
+  "title": "NBA 10% Parlay Boost Token",
+  "type": "profit_boost",
+  "boost_pct": 10,
+  "max_stake": 25,
+  "min_total_odds": null,
+  "min_legs": null,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["parlay"],
+  "leagues": ["NBA"],
+  "live": true,
+  "pregame": true,
+  "paid_in": "cash",
+  "expires_at": "2026-10-29T09:52",
+  "notes": "Screenshot cut off below 'Bet on'; other rules (min odds, SGP) not visible"
+}
+```
