@@ -1,4 +1,5 @@
-// Reads a promo screenshot into a Promo with Claude vision. Deno-only (npm:
+// Reads a promo screenshot into a Promo with Claude vision (null when the
+// image isn't a promo). Deno-only (npm:
 // import), so it's kept out of mod.ts and the Node-run tests. The caller
 // passes promo-examples.md's text (the bot reads it at startup).
 
@@ -12,7 +13,7 @@ export async function parsePromoImage(
   base64: string,
   examplesMd: string,
   mediaType: ImageType = "image/jpeg",
-): Promise<Promo> {
+): Promise<Promo | null> {
   const res = await client.beta.messages.create({
     model: "claude-opus-5-5",
     max_tokens: 16000,
@@ -31,5 +32,6 @@ export async function parsePromoImage(
   if (res.stop_reason === "refusal") throw new Error("Claude declined to read this image");
   if (res.stop_reason === "max_tokens") throw new Error("Promo read was cut off");
   const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-  return normalizePromo(JSON.parse(text));
+  const raw = JSON.parse(text);
+  return raw.is_promo === false ? null : normalizePromo(raw);
 }

@@ -29,6 +29,7 @@ Supabase edge functions (Telegram bot, bet parser, auto-grader) live in `supabas
 supabase functions deploy telegram-bot
 supabase functions deploy parse-bet
 supabase functions deploy grade-bets
+supabase functions deploy promo-bot --no-verify-jwt   # Telegram can't send a JWT
 ```
 
 No `package.json` — dependencies are CDN-loaded in `index.html` (Supabase JS v2, Chart.js v4).
@@ -46,7 +47,8 @@ supabase/functions/
   telegram-bot/     # Webhook: photo → Claude vision → conversational intake → save
   parse-bet/        # Simple CORS endpoint for direct image parsing (legacy)
   grade-bets/       # Daily auto-checker: Claude + web search verifies open bets, recommend-and-confirm
-  _shared/ev/       # +EV promo bot core: devig, EV, Kelly, bet-card formatter (pure; not wired to a command yet)
+  promo-bot/        # @Bmorepromobot webhook: promo screenshot → rules → best bets / check a bet (separate bot)
+  _shared/ev/       # +EV core used by promo-bot: devig, EV, Kelly, promo rules + flow, odds client, picks
 ```
 
 **Load order matters:** `config.js` must load before `db.js`; `math.js` before `app.js`.
@@ -105,7 +107,7 @@ Runs daily via `pg_cron` (job `grade-bets-daily`, `0 13 * * *` UTC, calls the ed
 
 ## Migrations
 
-SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above).
+SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above), `add_promo_bot_state.sql` (promo bot's per-chat conversation state; RLS on, no policies).
 
 ## +EV Core (`supabase/functions/_shared/ev/`)
 
@@ -120,3 +122,11 @@ Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odd
 **Odds feed: The Odds API** (v4, `odds-api.ts`). Book prices come from the promo's book; sharp prices from Pinnacle (its `pinnacle` key; Pinnacle closed its own public API in July 2025). Credits per odds call are markets × regions, so main lines for a whole sport are one call, while player props need one `/events/{id}/odds` call per game. `picks.ts` prices every leg the book offers against Pinnacle's worst-case devig (`priceLegs`), then builds qualifying singles and cross-game parlays and ranks them by boosted EV (`bestBets`). Same-game parlays aren't auto-picked: the feed has no SGP prices, and the book's SGP price includes correlation. Checked against a real NBA pull (`samples/nba-2026-10-29.json`): Pinnacle main lines come through; Caesars and Fanatics returned nothing; Pinnacle posts lines close to game time; started games are skipped by default because live lines from different books are captured at different moments (a frozen BetMGM live market sat at +1400).
 
 **Keep the promo bot out of `telegram-bot`.** That function treats every incoming photo as a bet slip and queues it in `pending_bets`, so a promo screenshot sent there becomes a bogus pending bet. The promo bot gets its own edge function and its own Telegram bot token (its own webhook); nothing in `_shared/ev/` is imported by the live bet-tracking functions. The Supabase CLI doesn't deploy `_`-prefixed folders as functions.
+
+## Promo Bot (`promo-bot`, @Bmorepromobot)
+
+Its own Telegram bot, token, webhook, and table (`promo_bot_state`); it never reads or writes the bet tracker's tables. Flow: photo → `parsePromoImage` (Claude vision, with `promo-examples.md` as context) → `promo-flow.ts` buttons for whatever's missing → **🎯 Find the best bets** (The Odds API: the promo's book + Pinnacle main lines, `priceLegs` → `bestBets`, or `noPicksReason`) or **🔍 Check a bet I'm building**. Button taps arrive as `callback_data` `pf:<value>`. A photo that isn't a promo (`is_promo: false`) gets a one-line reply.
+
+Secrets: `PROMO_BOT_TOKEN`, `PROMO_WEBHOOK_SECRET` (Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; anything else gets 403), `PROMO_ALLOWED` (comma list of chat IDs and/or `@usernames`; others get "This bot is private" with their chat ID), `ODDS_API_KEY`, and the existing `ANTHROPIC_API_KEY`. Never name a secret `TELEGRAM_BOT_TOKEN`: secrets are project-wide, and that one belongs to the tracker bot.
+
+The bot imports the examples from `promo-examples.ts`, generated from the `.md` (edge functions can't read a bundled `.md`): after editing the `.md`, run `node supabase/functions/_shared/ev/gen-examples.mjs` (a test fails if they drift).

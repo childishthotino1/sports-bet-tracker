@@ -90,3 +90,20 @@ test("multi-kind promo asks the bet kind, and legs only where a limit applies", 
   assert.equal(r.s.step, "action");
   assert.equal(r.s.kind, undefined);
 });
+
+test("Find the best bets hands the odds lookup to the bot", () => {
+  const s = startFlow({ ...promo(), book: "BetMGM" });
+  assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["picks", "check", "done"]);
+  const r = step(s, "picks");
+  assert.equal(r.action, "picks");
+  assert.equal(r.state.step, "action");
+});
+
+test("a price typed at the legs question isn't taken as a leg count", () => {
+  const nfl = normalizePromo(NFL_30_PARLAY_BOOST);
+  const r = tap(startFlow(nfl), "DraftKings", "check", "parlay", "+1228");
+  assert.equal(r.s.step, "legs");
+  assert.equal(r.replies[0], "Send the number of legs, like 4.");
+  assert.equal(tap(r.s, "99").s.step, "legs");
+  assert.equal(tap(r.s, "5").s.step, "odds");
+});

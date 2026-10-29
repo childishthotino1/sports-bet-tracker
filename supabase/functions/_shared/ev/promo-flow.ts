@@ -51,7 +51,11 @@ export function prompt(s: FlowState): Prompt {
     case "action":
       return {
         text: `${summary(s.promo)}\n\nWhat do you want to do?`,
-        buttons: [[{ label: "🔍 Check a bet I'm building", value: "check" }], [{ label: "✅ Done", value: "done" }]],
+        buttons: [
+          [{ label: "🎯 Find the best bets", value: "picks" }],
+          [{ label: "🔍 Check a bet I'm building", value: "check" }],
+          [{ label: "✅ Done", value: "done" }],
+        ],
       };
     case "kind":
       return {
@@ -107,7 +111,8 @@ export function parseAmerican(text: string): number | null {
   return Math.abs(n) >= 100 ? n : null;
 }
 
-export type StepResult = { state: FlowState; reply?: string };
+// action: work step() can't do itself (it's pure); the bot runs it and replies.
+export type StepResult = { state: FlowState; reply?: string; action?: "picks" };
 
 // One user input: a tapped button's value, or typed text.
 export function step(s: FlowState, input: string): StepResult {
@@ -128,6 +133,7 @@ export function step(s: FlowState, input: string): StepResult {
         if (s.promo.bet_kinds.length > 1) return { state: { ...s, step: "kind" } };
         return { state: afterKind(s, s.promo.bet_kinds[0] ?? "parlay") };
       }
+      if (v === "picks") return { state: s, action: "picks" };
       if (v === "done") return { state: { ...s, step: "end" } };
       return { state: s, reply: "Pick an option above." };
     case "kind": {
@@ -136,8 +142,9 @@ export function step(s: FlowState, input: string): StepResult {
       return { state: afterKind(s, kind) };
     }
     case "legs": {
-      const legs = Number(v);
-      if (!Number.isInteger(legs) || legs < 1) return { state: s, reply: "Send the number of legs, like 4." };
+      // A plain count only: "+180" is a price typed one step early, not 180 legs.
+      const legs = /^\d{1,2}$/.test(v) ? Number(v) : NaN;
+      if (!(legs >= 1 && legs <= 30)) return { state: s, reply: "Send the number of legs, like 4." };
       const broken = promoViolations(s.promo, { kind: s.kind!, legs });
       if (broken.length) return { state: s, reply: `❌ Doesn't qualify: ${broken.join("; ")}. How many legs?` };
       return { state: { ...s, legs, step: "odds" } };

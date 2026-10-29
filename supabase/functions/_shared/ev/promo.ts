@@ -33,10 +33,11 @@ export const PROMO_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
-    "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
+    "is_promo", "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
     "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
   ],
   properties: {
+    is_promo: { type: "boolean" },
     book: { type: ["string", "null"] },
     title: { type: "string" },
     type: { type: "string", enum: ["profit_boost", "free_bet", "no_sweat", "other"] },
@@ -72,7 +73,9 @@ export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Rea
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown; null if none is shown.
 - notes: any other rule that limits which bets qualify (a specific event, a required market); null if none.
 
-Use null for anything the screenshot doesn't state. Don't guess.`;
+Use null for anything the screenshot doesn't state. Don't guess.
+
+Set is_promo to false if the image isn't a sportsbook promotion (a bet slip, a scoreboard, anything else); the other fields don't matter then.`;
 
 // PROMO_PROMPT plus the worked examples from promo-examples.md, so new
 // screenshots are read the same way as the ones already checked.

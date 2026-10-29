@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { example, EXAMPLES } from "./examples.test-helper.ts";
+import { readFileSync } from "node:fs";
+import { PROMO_EXAMPLES_MD } from "./promo-examples.ts";
 import { americanToDecimal, breakEvenProb, normalizePromo, promoPrompt, promoStake, promoViolations } from "./mod.ts";
 
 const BETMGM_WS_SGP_BOOST = example("BetMGM: MLB World Series 10% SGP Boost Token");
@@ -103,4 +105,9 @@ test("leg limits only cover the bet kinds they name", () => {
   assert.deepEqual(promoViolations(promo, { americanOdds: 1200, legs: 4, kind: "parlay" }), []);
   // Limits with no legs_apply_to cover every kind.
   assert.deepEqual(promoViolations({ ...promo, legs_apply_to: [] }, { legs: 2, kind: "sgp" }), ["sgp needs 4-25 legs, not 2"]);
+});
+
+test("promo-examples.ts is regenerated from promo-examples.md", () => {
+  const md = readFileSync(new URL("./promo-examples.md", import.meta.url), "utf8");
+  assert.equal(PROMO_EXAMPLES_MD, md, "run: node supabase/functions/_shared/ev/gen-examples.mjs");
 });
