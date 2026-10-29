@@ -198,3 +198,35 @@ shown for the expiry, so `expires_at` has no time. No book name or logo is shown
   "notes": null
 }
 ```
+
+## Unknown book: 30% Profit Boost on one NFL game (SGP only)
+
+Shows: "Reward Restrictions", "30% Profit Boost", Exp 10/30/2026, "Carolina
+Panthers @ Green Bay Packers", "3+ leg SGP/SGP+", "Pre-game or Live bets", "No
+Min | $10 Max Wager", "+100 Min | +200000 Max Odds", and a "Go to event" button.
+
+Gotcha: the promo is for one game, so the matchup goes in `notes` and the league
+comes from the teams (NFL). "SGP+" is still a same-game parlay, so `bet_kinds` is
+`["sgp"]` with `min_legs` 3. "+100 Min" is the minimum odds; "No Min" is the
+wager. No book name or logo is on screen.
+
+```json
+{
+  "book": null,
+  "title": "30% Profit Boost",
+  "type": "profit_boost",
+  "boost_pct": 30,
+  "max_stake": 10,
+  "min_total_odds": 100,
+  "min_legs": 3,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["sgp"],
+  "leagues": ["NFL"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": "2026-10-30",
+  "notes": "Carolina Panthers @ Green Bay Packers only; SGP+ also qualifies"
+}
+```

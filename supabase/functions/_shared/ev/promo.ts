@@ -33,11 +33,10 @@ export const PROMO_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
-    "is_promo", "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
+    "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
     "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
   ],
   properties: {
-    is_promo: { type: "boolean" },
     book: { type: ["string", "null"] },
     title: { type: "string" },
     type: { type: "string", enum: ["profit_boost", "free_bet", "no_sweat", "other"] },
@@ -58,7 +57,7 @@ export const PROMO_JSON_SCHEMA = {
   },
 } as const;
 
-export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Read its rules into the JSON schema.
+export const PROMO_PROMPT = `If it's a sportsbook promotion, read its rules into "promo":
 
 - book: the sportsbook's name as it brands itself (e.g. "BetMGM", "DraftKings"), only if its name or logo appears in the screenshot; otherwise null. Don't infer it from colors or layout.
 - type: profit_boost for odds/profit boosts and boost tokens; free_bet for bonus bets; no_sweat for refunds on a loss.
@@ -74,9 +73,7 @@ export const PROMO_PROMPT = `This is a screenshot of a sportsbook promotion. Rea
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.
 - notes: any other rule that limits which bets qualify (a specific event, a required market); null if none.
 
-Use null for anything the screenshot doesn't state. Don't guess.
-
-Set is_promo to false if the image isn't a sportsbook promotion (a bet slip, a scoreboard, anything else); the other fields don't matter then.`;
+Use null for anything the screenshot doesn't state. Don't guess.`;
 
 // PROMO_PROMPT plus the worked examples from promo-examples.md, so new
 // screenshots are read the same way as the ones already checked.

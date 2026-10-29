@@ -1,6 +1,7 @@
-// @Bmorepromobot: promo screenshot → rules → best bets (or check a bet you're
-// building). Its own bot, token, webhook, and table — it never touches the
-// bet tracker's tables, and telegram-bot never sees its messages.
+// @Bmorepromobot: a promo screenshot → rules → best bets; a bet slip screenshot
+// → each leg devigged against Pinnacle → EV, with the active promo's boost.
+// Its own bot, token, webhook, and table — it never touches the bet tracker's
+// tables, and telegram-bot never sees its messages.
 //
 // Secrets: PROMO_BOT_TOKEN, PROMO_WEBHOOK_SECRET, PROMO_ALLOWED (comma list of
 // chat IDs and/or @usernames), ODDS_API_KEY, ANTHROPIC_API_KEY.
@@ -8,17 +9,19 @@
 
 import Anthropic from "npm:@anthropic-ai/sdk@1.3.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parsePromoImage } from "../_shared/ev/promo-vision.ts";
+import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  bestBets, BOOK_KEYS, cardLegs, formatBet, getOdds, noPicksReason, priceLegs, prompt, SPORT_KEYS, startFlow,
-  step, type FlowState, type Prompt,
+  bestBets, BOOK_KEYS, cardLegs, checkSlip, findEvent, formatBet, formatSgpSuggestion, formatSlipCheck, getEventOdds,
+  getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, priceSlipLegs, prompt, PROP_MARKETS, slipOnly,
+  SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type OddsEvent, type Prompt,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
 const WEBHOOK_SECRET = Deno.env.get("PROMO_WEBHOOK_SECRET")!;
 const ODDS_API_KEY = Deno.env.get("ODDS_API_KEY")!;
 const ALLOWED = (Deno.env.get("PROMO_ALLOWED") ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+const MAIN_MARKETS = ["h2h", "spreads", "totals"];
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -63,6 +66,25 @@ async function saveState(chatId: number, state: FlowState) {
   await db.from("promo_bot_state").upsert({ chat_id: String(chatId), state, updated_at: new Date().toISOString() });
 }
 
+// ── Odds ──────────────────────────────────────────────────
+
+// One game's odds. Alternate-line markets aren't offered for every sport, so a
+// refused request is retried without them.
+async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string) {
+  const bookmakers = [bookKey, BOOK_KEYS.Pinnacle];
+  try {
+    return await getEventOdds(ODDS_API_KEY, sportKey, eventId, { markets, bookmakers });
+  } catch (e) {
+    const plain = markets.filter((m) => !m.startsWith("alternate_"));
+    if (plain.length === markets.length) throw e;
+    return getEventOdds(ODDS_API_KEY, sportKey, eventId, { markets: plain, bookmakers });
+  }
+}
+
+async function creditsNote(chatId: number, remaining: number | null) {
+  if (remaining !== null && remaining < 50) await send(chatId, `⚠️ ${remaining} odds credits left this month.`);
+}
+
 // ── Picks ─────────────────────────────────────────────────
 
 async function sendPicks(chatId: number, s: FlowState) {
@@ -71,10 +93,11 @@ async function sendPicks(chatId: number, s: FlowState) {
   const league = s.sport ?? promo.leagues.find((l) => SPORT_KEYS[l]);
   if (!bookKey) return send(chatId, `I can't pull odds for ${promo.book ?? "this book"} yet.`);
   if (!league) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
+  if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp") return sendSgpLegs(chatId, s, bookKey, league);
 
   await send(chatId, `🔎 Pulling ${promo.book} and Pinnacle ${league} lines…`);
   const { data: events, remaining } = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], {
-    markets: ["h2h", "spreads", "totals"],
+    markets: MAIN_MARKETS,
     bookmakers: [bookKey, BOOK_KEYS.Pinnacle],
   });
   const legs = priceLegs(events, bookKey);
@@ -90,14 +113,98 @@ async function sendPicks(chatId: number, s: FlowState) {
       legs: cardLegs(p),
     }).text);
   }
-  if (remaining !== null && remaining < 50) await send(chatId, `⚠️ ${remaining} odds credits left this month.`);
+  await creditsNote(chatId, remaining);
   await sendPrompt(chatId, prompt(s));
+}
+
+// SGP-only promo: suggest the best-priced legs in the promo's game (or the
+// best game), then wait for the user's slip screenshot to price the SGP.
+async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league: string) {
+  const { promo } = s;
+  const sportKey = SPORT_KEYS[league];
+  await send(chatId, `🔎 Pulling ${promo.book} and Pinnacle lines for SGP legs…`);
+  const events = await getEvents(ODDS_API_KEY, sportKey);
+  let target = findEvent(events, [promo.notes, promo.title]);
+  let remaining: number | null = null;
+  if (!target) {
+    // No game named: pick the game with the best-priced main lines.
+    const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: [bookKey, BOOK_KEYS.Pinnacle] });
+    remaining = main.remaining;
+    const id = suggestSgpLegs(priceLegs(main.data, bookKey), 2)?.eventId;
+    target = events.find((e) => e.id === id) ?? null;
+  }
+  if (!target) {
+    await send(chatId, "Pinnacle doesn't have lines up for these games yet. Try closer to game time, or build an SGP and send me the slip.");
+    return sendPrompt(chatId, prompt(s));
+  }
+  const odds = await eventOdds(sportKey, target.id, [...MAIN_MARKETS, ...(PROP_MARKETS[league] ?? [])], bookKey);
+  remaining = odds.remaining;
+  const sg = suggestSgpLegs(priceLegs([odds.data], bookKey), Math.max(3, promo.min_legs ?? 3), target.id);
+  if (!sg) {
+    await send(chatId, `Pinnacle doesn't price enough lines on ${target.away_team} @ ${target.home_team} yet. Build an SGP and send me the slip; I'll price it.`);
+  } else {
+    await send(chatId, formatSgpSuggestion(sg, promo.book!));
+  }
+  await creditsNote(chatId, remaining);
+  const next: FlowState = { ...s, step: "slip" };
+  await saveState(chatId, next);
+  await sendPrompt(chatId, prompt(next));
+}
+
+// ── Bet slips ─────────────────────────────────────────────
+
+async function priceSlip(chatId: number, s: FlowState) {
+  const slip = s.slip!;
+  const book = slip.book ?? s.promo.book;
+  if (!book) {
+    const asking: FlowState = { ...s, step: "book" };
+    await saveState(chatId, asking);
+    return sendPrompt(chatId, { ...prompt(asking), text: "Which sportsbook is this slip on?" });
+  }
+  const done: FlowState = { ...s, slip: undefined, step: s.noPromo ? "end" : "action" };
+  await saveState(chatId, done);
+
+  const bookKey = BOOK_KEYS[book];
+  const league = slip.league ?? s.promo.leagues.find((l) => SPORT_KEYS[l]);
+  const sportKey = league ? SPORT_KEYS[league] : undefined;
+  if (!bookKey) return send(chatId, `I can't pull odds for ${book} yet.`);
+  if (!sportKey) return send(chatId, `I can only price ${Object.keys(SPORT_KEYS).join(", ")} slips so far.`);
+
+  await send(chatId, `🔎 Pricing the slip against Pinnacle…`);
+  const events = await getEvents(ODDS_API_KEY, sportKey);
+  const ids = legEventIds(slip, events);
+  const lost = slip.legs.filter((_, i) => !ids[i]);
+  if (lost.length) {
+    return send(chatId, `I couldn't find the game for ${lost.length === slip.legs.length ? "this slip" : `${lost.length} of the legs`} in the ${league} schedule. Is the game today or upcoming?`);
+  }
+  const odds = new Map<string, OddsEvent>();
+  let remaining: number | null = null;
+  for (const id of new Set(ids as string[])) {
+    const legs = slip.legs.filter((_, i) => ids[i] === id);
+    const r = await eventOdds(sportKey, id, marketsFor({ ...slip, legs }), bookKey);
+    odds.set(id, r.data);
+    remaining = r.remaining;
+  }
+  const priced = priceSlipLegs(slip, ids.map((id) => odds.get(id!) ?? null), bookKey);
+  const promo = s.noPromo ? null : s.promo;
+  const c = checkSlip(slip, priced, promo);
+  if (!c) {
+    const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
+    await send(chatId, missing.length
+      ? `I couldn't find ${book} or Pinnacle prices for: ${missing.join(", ")}. Type the slip's price to check it with an assumed margin instead.`
+      : "I couldn't read the slip's total price. Type it (e.g. +350) to check it with an assumed margin.");
+    if (!s.noPromo) { const typed: FlowState = { ...done, step: "slip" }; await saveState(chatId, typed); }
+    return;
+  }
+  await send(chatId, formatSlipCheck(slip, book, c, promo));
+  await creditsNote(chatId, remaining);
+  if (!s.noPromo) await sendPrompt(chatId, prompt(done));
 }
 
 // ── Handler ───────────────────────────────────────────────
 
-const HELP = "Send me a screenshot of a sportsbook promo. I'll read its rules and find the best bets to use it on, " +
-  "or check a bet you're building.";
+const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
+  "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle: fair value, EV and Kelly.";
 
 function allowed(chatId: number, username?: string): boolean {
   return ALLOWED.includes(String(chatId)) || (!!username && ALLOWED.includes(`@${username.toLowerCase()}`));
@@ -125,15 +232,22 @@ async function handle(update: any) {
   const text = (update.message.text ?? "").trim();
   if (text === "/start" || text === "/help") return send(chatId, HELP);
 
-  // Screenshot → new promo
+  // Screenshot: a promo starts a new promo; a slip is priced with the promo in play, if any.
   if (update.message.photo) {
-    await send(chatId, "📖 Reading the promo…");
+    await send(chatId, "📖 Reading the screenshot…");
     const fileId = (update.message.photo as { file_id: string }[]).at(-1)!.file_id;
-    const promo = await parsePromoImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD);
-    if (!promo) return send(chatId, "That doesn't look like a promo. Send a screenshot of the promo's details page.");
-    const s = startFlow(promo);
-    await saveState(chatId, s);
-    return sendPrompt(chatId, prompt(s));
+    const read = await readImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD);
+    if (read.kind === "promo") {
+      const s = startFlow(read.promo);
+      await saveState(chatId, s);
+      return sendPrompt(chatId, prompt(s));
+    }
+    if (read.kind === "slip") {
+      const current = await loadState(chatId);
+      const inPlay = current && !current.noPromo && current.step !== "end";
+      return priceSlip(chatId, inPlay ? { ...current, slip: read.slip } : slipOnly(read.slip));
+    }
+    return send(chatId, "That doesn't look like a promo or a bet slip. Send a screenshot of a promo's details or of your bet slip.");
   }
 
   if (text) return advance(chatId, text);
@@ -146,6 +260,7 @@ async function advance(chatId: number, input: string) {
   await saveState(chatId, r.state);
   if (r.reply) await send(chatId, r.reply);
   if (r.action === "picks") return sendPicks(chatId, r.state);
+  if (r.action === "slip") return priceSlip(chatId, r.state);
   // Re-show the question unless the reply already asked for a retry.
   if (!r.reply || r.state.step !== s.step) await sendPrompt(chatId, prompt(r.state));
 }

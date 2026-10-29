@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { example } from "./examples.test-helper.ts";
 const NFL_30_PARLAY_BOOST = example("Unknown book: 30% NFL Parlay Profit Boost");
-import { normalizePromo, parseAmerican, prompt, startFlow, step, type FlowState } from "./mod.ts";
+import { normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, type FlowState } from "./mod.ts";
 
 // The 33% MLB SGP boost screenshot: no book shown, max $50, min +300.
 const promo = () => normalizePromo({
@@ -36,7 +36,15 @@ test("asks only for what the screenshot didn't show", () => {
   assert.equal(after.promo.max_stake, null);
 });
 
-test("checks a bet and prices it with an assumed margin", () => {
+test("Check a bet waits for a slip screenshot; a typed price still works", () => {
+  const waiting = tap(startFlow(promo()), "DraftKings", "check").s;
+  assert.equal(waiting.step, "slip");
+  assert.match(prompt(waiting).text, /^Send a screenshot of the bet slip on DraftKings/);
+  assert.deepEqual(prompt(waiting).buttons, []); // no follow-up questions
+  assert.equal(step(waiting, "Jacobs TD").reply, "Send a bet slip screenshot, or a price like +350.");
+});
+
+test("checks a typed price with an assumed margin", () => {
   const { s, replies } = tap(startFlow(promo()), "DraftKings", "check", "+250", "+320", "m20");
   assert.equal(replies[0], "❌ Doesn't qualify: odds +250 below minimum +300. Send a different price.");
   assert.match(replies[1], /^DraftKings: \+320, boosted to \+426$/m);
@@ -72,24 +80,6 @@ test("button values fit Telegram's 64-byte callback_data", () => {
   for (const s of states) for (const b of prompt(s).buttons.flat()) assert.ok(new TextEncoder().encode(`pf:${b.value}`).length <= 64);
 });
 
-test("multi-kind promo asks the bet kind, and legs only where a limit applies", () => {
-  const nfl = normalizePromo(NFL_30_PARLAY_BOOST);
-  let s = tap(startFlow(nfl), "DraftKings", "check").s;
-  assert.equal(s.step, "kind");
-  assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["sgp", "parlay"]);
-
-  // SGP: no leg question, straight to the price.
-  assert.equal(tap(s, "sgp").s.step, "odds");
-
-  // Parlay: legs asked; 3 is rejected, 4 moves on.
-  const r = tap(s, "parlay", "3", "4", "+1228", "+1500");
-  assert.equal(r.replies[0], "❌ Doesn't qualify: parlay needs 4-25 legs, not 3. How many legs?");
-  // Four -110 legs: book +1228, no-vig fair +1500; boosted +1596 beats it.
-  assert.match(r.replies[1], /^DraftKings: \+1228, boosted to \+1596$/m);
-  assert.match(r.replies[1], /^EV: \+6\.0%$/m);
-  assert.equal(r.s.step, "action");
-  assert.equal(r.s.kind, undefined);
-});
 
 test("Find the best bets hands the odds lookup to the bot", () => {
   const s = startFlow({ ...promo(), book: "BetMGM" });
@@ -100,14 +90,6 @@ test("Find the best bets hands the odds lookup to the bot", () => {
   assert.equal(r.state.sport, "MLB"); // the promo's one league, no question
 });
 
-test("a price typed at the legs question isn't taken as a leg count", () => {
-  const nfl = normalizePromo(NFL_30_PARLAY_BOOST);
-  const r = tap(startFlow(nfl), "DraftKings", "check", "parlay", "+1228");
-  assert.equal(r.s.step, "legs");
-  assert.equal(r.replies[0], "Send the number of legs, like 4.");
-  assert.equal(tap(r.s, "99").s.step, "legs");
-  assert.equal(tap(r.s, "5").s.step, "odds");
-});
 
 test("picks ask for the sport when the promo names none", () => {
   const any = normalizePromo({ book: "DraftKings", title: "25% Profit Boost", type: "profit_boost", boost_pct: 25, max_stake: 25,
@@ -121,4 +103,15 @@ test("picks ask for the sport when the promo names none", () => {
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "NBA");
   assert.equal(r.state.step, "action");
+});
+
+test("a slip waiting on its book is priced once the book is tapped", () => {
+  const slip = { book: null, league: "NFL", bet_kind: "sgp" as const, total_odds: 990, game: null,
+    legs: [{ team_or_player: "Green Bay Packers", market: "h2h", line: null, side: "Green Bay Packers" }] };
+  const s = { ...slipOnly(slip), step: "book" as const };
+  assert.equal(prompt(s).buttons.flat()[0].value, "BetMGM");
+  const r = step(s, "FanDuel");
+  assert.equal(r.action, "slip");
+  assert.equal(r.state.promo.book, "FanDuel");
+  assert.ok(r.state.noPromo);
 });

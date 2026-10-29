@@ -1,31 +1,37 @@
 // The promo conversation: after a screenshot is read, ask for whatever it
-// didn't show (buttons where the answers are a short list), then check a bet
-// against the promo and price it. Stateless — the bot stores FlowState per
+// didn't show (buttons where the answers are a short list), then find picks or
+// check a bet. A bet is checked from a slip screenshot (the bot handles that);
+// typing its price is the fallback. Stateless — the bot stores FlowState per
 // chat between messages and calls step() with each button tap or text reply.
 // Button values stay short: Telegram caps callback_data at 64 bytes.
 
 import { decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet } from "./bet.ts";
-import { legLimitsApply, promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
+import type { Slip } from "./slip.ts";
 
 export type Button = { label: string; value: string };
 export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; [] = expects typed text
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "sport" | "kind" | "legs" | "odds" | "fair" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "slip" | "fair" | "end";
   sport?: string; // league to search for picks, e.g. "NBA"
-  // The bet being checked; cleared after each verdict.
-  kind?: BetKind;
-  legs?: number;
-  bookOdds?: number; // pre-boost
+  bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
+  slip?: Slip; // a slip screenshot waiting to be priced (only while asking which book)
+  noPromo?: boolean; // a slip sent with no promo in play: priced without a boost
 };
 
 // BetMGM first: nearly all shared bets are there.
 export const BOOKS = ["BetMGM", "DraftKings", "FanDuel", "Caesars", "Fanatics", "bet365", "theScore Bet"];
 const MARGINS = [15, 20, 25, 30];
 const KIND_LABELS: Record<BetKind, string> = { sgp: "Same Game Parlay", parlay: "Parlay", single: "Straight bet" };
+
+// State for a slip sent with no promo in play.
+export function slipOnly(slip: Slip): FlowState {
+  return { promo: normalizePromo({ title: "No promo" }), step: "action", slip, noPromo: true };
+}
 
 export function startFlow(promo: Promo): FlowState {
   return advance({ promo, step: "book" });
@@ -66,20 +72,8 @@ export function prompt(s: FlowState): Prompt {
       for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: l, value: l })));
       return { text: "Which sport should I search?", buttons: rows };
     }
-    case "kind":
-      return {
-        text: "What kind of bet?",
-        buttons: [s.promo.bet_kinds.map((k) => ({ label: KIND_LABELS[k], value: k }))],
-      };
-    case "legs": {
-      const min = s.promo.min_legs ?? 2;
-      return {
-        text: `How many legs? (${legRange(s.promo)} to qualify)`,
-        buttons: [[0, 1, 2, 3, 4].map((i) => ({ label: `${min + i}`, value: `${min + i}` }))],
-      };
-    }
-    case "odds":
-      return { text: `Send the price for the whole bet on ${s.promo.book ?? "the book"}, before the boost (e.g. +350).`, buttons: [] };
+    case "slip":
+      return { text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`, buttons: [] };
     case "fair":
       return {
         text: "How should I price it fairly? Pick the book's likely margin on this bet, or type a fair price (e.g. +425).",
@@ -112,11 +106,6 @@ function legRange(p: Promo): string {
   return p.max_legs !== null ? `${p.min_legs ?? 2}-${p.max_legs} legs` : `${p.min_legs ?? 2}+ legs`;
 }
 
-// After the bet kind is known: ask legs only when a leg limit covers it.
-function afterKind(s: FlowState, kind: BetKind): FlowState {
-  return { ...s, kind, step: legLimitsApply(s.promo, kind) ? "legs" : "odds" };
-}
-
 // American odds from "+350", "350", "-120". Null for anything else.
 export function parseAmerican(text: string): number | null {
   const m = text.trim().match(/^([+-]?)(\d{3,5})$/);
@@ -126,7 +115,7 @@ export function parseAmerican(text: string): number | null {
 }
 
 // action: work step() can't do itself (it's pure); the bot runs it and replies.
-export type StepResult = { state: FlowState; reply?: string; action?: "picks" };
+export type StepResult = { state: FlowState; reply?: string; action?: "picks" | "slip" };
 
 // One user input: a tapped button's value, or typed text.
 export function step(s: FlowState, input: string): StepResult {
@@ -135,7 +124,10 @@ export function step(s: FlowState, input: string): StepResult {
     case "book": {
       const book = BOOKS.find((b) => b.toLowerCase() === v.toLowerCase());
       if (!book) return { state: s, reply: "Pick one of the books above." };
-      return { state: advance({ ...s, promo: { ...s.promo, book }, step: "max_stake" }) };
+      const next = advance({ ...s, promo: { ...s.promo, book }, step: "max_stake" });
+      // A slip was waiting on the book: price it now.
+      if (s.slip) return { state: { ...next, step: "action" }, action: "slip" };
+      return { state: next };
     }
     case "max_stake": {
       const max = v === "none" ? null : Number(v.replace("$", ""));
@@ -143,10 +135,7 @@ export function step(s: FlowState, input: string): StepResult {
       return { state: { ...s, promo: { ...s.promo, max_stake: max }, step: "action" } };
     }
     case "action":
-      if (v === "check") {
-        if (s.promo.bet_kinds.length > 1) return { state: { ...s, step: "kind" } };
-        return { state: afterKind(s, s.promo.bet_kinds[0] ?? "parlay") };
-      }
+      if (v === "check") return { state: { ...s, step: "slip" } };
       if (v === "picks") {
         // One searchable league: go. None named ("Any event") or several: ask.
         const leagues = searchable(s.promo);
@@ -161,23 +150,12 @@ export function step(s: FlowState, input: string): StepResult {
       if (!SPORT_KEYS[sport] || (options.length && !options.includes(sport))) return { state: s, reply: "Pick a sport above." };
       return { state: { ...s, step: "action", sport }, action: "picks" };
     }
-    case "kind": {
-      const kind = s.promo.bet_kinds.find((k) => k === v);
-      if (!kind) return { state: s, reply: "Pick a bet type above." };
-      return { state: afterKind(s, kind) };
-    }
-    case "legs": {
-      // A plain count only: "+180" is a price typed one step early, not 180 legs.
-      const legs = /^\d{1,2}$/.test(v) ? Number(v) : NaN;
-      if (!(legs >= 1 && legs <= 30)) return { state: s, reply: "Send the number of legs, like 4." };
-      const broken = promoViolations(s.promo, { kind: s.kind!, legs });
-      if (broken.length) return { state: s, reply: `❌ Doesn't qualify: ${broken.join("; ")}. How many legs?` };
-      return { state: { ...s, legs, step: "odds" } };
-    }
-    case "odds": {
+    case "slip": {
       const odds = parseAmerican(v);
-      if (odds === null) return { state: s, reply: "I need American odds like +350." };
-      const broken = promoViolations(s.promo, { americanOdds: odds, kind: s.kind!, legs: s.legs });
+      if (odds === null) return { state: s, reply: "Send a bet slip screenshot, or a price like +350." };
+      // Only the price is known here, so check the rules that don't need the legs.
+      const kind = s.promo.bet_kinds.length === 1 ? s.promo.bet_kinds[0] : "parlay";
+      const broken = promoViolations(s.promo, { americanOdds: odds, kind });
       if (broken.length) return { state: s, reply: `❌ Doesn't qualify: ${broken.join("; ")}. Send a different price.` };
       return { state: { ...s, step: "fair", bookOdds: odds } };
     }
@@ -188,7 +166,7 @@ export function step(s: FlowState, input: string): StepResult {
       const bookOdds = s.bookOdds!;
       const fairP = margin !== null ? impliedProb(bookOdds) / (1 + margin / 100) : impliedProb(typed!);
       const basis = margin !== null ? `assumes a ${margin}% book margin` : "your price";
-      const next: FlowState = { ...s, step: "action", kind: undefined, legs: undefined, bookOdds: undefined };
+      const next: FlowState = { ...s, step: "action", bookOdds: undefined };
       return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis) };
     }
     case "end":
