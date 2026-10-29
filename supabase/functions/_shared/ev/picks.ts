@@ -139,6 +139,35 @@ export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}
   return candidates.sort((a, b) => b.eval.ev - a.eval.ev).slice(0, top);
 }
 
+// Eastern wall-clock time, "YYYY-MM-DDTHH:MM", the way promo expiries are read.
+function easternStamp(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)!.value;
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+}
+
+// Whether a game is one the promo can still be used on: it hasn't started, and
+// it starts by the promo's expiry. A date-only expiry ("all NBA games on
+// 10/29") covers that day's games (Eastern), not tomorrow's.
+export function promoCovers(promo: Promo, commence: string, now = new Date()): boolean {
+  if (new Date(commence).getTime() <= now.getTime()) return false;
+  if (!promo.expires_at) return true;
+  const start = easternStamp(commence);
+  return promo.expires_at.length === 10 ? start.slice(0, 10) <= promo.expires_at : start <= promo.expires_at;
+}
+
+// Games ordered by their two best compatible legs against the sharp price:
+// where to look first for SGP legs.
+export function rankSgpGames(legs: PricedLeg[]): string[] {
+  const scored = [...new Set(legs.map((l) => l.eventId))].map((id) => {
+    const sg = suggestSgpLegs(legs, 2, id);
+    return { id, score: sg ? sg.legs.reduce((a, l) => a + l.edge, 0) : -Infinity };
+  });
+  return scored.filter((g) => g.score > -Infinity).sort((a, b) => b.score - a.score).map((g) => g.id);
+}
+
 export function formatStart(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
     timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit",

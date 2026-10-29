@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
   americanToDecimal, bestBets, noPicksReason, cardLegs, formatBet, formatStart, getOdds, normalizePromo, priceLegs,
-  type OddsEvent,
+  promoCovers, rankSgpGames, suggestSgpLegs, type OddsEvent,
 } from "./mod.ts";
 
 const BEFORE = new Date("2026-10-31T00:00:00Z"); // before every sample game
@@ -208,4 +208,28 @@ test("explains an empty pick list", () => {
   assert.match(noPicksReason([], mgm10), /No games on this book have sharp/);
   assert.match(noPicksReason(legs, { ...mgm10, bet_kinds: ["sgp"] }), /same-game parlays only/);
   assert.match(noPicksReason(legs, { ...mgm10, min_legs: 2, boost_pct: 0 }), /No bet that qualifies/);
+});
+
+// The DK "NBA 50% SGP(X) Boost" covered "all NBA games on 10/29/2026"; the bot
+// picked Pistons @ Nets, which tipped off 10/30, and found no sharp props.
+test("a promo only covers games that start by its expiry", () => {
+  const promo = normalizePromo({ book: "DraftKings", title: "NBA 50% SGP(X) Boost", type: "profit_boost", boost_pct: 50,
+    bet_kinds: ["sgp"], leagues: ["NBA"], expires_at: "2026-10-29" });
+  const now = new Date("2026-10-29T23:25:00Z"); // 7:25 PM ET
+  assert.equal(promoCovers(promo, "2026-10-30T00:10:00Z", now), true, "8:10 PM ET tonight");
+  assert.equal(promoCovers(promo, "2026-10-30T02:10:00Z", now), true, "10:10 PM ET tonight is still 10/29 in Eastern");
+  assert.equal(promoCovers(promo, "2026-10-30T23:40:00Z", now), false, "tomorrow's game");
+  assert.equal(promoCovers(promo, "2026-10-29T23:00:00Z", now), false, "already started");
+  const timed = { ...promo, expires_at: "2026-10-29T21:00" };
+  assert.equal(promoCovers(timed, "2026-10-30T00:10:00Z", now), true, "8:10 PM ET is before a 9 PM expiry");
+  assert.equal(promoCovers(timed, "2026-10-30T02:10:00Z", now), false, "10:10 PM ET is after it");
+  assert.equal(promoCovers({ ...promo, expires_at: null }, "2026-12-25T17:10:00Z", now), true);
+});
+
+test("SGP games are tried best main lines first", () => {
+  const legs = priceLegs(EVENTS, "draftkings", { now: BEFORE });
+  const order = rankSgpGames(legs);
+  assert.deepEqual([...order].sort(), ["e1", "e2"], "only games with two priced legs");
+  const score = (id: string) => suggestSgpLegs(legs, 2, id)!.legs.reduce((a, l) => a + l.edge, 0);
+  assert.ok(score(order[0]) >= score(order[1]));
 });

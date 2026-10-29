@@ -14,8 +14,8 @@ import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
   bestBets, BOOK_KEYS, cardLegs, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
-  formatSlipCheck, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, priceSlipLegs,
-  prompt, PROP_MARKETS, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
+  formatSlipCheck, formatStart, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
+  priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Prompt,
 } from "../_shared/ev/mod.ts";
 
@@ -33,6 +33,8 @@ const withSharps = (bookKey: string) => [bookKey, ...SHARP_KEYS.filter((k) => k 
 // games only, and skip props when credits run low.
 const PROP_GAMES = 4;
 const PROP_CREDIT_FLOOR = 60;
+// SGP legs: games to try, best main lines first, before giving up.
+const SGP_GAMES = 3;
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -150,7 +152,7 @@ async function sendPicks(chatId: number, s: FlowState) {
   let remaining: number | null = null;
   if (mode !== "props") {
     const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
-    events.push(...main.data);
+    events.push(...main.data.filter((e) => promoCovers(promo, e.commence_time)));
     remaining = main.remaining;
   }
   const propMarkets = PROP_MARKETS[league] ?? [];
@@ -158,9 +160,8 @@ async function sendPicks(chatId: number, s: FlowState) {
     if (remaining !== null && remaining < PROP_CREDIT_FLOOR) {
       await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props this time.`);
     } else {
-      const now = Date.now();
       const games = (await getEvents(ODDS_API_KEY, sportKey))
-        .filter((e) => new Date(e.commence_time).getTime() > now)
+        .filter((e) => promoCovers(promo, e.commence_time))
         .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
         .slice(0, PROP_GAMES);
       for (const g of games) {
@@ -189,33 +190,47 @@ async function sendPicks(chatId: number, s: FlowState) {
   await sendPrompt(chatId, prompt(s));
 }
 
-// SGP-only promo: suggest the best-priced legs in the promo's game (or the
-// best game), then wait for the user's slip screenshot to price the SGP.
+// SGP-only promo: suggest the best-priced legs in the promo's game, or in the
+// best games it covers (trying the next one when a game's sharp prop lines
+// aren't up yet), then wait for the user's slip screenshot to price the SGP.
 async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league: string) {
   const { promo } = s;
   const sportKey = SPORT_KEYS[league];
   await send(chatId, `🔎 Pulling ${promo.book} and sharp lines for SGP legs…`);
-  const events = await getEvents(ODDS_API_KEY, sportKey);
-  let target = findEvent(events, [promo.notes, promo.title]);
+  const events = (await getEvents(ODDS_API_KEY, sportKey)).filter((e) => promoCovers(promo, e.commence_time));
+  if (!events.length) {
+    await send(chatId, `No ${league} games left that this promo covers${promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
+    return sendPrompt(chatId, prompt(s));
+  }
+  const named = findEvent(events, [promo.notes, promo.title]);
+  let candidates = named ? [named] : [];
   let remaining: number | null = null;
-  if (!target) {
-    // No game named: pick the game with the best-priced main lines.
+  if (!named) {
+    // No game named: start with the games whose main lines price best.
     const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
     remaining = main.remaining;
-    const id = suggestSgpLegs(priceLegs(main.data, bookKey), 2)?.eventId;
-    target = events.find((e) => e.id === id) ?? null;
+    const covered = main.data.filter((e) => events.some((x) => x.id === e.id));
+    candidates = rankSgpGames(priceLegs(covered, bookKey))
+      .map((id) => events.find((e) => e.id === id)!)
+      .slice(0, SGP_GAMES);
   }
-  if (!target) {
+  if (!candidates.length) {
     await send(chatId, "No sharp lines are up for these games yet. Try closer to game time, or build an SGP and send me the slip.");
     return sendPrompt(chatId, prompt(s));
   }
-  const odds = await eventOdds(sportKey, target.id, [...MAIN_MARKETS, ...(PROP_MARKETS[league] ?? [])], bookKey);
-  remaining = odds.remaining;
   const { markets: mode } = await loadSettings(chatId);
-  const sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), mode), Math.max(3, promo.min_legs ?? 3), target.id, promo.book!);
+  const tried: string[] = [];
+  let sg = null;
+  for (const game of candidates) {
+    const odds = await eventOdds(sportKey, game.id, [...MAIN_MARKETS, ...(PROP_MARKETS[league] ?? [])], bookKey);
+    remaining = odds.remaining;
+    sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), mode), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
+    if (sg) break;
+    tried.push(`${game.away_team} @ ${game.home_team} (${formatStart(game.commence_time)})`);
+  }
   if (!sg) {
     const setting = mode === "all" ? "" : ` (picks are set to ${MODE_LABELS[mode]}; /settings to change)`;
-    await send(chatId, `The sharp sources don't price enough lines on ${target.away_team} @ ${target.home_team} yet${setting}. Build an SGP and send me the slip; I'll price it.`);
+    await send(chatId, `The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to tip-off, or build an SGP and send me the slip; I'll price it.`);
   } else {
     await send(chatId, formatSgpSuggestion(sg, promo.book!));
   }
