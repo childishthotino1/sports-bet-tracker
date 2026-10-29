@@ -149,3 +149,9 @@ test("the vision call's 0 and \"\" placeholders read back as unknown", () => {
   assert.deepEqual([p.book, p.boost_pct, p.max_stake, p.min_total_odds, p.min_legs, p.max_legs, p.paid_in, p.expires_at, p.notes],
     [null, null, null, null, null, null, null, null, null]);
 });
+
+test("a Soccer promo covers each soccer league", () => {
+  const soccer = normalizePromo(example("Unknown book: Soccer 20% SGP(x) Boost"));
+  assert.deepEqual(promoViolations(soccer, { americanOdds: 600, legs: 4, kind: "sgp", league: "EPL" }), []);
+  assert.deepEqual(promoViolations(soccer, { americanOdds: 600, legs: 4, kind: "sgp", league: "NBA" }), ["NBA not eligible (SOCCER only)"]);
+});

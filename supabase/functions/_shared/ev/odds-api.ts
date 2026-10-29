@@ -13,6 +13,12 @@ export const SPORT_KEYS: Record<string, string> = {
   NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
+  EPL: "soccer_epl",
+  UCL: "soccer_uefa_champs_league",
+  MLS: "soccer_usa_mls",
+  LALIGA: "soccer_spain_la_liga",
+  SERIEA: "soccer_italy_serie_a",
+  BUNDESLIGA: "soccer_germany_bundesliga",
 };
 
 // Book names as the bot shows them → The Odds API bookmaker keys. Caesars is
@@ -63,6 +69,7 @@ export const PROP_MARKETS: Record<string, string[]> = {
   NCAAB: ["player_points", "player_rebounds", "player_assists"],
   MLB: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts"],
   NHL: ["player_points", "player_shots_on_goal"],
+  ...Object.fromEntries(["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"].map((l) => [l, ["btts", "player_goal_scorer_anytime"]])),
 };
 
 export type EventInfo = Pick<OddsEvent, "id" | "sport_key" | "commence_time" | "home_team" | "away_team">;

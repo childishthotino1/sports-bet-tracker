@@ -146,3 +146,51 @@ test("suggests one leg per market for an SGP promo, never both sides", () => {
   assert.ok(sg.legs.some((l) => l.selection === "Josh Jacobs Anytime TD"));
   assert.equal(suggestSgpLegs(legs, 4, "cargb"), null, "only 3 compatible legs in this sample");
 });
+
+// Soccer: 3-way result, both teams to score, anytime goalscorer. Made-up prices.
+const MATCH: OddsEvent = {
+  id: "arsche", sport_key: "soccer_epl", commence_time: "2026-11-01T15:00:00Z",
+  home_team: "Arsenal", away_team: "Chelsea",
+  bookmakers: [
+    { key: "draftkings", title: "DraftKings", markets: [
+      { key: "h2h", outcomes: [{ name: "Arsenal", price: -120 }, { name: "Chelsea", price: 320 }, { name: "Draw", price: 270 }] },
+      { key: "btts", outcomes: [{ name: "Yes", price: -140 }, { name: "No", price: 110 }] },
+      { key: "player_goal_scorer_anytime", outcomes: [{ name: "Yes", description: "Bukayo Saka", price: 175 }] },
+    ] },
+    { key: "pinnacle", title: "Pinnacle", markets: [
+      { key: "h2h", outcomes: [{ name: "Arsenal", price: -112 }, { name: "Chelsea", price: 330 }, { name: "Draw", price: 285 }] },
+      { key: "btts", outcomes: [{ name: "Yes", price: -135 }, { name: "No", price: 118 }] },
+    ] },
+  ],
+};
+
+test("soccer: 3-way results devig across home, draw and away", () => {
+  const legs = priceLegs([MATCH], "draftkings", { now: NOW });
+  const draw = legs.find((l) => l.selection === "Draw ML")!;
+  assert.equal(draw.sharp.sides.length, 3);
+  const total = legs.filter((l) => l.market === "h2h").reduce((a, l) => a + l.fair, 0);
+  assert.ok(total <= 1 + 1e-9, "worst-case fair prices never sum past 100%");
+  assert.ok(legs.some((l) => l.selection === "Both Teams To Score: Yes"));
+});
+
+test("soccer: a DraftKings SGP slip prices draw, BTTS and a goalscorer", () => {
+  const slip = normalizeSlip({
+    book: "", league: "EPL", bet_kind: "sgp", total_odds: 1150, game: "Chelsea @ Arsenal",
+    legs: [
+      { team_or_player: "", market: "h2h", line: null, side: "Draw" },
+      { team_or_player: "", market: "btts", line: null, side: "Yes" },
+      { team_or_player: "Bukayo Saka", market: "player_goal_scorer_anytime", line: null, side: "Yes" },
+    ],
+  })!;
+  assert.equal(slip.book, null);
+  assert.deepEqual(legEventIds(slip, [MATCH], NOW), ["arsche", "arsche", "arsche"]);
+  const priced = priceSlipLegs(slip, [MATCH, MATCH, MATCH], "draftkings");
+  assert.deepEqual(priced.map((l) => [l.label, l.bookOdds, l.source]), [
+    ["Draw ML", 270, "sharp"],
+    ["Both Teams To Score: Yes", -140, "sharp"],
+    ["Bukayo Saka Anytime Goal", 175, "book-1way"], // no Pinnacle line, DraftKings posts only Yes
+  ]);
+  const soccer = normalizePromo(example("Unknown book: Soccer 20% SGP(x) Boost"));
+  const c = checkSlip(slip, priced, soccer)!;
+  assert.deepEqual(c.promoIssues, ["sgp needs 4+ legs, not 3"], "an EPL slip counts as Soccer; only the leg count fails");
+});

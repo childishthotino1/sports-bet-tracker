@@ -241,7 +241,9 @@ Gotcha: the rules sit in tiles, not a list: "Max Bet" is `max_stake`, "Min.
 Odds" is `min_total_odds`, "Min. Legs" is `min_legs`. "SGPx" (same-game parlays
 across several games) is still SGP-style pricing, so `bet_kinds` is `["sgp"]`
 and SGPx goes in `notes`. Soccer has no single league here, so `leagues` is
-`["SOCCER"]`. "Expires 5h" is relative, so `expires_at` is null.
+`["SOCCER"]` (the bot asks which league). "Expires 5h" is relative, so
+`expires_at` is null. No book is shown; it's DraftKings, whose multi-game SGPs
+are called SGPx.
 
 ```json
 {

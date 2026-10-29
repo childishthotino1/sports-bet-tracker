@@ -54,6 +54,8 @@ export function selectionLabel(market: string, o: Outcome): string {
   if (market === "totals") return `${o.name} ${o.point}`;
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;
+  if (market === "player_goal_scorer_anytime") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime Goal`;
+  if (market === "btts") return `Both Teams To Score: ${o.name}`;
   return [o.description, o.name, o.point, statLabel(market)].filter((x) => x !== undefined && x !== "").join(" ");
 }
 

@@ -22,6 +22,7 @@ export const SLIP_MARKETS = [
   "player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists",
   "batter_hits", "batter_home_runs", "batter_total_bases", "pitcher_strikeouts",
   "player_goals", "player_shots_on_goal",
+  "btts", "player_goal_scorer_anytime",
   "other",
 ] as const;
 
@@ -70,15 +71,15 @@ export const SLIP_JSON_SCHEMA = {
 
 export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already placed), fill "slip". Use "" for unknown text and 0 for unknown numbers:
 - book: the sportsbook, only if its name or logo is on screen; otherwise "".
-- league: NFL, NCAAF, NBA, NCAAB, MLB or NHL, from the teams.
+- league: NFL, NCAAF, NBA, NCAAB, MLB or NHL, or for soccer EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA, from the teams and competition.
 - bet_kind: "sgp" if the slip says SGP / Same Game Parlay; "parlay" for legs from different games; "single" for one leg.
 - total_odds: the slip's total odds before any boost, as American odds (+990 -> 990).
 - game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
 - legs: one per selection.
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
-  - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_rush_yds, player_reception_yds, player_points, ...); "other" if none fits.
+  - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_rush_yds, player_reception_yds, player_points, ...; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
-  - side: "Over" or "Under" for totals and over/under props, "Yes" for anytime scorer props, the team name for spreads and moneylines.`;
+  - side: "Over" or "Under" for totals and over/under props, "Yes" (or "No") for anytime scorer props and btts, the team name (or "Draw") for spreads and moneylines.`;
 
 export function normalizeSlip(raw: unknown): Slip | null {
   if (!raw || typeof raw !== "object") return null;
@@ -171,7 +172,8 @@ function sideMatches(o: Outcome, leg: SlipLeg): boolean {
 }
 
 function matches(marketKey: string, o: Outcome, leg: SlipLeg): boolean {
-  if (marketKey.includes("h2h")) return sameTeam(o.name, leg.side);
+  if (marketKey.includes("h2h")) return norm(o.name) === "draw" || norm(leg.side) === "draw" ? norm(o.name) === norm(leg.side) : sameTeam(o.name, leg.side);
+  if (marketKey === "btts") return norm(o.name) === norm(leg.side);
   if (marketKey.includes("spreads")) return sameTeam(o.name, leg.side) && o.point === leg.line;
   if (marketKey.includes("totals")) return norm(o.name) === norm(leg.side) && o.point === leg.line;
   return !!o.description && !!leg.team_or_player && samePerson(o.description, leg.team_or_player) &&
@@ -217,6 +219,8 @@ export function legLabel(leg: SlipLeg): string {
   if (leg.market === "spreads") return `${leg.side}${line}`;
   if (leg.market === "totals") return `${leg.side}${line}`;
   if (leg.market === "player_anytime_td") return `${leg.team_or_player} Anytime TD`;
+  if (leg.market === "player_goal_scorer_anytime") return `${leg.team_or_player} Anytime Goal`;
+  if (leg.market === "btts") return `Both Teams To Score: ${leg.side}`;
   return `${leg.team_or_player ?? ""} ${leg.side}${line} ${stat}`.trim();
 }
 

@@ -7,7 +7,7 @@
 
 import { decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet } from "./bet.ts";
-import { legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { eligibleLeagues, legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
 import type { Slip } from "./slip.ts";
 
@@ -69,8 +69,8 @@ export function prompt(s: FlowState): Prompt {
       const options = searchable(s.promo);
       const list = options.length ? options : Object.keys(SPORT_KEYS);
       const rows: Button[][] = [];
-      for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: l, value: l })));
-      return { text: "Which sport should I search?", buttons: rows };
+      for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: LEAGUE_LABELS[l] ?? l, value: l })));
+      return { text: options.length > 1 ? "Which league should I search?" : "Which sport should I search?", buttons: rows };
     }
     case "slip":
       return { text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`, buttons: [] };
@@ -90,7 +90,7 @@ export function summary(p: Promo): string {
     p.bet_kinds.length
       ? p.bet_kinds.map((k) => (legLimitsApply(p, k) ? `${KIND_LABELS[k]} (${legRange(p)})` : KIND_LABELS[k])).join(" / ")
       : null,
-    p.leagues.length ? p.leagues.join(", ") : null,
+    p.leagues.length ? p.leagues.map((l) => (l === "SOCCER" ? "Soccer" : l)).join(", ") : null,
     p.min_total_odds !== null ? `min ${formatAmerican(p.min_total_odds)}` : null,
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
@@ -99,8 +99,13 @@ export function summary(p: Promo): string {
 
 // The promo's leagues that the odds feed covers.
 function searchable(p: Promo): string[] {
-  return p.leagues.filter((l) => SPORT_KEYS[l]);
+  return eligibleLeagues(p).filter((l) => SPORT_KEYS[l]);
 }
+
+// Button text for a league key.
+const LEAGUE_LABELS: Record<string, string> = {
+  EPL: "Premier League", UCL: "Champions League", LALIGA: "La Liga", SERIEA: "Serie A", BUNDESLIGA: "Bundesliga",
+};
 
 function legRange(p: Promo): string {
   return p.max_legs !== null ? `${p.min_legs ?? 2}-${p.max_legs} legs` : `${p.min_legs ?? 2}+ legs`;

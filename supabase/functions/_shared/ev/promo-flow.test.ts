@@ -97,7 +97,9 @@ test("picks ask for the sport when the promo names none", () => {
   let r = step(startFlow(any), "picks");
   assert.equal(r.action, undefined);
   assert.equal(r.state.step, "sport");
-  assert.deepEqual(prompt(r.state).buttons.flat().map((b) => b.value), ["NFL", "NCAAF", "NBA", "NCAAB", "MLB", "NHL"]);
+  const values = prompt(r.state).buttons.flat().map((b) => b.value);
+  assert.deepEqual(values.slice(0, 6), ["NFL", "NCAAF", "NBA", "NCAAB", "MLB", "NHL"]);
+  assert.ok(values.includes("EPL"));
   assert.equal(step(r.state, "Soccer").reply, "Pick a sport above.");
   r = step(r.state, "NBA");
   assert.equal(r.action, "picks");
@@ -114,4 +116,18 @@ test("a slip waiting on its book is priced once the book is tapped", () => {
   assert.equal(r.action, "slip");
   assert.equal(r.state.promo.book, "FanDuel");
   assert.ok(r.state.noPromo);
+});
+
+test("a Soccer promo asks which league, with readable names", () => {
+  const soccer = normalizePromo(example("Unknown book: Soccer 20% SGP(x) Boost"));
+  let r = step(startFlow({ ...soccer, book: "DraftKings" }), "picks");
+  assert.equal(r.state.step, "sport");
+  const p = prompt(r.state);
+  assert.equal(p.text, "Which league should I search?");
+  assert.deepEqual(p.buttons.flat().map((b) => b.label), ["Premier League", "Champions League", "MLS", "La Liga", "Serie A", "Bundesliga"]);
+  assert.equal(step(r.state, "NBA").reply, "Pick a sport above.", "a soccer promo can't search the NBA");
+  r = step(r.state, "EPL");
+  assert.equal(r.action, "picks");
+  assert.equal(r.state.sport, "EPL");
+  assert.match(prompt({ ...r.state, step: "action" }).text, /Same Game Parlay \(4\+ legs\) · Soccer · min \+400 · max \$100/);
 });

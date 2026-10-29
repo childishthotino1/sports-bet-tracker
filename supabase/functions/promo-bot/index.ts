@@ -68,16 +68,22 @@ async function saveState(chatId: number, state: FlowState) {
 
 // ── Odds ──────────────────────────────────────────────────
 
-// One game's odds. Alternate-line markets aren't offered for every sport, so a
-// refused request is retried without them.
+// One game's odds. Not every sport or plan offers every market (alternate
+// lines, soccer props), so a refused request is retried without alternates,
+// then with main lines only.
 async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string) {
   const bookmakers = [bookKey, BOOK_KEYS.Pinnacle];
-  try {
-    return await getEventOdds(ODDS_API_KEY, sportKey, eventId, { markets, bookmakers });
-  } catch (e) {
-    const plain = markets.filter((m) => !m.startsWith("alternate_"));
-    if (plain.length === markets.length) throw e;
-    return getEventOdds(ODDS_API_KEY, sportKey, eventId, { markets: plain, bookmakers });
+  const attempts = [
+    markets,
+    markets.filter((m) => !m.startsWith("alternate_")),
+    markets.filter((m) => MAIN_MARKETS.includes(m)),
+  ].filter((m, i, all) => m.length && (i === 0 || m.length < all[i - 1].length));
+  for (let i = 0; ; i++) {
+    try {
+      return await getEventOdds(ODDS_API_KEY, sportKey, eventId, { markets: attempts[i], bookmakers });
+    } catch (e) {
+      if (i >= attempts.length - 1) throw e;
+    }
   }
 }
 
