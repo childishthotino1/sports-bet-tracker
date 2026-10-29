@@ -100,7 +100,7 @@ export function normalizePromo(raw: unknown): Promo {
 
 export type CandidateBet = {
   americanOdds: number; // whole bet, pre-boost
-  legs: number;
+  legs?: number;
   kind: BetKind;
   league?: string;
   live?: boolean;
@@ -116,7 +116,7 @@ export function promoViolations(promo: Promo, bet: CandidateBet): string[] {
   if (promo.min_total_odds !== null && americanToDecimal(bet.americanOdds) < americanToDecimal(promo.min_total_odds)) {
     out.push(`odds ${formatAmerican(bet.americanOdds)} below minimum ${formatAmerican(promo.min_total_odds)}`);
   }
-  if (promo.min_legs !== null && bet.legs < promo.min_legs) out.push(`needs ${promo.min_legs}+ legs`);
+  if (promo.min_legs !== null && bet.legs !== undefined && bet.legs < promo.min_legs) out.push(`needs ${promo.min_legs}+ legs`);
   if (bet.league && promo.leagues.length && !promo.leagues.includes(bet.league.toUpperCase())) {
     out.push(`${bet.league} not eligible (${promo.leagues.join(", ")} only)`);
   }
