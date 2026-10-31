@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, bestBets, formatShop, shopLegs, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, bestBets, formatAmerican, formatShop, shopLegs, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -303,7 +303,9 @@ async function priceSlip(chatId: number, s: FlowState) {
   let remaining: number | null = null;
   for (const id of new Set(ids as string[])) {
     const legs = slip.legs.filter((_, i) => ids[i] === id);
-    const r = await eventOdds(sportKey, id, marketsFor({ ...slip, legs }), bookKey);
+    const markets = marketsFor({ ...slip, legs });
+    if (!markets.length) continue; // only markets the feed doesn't carry: nothing to fetch
+    const r = await eventOdds(sportKey, id, markets, bookKey);
     odds.set(id, r.data);
     remaining = r.remaining;
   }
@@ -311,11 +313,24 @@ async function priceSlip(chatId: number, s: FlowState) {
   const promo = s.noPromo ? null : s.promo;
   const c = checkSlip(slip, priced, promo, book);
   if (!c) {
-    const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
-    await send(chatId, missing.length
-      ? `I couldn't find ${book} or sharp prices for: ${missing.join(", ")}. Type the slip's price to check it with an assumed margin instead.`
-      : "I couldn't read the slip's total price. Type it (e.g. +350) to check it with an assumed margin.");
-    if (!s.noPromo) { const typed: FlowState = { ...done, step: "slip" }; await saveState(chatId, typed); }
+    // Market types the odds feed doesn't carry come back as "other": say so, rather than blaming the prices.
+    const unknown = slip.legs.flatMap((l, i) => l.market === "other" && priced[i].fair === null ? [priced[i].label.replace(/ Other$/, "")] : []);
+    const missing = priced.filter((l, i) => l.fair === null && slip.legs[i].market !== "other").map((l) => l.label);
+    const why = [
+      unknown.length ? `The odds feed doesn't carry that kind of bet (${unknown.join(", ")}), so there's no sharp line to devig.` : "",
+      missing.length ? `I couldn't find ${book} or sharp prices for: ${missing.join(", ")}.` : "",
+    ].filter(Boolean).join(" ") || "I couldn't read the slip's total price.";
+    const typing: FlowState = { ...done, promo: { ...done.promo, book }, step: "slip", legs: slip.legs.length };
+    // The slip's total was read: go straight to the margin question, through the
+    // same promo checks a typed price gets.
+    const r = slip.total_odds !== null ? step(typing, formatAmerican(slip.total_odds)) : null;
+    if (r && r.state.step === "fair") {
+      await send(chatId, `${why} I'll check the slip's ${formatAmerican(slip.total_odds!)} with an assumed margin instead.`);
+      await saveState(chatId, r.state);
+      return sendPrompt(chatId, prompt(r.state));
+    }
+    await send(chatId, `${why} Type the slip's price (e.g. +350) and I'll check it with an assumed margin instead.`);
+    await saveState(chatId, typing);
     return;
   }
   await send(chatId, formatSlipCheck(slip, book, c, promo));
@@ -433,7 +448,7 @@ async function advance(chatId: number, input: string, typed = false) {
   const s = await loadState(chatId);
   // Typed text that isn't an answer to a question the bot asked: a question
   // about a game ("good bets on the Ravens game?").
-  if (typed && (!s || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
+  if (typed && (!s || s.noPromo || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
   if (!s) return send(chatId, HELP);
   const r = step(s, input);
   await saveState(chatId, r.state);

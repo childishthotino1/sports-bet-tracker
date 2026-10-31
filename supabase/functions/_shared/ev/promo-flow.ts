@@ -23,11 +23,13 @@ export type FlowState = {
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
   slip?: Slip; // a slip screenshot waiting to be priced (only while asking which book)
   noPromo?: boolean; // a slip sent with no promo in play: priced without a boost
+  legs?: number; // legs on the slip whose price is being typed: a single gets single-bet margins
 };
 
 // BetMGM first: nearly all shared bets are there.
 export const BOOKS = ["BetMGM", "DraftKings", "FanDuel", "Caesars", "Fanatics", "bet365", "theScore Bet"];
-const MARGINS = [15, 20, 25, 30];
+const MARGINS = [15, 20, 25, 30]; // parlays and SGPs
+const SINGLE_MARGINS = [4, 6, 8, 10]; // one leg: a two-way line's usual hold
 const TARGETS = [200, 300, 400, 600, 1000];
 const KIND_LABELS: Record<BetKind, string> = { sgp: "Same Game Parlay", parlay: "Parlay", single: "Straight bet" };
 
@@ -89,10 +91,10 @@ export function prompt(s: FlowState): Prompt {
     case "fair":
       return {
         text: "How should I price it fairly? Pick the book's likely margin on this bet, or type a fair price (e.g. +425).",
-        buttons: [MARGINS.map((m) => ({ label: `${m}% margin`, value: `m${m}` }))],
+        buttons: [(s.legs === 1 ? SINGLE_MARGINS : MARGINS).map((m) => ({ label: `${m}% margin`, value: `m${m}` }))],
       };
     case "end":
-      return { text: "👍 Send another promo screenshot anytime.", buttons: [] };
+      return { text: "👍 Send another promo or bet slip screenshot anytime.", buttons: [] };
   }
 }
 
@@ -210,7 +212,7 @@ export function step(s: FlowState, input: string): StepResult {
       const odds = parseAmerican(v);
       if (odds === null) return { state: s, reply: "Send a bet slip screenshot, or a price like +350." };
       // Only the price is known here, so check the rules that don't need the legs.
-      const kind = s.promo.bet_kinds.length === 1 ? s.promo.bet_kinds[0] : "parlay";
+      const kind = s.legs === 1 ? "single" : s.promo.bet_kinds.length === 1 ? s.promo.bet_kinds[0] : "parlay";
       const broken = promoViolations(s.promo, { americanOdds: odds, kind });
       if (broken.length) return { state: s, reply: `❌ Doesn't qualify: ${broken.join("; ")}. Send a different price.` };
       return { state: { ...s, step: "fair", bookOdds: odds } };
@@ -222,7 +224,8 @@ export function step(s: FlowState, input: string): StepResult {
       const bookOdds = s.bookOdds!;
       const fairP = margin !== null ? impliedProb(bookOdds) / (1 + margin / 100) : impliedProb(typed!);
       const basis = margin !== null ? `assumes a ${margin}% book margin` : "your price";
-      const next: FlowState = { ...s, step: "action", bookOdds: undefined };
+      // No promo menu to return to: stay on this price, so a typed fair price re-checks it.
+      const next: FlowState = s.noPromo ? s : { ...s, step: "action", bookOdds: undefined, legs: undefined };
       return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis) };
     }
     case "end":
@@ -233,8 +236,9 @@ export function step(s: FlowState, input: string): StepResult {
 export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string): string {
   const e = evaluateBet([fairP], [bookOdds], (p.boost_pct ?? 0) / 100);
   const units = (f: number) => `${(f * 100).toFixed(2)}u`;
+  const boosted = p.boost_pct ? `, boosted to ${formatAmerican(decimalToAmerican(e.boostedDecimal))}` : "";
   const lines = [
-    `${p.book ?? "Book"}: ${formatAmerican(bookOdds)}, boosted to ${formatAmerican(decimalToAmerican(e.boostedDecimal))}`,
+    `${p.book ?? "Book"}: ${formatAmerican(bookOdds)}${boosted}`,
     `Fair: ${formatAmerican(probToAmerican(fairP))} (${(fairP * 100).toFixed(1)}%, ${basis})`,
     `EV: ${e.ev >= 0 ? "+" : ""}${(e.ev * 100).toFixed(1)}%`,
   ];
@@ -243,5 +247,7 @@ export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string
     lines.push(wagerLine(e.kelly, p.max_stake)!);
   }
   lines.push(e.ev > 0 ? "✅ +EV — worth it at this price." : "❌ -EV — skip it, or find a better price.");
+  // With no boost, an assumed margin makes any bet -EV by that margin; the useful number is the break-even.
+  if (!p.boost_pct) lines.push(`Break-even: it needs to hit ${(impliedProb(bookOdds) * 100).toFixed(1)}% of the time. If you think it's likelier than that, type your own fair price to check it.`);
   return lines.join("\n");
 }

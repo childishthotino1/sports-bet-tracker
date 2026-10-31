@@ -151,3 +151,17 @@ test("WNBA promos search the WNBA", () => {
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "WNBA");
 });
+
+test("a slip with no promo can fall back to a typed price, priced as a single without a boost", () => {
+  const s: FlowState = { ...slipOnly({ book: "FanDuel", league: "NFL", bet_kind: "single", total_odds: -118, game: null,
+    legs: [{ team_or_player: "Mark Andrews", market: "other", line: 13.5, side: "Under", team: null, game: null }] }), slip: undefined, step: "slip", legs: 1 };
+  const typed = step(s, "-118");
+  assert.equal(typed.state.step, "fair");
+  assert.deepEqual(prompt(typed.state).buttons.flat().map((b) => b.value), ["m4", "m6", "m8", "m10"]);
+  const done = step(typed.state, "m4");
+  assert.equal(done.state.step, "fair"); // no promo menu to go back to: a typed fair price re-checks the same bet
+  assert.ok(!done.reply!.includes("boosted"));
+  assert.match(done.reply!, /^Book: -118\n/);
+  assert.match(done.reply!, /Break-even: it needs to hit 54\.1%/);
+  assert.match(step(done.state, "-140").reply!, /✅ \+EV/);
+});

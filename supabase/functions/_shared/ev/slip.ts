@@ -23,11 +23,23 @@ export { samePerson, sameTeam };
 // Markets the vision call may name; they're The Odds API's market keys.
 export const SLIP_MARKETS = [
   "h2h", "spreads", "totals",
+  // NFL / NCAAF
   "player_anytime_td", "player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions",
+  "player_pass_completions", "player_pass_attempts", "player_pass_interceptions", "player_pass_longest_completion",
+  "player_rush_attempts", "player_rush_longest", "player_reception_longest", "player_rush_reception_yds",
+  "player_pass_rush_yds", "player_reception_tds", "player_rush_tds", "player_tds_over", "player_sacks",
+  "player_solo_tackles", "player_tackles_assists", "player_field_goals", "player_kicking_points",
+  // NBA / WNBA / NCAAB
   "player_points", "player_rebounds", "player_assists", "player_threes", "player_points_rebounds_assists",
-  "batter_hits", "batter_home_runs", "batter_total_bases", "pitcher_strikeouts",
-  "player_goals", "player_shots_on_goal",
-  "btts", "player_goal_scorer_anytime",
+  "player_points_rebounds", "player_points_assists", "player_rebounds_assists", "player_blocks", "player_steals",
+  "player_turnovers", "player_double_double",
+  // MLB
+  "batter_hits", "batter_home_runs", "batter_total_bases", "batter_rbis", "batter_runs_scored", "batter_hits_runs_rbis",
+  "batter_stolen_bases", "pitcher_strikeouts", "pitcher_hits_allowed", "pitcher_outs", "pitcher_earned_runs",
+  // NHL
+  "player_goals", "player_shots_on_goal", "player_power_play_points", "player_blocked_shots", "player_total_saves",
+  // soccer
+  "btts", "player_goal_scorer_anytime", "player_shots_on_target",
   "other",
 ] as const;
 
@@ -86,7 +98,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
 - game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
 - legs: one per selection.
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
-  - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_rush_yds, player_reception_yds, player_points, ...; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
+  - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
   - game: the matchup this leg is from, as the slip shows it above or beside the leg ("Brentford vs Nottingham Forest"); "" if none is shown.
   - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
