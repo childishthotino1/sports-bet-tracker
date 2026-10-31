@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
-import { cardLegs, formatBet, MAX_HOLD, priceLegs, quoteLine, sharpQuotes, type OddsEvent, type Pick } from "./mod.ts";
+import { anchors, cardLegs, consensus, formatBet, MAX_HOLD, sourceWeight, priceLegs, quoteLine, sharpQuotes, type OddsEvent, type Pick } from "./mod.ts";
 
 // Real pull of Panthers @ Packers (Thursday night) with Pinnacle and the four
 // exchanges, a few hours before kickoff.
@@ -10,11 +10,14 @@ const PULLED = new Date("2026-10-29T23:55:00Z");
 const leg = (book: string, selection: string) =>
   priceLegs([CAR_GB], book, { now: PULLED }).find((l) => l.selection === selection)!;
 
-test("moneyline: Pinnacle and all four exchanges, averaged", () => {
+test("moneyline: Pinnacle is half the fair price, the exchanges share the rest by hold", () => {
   const packers = leg("betmgm", "Green Bay Packers ML");
   assert.deepEqual(packers.quotes.map((q) => q.source), ["Pinnacle", "Novig", "ProphetX", "Kalshi", "Polymarket"]);
-  const mean = packers.quotes.reduce((a, q) => a + q.fair, 0) / packers.quotes.length;
-  assert.ok(Math.abs(packers.fair - mean) < 1e-12);
+  const [pin, ...ex] = packers.quotes;
+  assert.ok(pin.anchor && !ex.some((q) => q.anchor));
+  const w = (h: number) => 1 / Math.max(h, 0.01);
+  const exMean = ex.reduce((a, q) => a + q.fair * w(q.hold), 0) / ex.reduce((a, q) => a + w(q.hold), 0);
+  assert.ok(Math.abs(packers.fair - (0.5 * pin.fair + 0.5 * exMean)) < 1e-12);
   // The exchanges' holds are a fraction of a sportsbook's.
   const kalshi = packers.quotes.find((q) => q.source === "Kalshi")!;
   assert.ok(kalshi.hold > 0 && kalshi.hold < 0.015);
@@ -63,5 +66,21 @@ test("the card lists every source with its hold", () => {
   const { text } = formatBet({ book: "BetMGM", bookOdds: -200, boost: 0.25, legs: cardLegs(pick) });
   assert.match(text, /^DEVIG \(sharp source: Pinnacle, Novig, ProphetX, Kalshi, Polymarket\)$/m);
   assert.match(text, /^Leg 1: Pinnacle -196\/\+171 \(\d\.\d%\), Novig -186\/\+178 \(\d\.\d%\), .* -> fair -1\d\d \(6\d\.\d%\)$/m);
-  assert.match(text, /^Method: worst-case of .* per source, averaged across sources/m);
+  assert.match(text, /^Method: worst-case of .* per source; Pinnacle is half on game lines/m);
+});
+
+test("source weights: tighter holds count more; Pinnacle anchors game lines only", () => {
+  assert.equal(sourceWeight(0.02), 50);
+  assert.equal(sourceWeight(0.002), 100); // near-crossed lines are floored at 1%
+  assert.ok(anchors("pinnacle", "h2h") && anchors("pinnacle", "alternate_spreads"));
+  assert.ok(!anchors("pinnacle", "player_reception_yds") && !anchors("novig", "h2h"));
+  const q = (fair: number, hold: number, anchor = false) => ({ source: "x", sides: [], betIndex: 0, fair, hold, weight: sourceWeight(hold), anchor });
+  // A 2% line outweighs a 6% one three to one.
+  assert.ok(Math.abs(consensus([q(0.6, 0.02), q(0.5, 0.06)]) - 0.575) < 1e-12);
+  // Pinnacle on a game line is half, however tight the exchanges are.
+  assert.ok(Math.abs(consensus([q(0.6, 0.03, true), q(0.5, 0.01), q(0.5, 0.01)]) - 0.55) < 1e-12);
+  // Alone, it's the whole price.
+  assert.equal(consensus([q(0.6, 0.03, true)]), 0.6);
+  // Real prop: Pinnacle's 74.5 has no anchor, it's one source by hold.
+  assert.ok(!leg("betmgm", "Tetairoa McMillan Over 74.5 Reception Yds").quotes[0].anchor);
 });

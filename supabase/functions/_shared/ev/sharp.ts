@@ -1,7 +1,8 @@
 // Fair prices from several sharp sources: Pinnacle plus the prediction-market
 // exchanges (Novig, ProphetX, Kalshi, Polymarket). Each source's line is
 // devigged on its own (worst case across methods), then the fair
-// probabilities are averaged. The exchanges post both sides of bets the
+// probabilities are combined (see consensus): Pinnacle anchors game lines,
+// and the exchanges are weighted toward their tighter lines. The exchanges post both sides of bets the
 // sportsbooks sell one way (anytime TD "No"), and price lines Pinnacle skips.
 //
 // Exchanges list every resting offer, so one player can have a ladder of
@@ -28,12 +29,36 @@ export const SHARP_KEYS = Object.keys(SHARP_BOOKS);
 export const MIN_LIMIT = 50; // dollars an offer must take to count
 export const MAX_HOLD = 0.1;
 
+// Pinnacle takes $10K+ on game lines, the sharpest number there is, so on a
+// game line it is half the fair price and the exchanges share the other half.
+// On props its limits are $250-500 and its prices are its weakest, so there it
+// is one source among the others.
+export const PINNACLE_MAIN_SHARE = 0.5;
+// Holds below this are treated as equal, so a near-crossed exchange line
+// (0.2% hold, often stale) can't drown out the others.
+export const HOLD_FLOOR = 0.01;
+
+// A source's weight among its peers: tighter lines count more. Only compared
+// like with like where it matters: exchanges charge commission on winnings
+// instead of building it into the price, so their holds run lower than
+// Pinnacle's and would swamp it on game lines.
+export function sourceWeight(hold: number): number {
+  return 1 / Math.max(hold, HOLD_FLOOR);
+}
+
+// Is this Pinnacle on a game line (spread, total, moneyline), where it anchors?
+export function anchors(key: string, market: string): boolean {
+  return key === "pinnacle" && !isPropMarket(market.replace(/^alternate_/, ""));
+}
+
 export type Quote = {
   source: string; // "Pinnacle"
   sides: { label: string; odds: number }[];
   betIndex: number;
   fair: number; // worst-case devigged probability of the bet's side
   hold: number; // the line's total implied probability − 1
+  weight: number; // its weight among its peers in consensus(), from sourceWeight()
+  anchor?: boolean; // Pinnacle on a game line: half the fair price on its own
 };
 
 // Markets that can hold the same line: alternates repeat main lines, and the
@@ -101,13 +126,22 @@ export function sharpQuotes(bookmakers: Bookmaker[], market: string, bet: Outcom
       betIndex: line.betIndex,
       fair: worstCaseDevig(line.sides.map((o) => o.price), line.betIndex).fair,
       hold: line.hold,
+      weight: sourceWeight(line.hold),
+      ...(anchors(key, market) ? { anchor: true } : {}),
     });
   }
   return out;
 }
 
+// The fair price from every source's: Pinnacle's game line is half of it
+// (PINNACLE_MAIN_SHARE) when others also price the line, and the rest are
+// weighted by sourceWeight().
 export function consensus(quotes: Quote[]): number {
-  return quotes.reduce((a, q) => a + q.fair, 0) / quotes.length;
+  const mean = (qs: Quote[]) => qs.reduce((a, q) => a + q.fair * q.weight, 0) / qs.reduce((a, q) => a + q.weight, 0);
+  const anchor = quotes.find((q) => q.anchor);
+  const rest = quotes.filter((q) => q !== anchor);
+  if (!anchor || !rest.length) return mean(quotes);
+  return PINNACLE_MAIN_SHARE * anchor.fair + (1 - PINNACLE_MAIN_SHARE) * mean(rest);
 }
 
 // "Pinnacle +171/-196 (3.1%)": the bet's side first, then the hold.

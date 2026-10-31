@@ -67,7 +67,7 @@ export function formatBet(card: BetCard): FormattedBet {
     out.push(`Leg ${i + 1}: ${raw}${fair}`);
   });
   const methods = DEVIG_METHODS.join(", ").replace("shin", "Shin");
-  if (card.legs.some((l) => (l.quotes?.length ?? 0) > 1)) out.push(`Method: worst-case of ${methods} per source, averaged across sources (% = hold)`);
+  if (card.legs.some((l) => (l.quotes?.length ?? 0) > 1)) out.push(`Method: worst-case of ${methods} per source; Pinnacle is half on game lines, the rest weighted to the tighter holds (% = hold)`);
   else if (card.legs.some((l) => l.sharp || l.quotes?.length)) out.push(`Method: worst-case of ${methods}`);
   if (n > 1) {
     out.push(`Parlay fair: ${formatPct(ev.fairProb)} -> FV ${formatAmerican(probToAmerican(ev.fairProb))}`);

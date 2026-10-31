@@ -230,7 +230,7 @@ export function legLabel(leg: SlipLeg): string {
 
 // legEvents[i] is the feed's odds for leg i's game (null if it wasn't found).
 // Each sharp source that has the leg's line gives a quote; their fair prices
-// are averaged. With none, a Pinnacle line posted one way only gets an assumed
+// are combined (see consensus in sharp.ts). With none, a Pinnacle line posted one way only gets an assumed
 // margin, and after that the book's own price is devigged.
 export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string, sharpKeys = SHARP_KEYS): PricedSlipLeg[] {
   return slip.legs.map((leg, i) => {
