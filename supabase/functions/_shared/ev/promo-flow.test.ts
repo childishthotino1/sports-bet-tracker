@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { example } from "./examples.test-helper.ts";
 const NFL_30_PARLAY_BOOST = example("Unknown book: 30% NFL Parlay Profit Boost");
-import { leaguesToSearch, normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, type FlowState } from "./mod.ts";
+import { askBoost, leaguesToSearch, parseBoost, normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, type FlowState } from "./mod.ts";
 
 // The 33% MLB SGP boost screenshot: no book shown, max $50, min +300.
 const promo = () => normalizePromo({
@@ -164,4 +164,19 @@ test("a slip with no promo can fall back to a typed price, priced as a single wi
   assert.match(done.reply!, /^Book: -118\n/);
   assert.match(done.reply!, /Break-even: it needs to hit 54\.1%/);
   assert.match(step(done.state, "-140").reply!, /✅ \+EV/);
+});
+
+test("a slip with no promo asks which boost is going on it", () => {
+  const slip = { book: "BetMGM", league: "NFL", bet_kind: "single" as const, total_odds: 550, boosted_odds: null, boost_pct: null, game: null,
+    legs: [{ team_or_player: "Derrick Henry", market: "player_1st_td", line: null, side: "Yes", team: null, game: null }] };
+  const s = askBoost(slip);
+  assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["20", "25", "30", "50", "100", "none"]);
+  const r = step(s, "pf-ignored".length ? "25" : "");
+  assert.equal(r.action, "slip");
+  assert.equal(r.state.slip!.boost_pct, 25);
+  assert.equal(r.state.slip!.boost_entered, true);
+  assert.equal(step(s, "33%").state.slip!.boost_pct, 33);
+  assert.equal(step(s, "none").state.slip!.boost_pct, null);
+  assert.match(step(s, "lots").reply!, /Tap a boost/);
+  assert.equal(parseBoost("No boost"), null);
 });

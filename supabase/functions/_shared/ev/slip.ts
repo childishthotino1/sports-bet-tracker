@@ -27,7 +27,7 @@ export const SLIP_MARKETS = [
   // Team totals and period lines (the feed has them per game only).
   "team_totals", "h2h_h1", "spreads_h1", "totals_h1", "h2h_q1", "spreads_q1", "totals_q1",
   // NFL / NCAAF
-  "player_anytime_td", "player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions",
+  "player_anytime_td", "player_1st_td", "player_last_td", "player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions",
   "player_pass_completions", "player_pass_attempts", "player_pass_interceptions", "player_pass_longest_completion",
   "player_rush_attempts", "player_rush_longest", "player_reception_longest", "player_rush_reception_yds",
   "player_pass_rush_yds", "player_reception_tds", "player_rush_tds", "player_tds_over", "player_sacks",
@@ -62,6 +62,7 @@ export type Slip = {
   total_odds: number | null; // whole slip, before any boost
   boosted_odds: number | null; // the boosted price the slip shows, if a boost is applied
   boost_pct: number | null; // that boost, printed or worked out from the two prices
+  boost_entered?: boolean; // the boost was typed or tapped in the chat, not read off the slip
   game: string | null; // "Carolina Panthers @ Green Bay Packers" when the slip shows one
   legs: SlipLeg[];
 };
@@ -108,7 +109,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
 - game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
 - legs: one per selection.
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
-  - market: h2h for moneylines, spreads, totals for the game total, team_totals for one team's total (team_or_player is that team), h2h_h1 / spreads_h1 / totals_h1 for 1st-half lines and h2h_q1 / spreads_q1 / totals_q1 for 1st-quarter lines, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
+  - market: h2h for moneylines, spreads, totals for the game total, team_totals for one team's total (team_or_player is that team), h2h_h1 / spreads_h1 / totals_h1 for 1st-half lines and h2h_q1 / spreads_q1 / totals_q1 for 1st-quarter lines, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_1st_td for "First Touchdown Scorer", player_last_td for "Last Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
   - game: the matchup this leg is from, as the slip shows it above or beside the leg ("Brentford vs Nottingham Forest"); "" if none is shown.
   - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
@@ -231,11 +232,14 @@ function locate(markets: Market[], leg: SlipLeg): { key: string; outcome: Outcom
 // One-sided markets (only "Yes" posted) can't be devigged; assume this margin.
 export const ONE_SIDED_MARGIN = 0.06;
 
+// Markets with one price per player and one winner (or none): a TD scorer field.
+export const FIELD_MARKETS = ["player_1st_td", "player_last_td"];
+
 export type PricedSlipLeg = {
   label: string;
   bookOdds: number | null; // the book's own price for this leg, if the feed has it
   fair: number | null;
-  source: "sharp" | "sharp-1way" | "book" | "book-1way" | "none";
+  source: "sharp" | "sharp-1way" | "book" | "book-1way" | "book-field" | "none";
   quotes?: Quote[]; // each sharp source's line, when source is "sharp"
 };
 
@@ -256,6 +260,8 @@ export function legLabel(leg: SlipLeg): string {
   if (base === "totals") return `${period}${leg.side}${line}`;
   if (leg.market === "team_totals") return `${leg.team_or_player ?? leg.team ?? ""} Team Total ${leg.side}${line}`.trim();
   if (leg.market === "player_anytime_td") return `${leg.team_or_player} Anytime TD`;
+  if (leg.market === "player_1st_td") return `${leg.team_or_player} 1st TD`;
+  if (leg.market === "player_last_td") return `${leg.team_or_player} Last TD`;
   if (leg.market === "player_goal_scorer_anytime") return `${leg.team_or_player} Anytime Goal`;
   if (leg.market === "btts") return `Both Teams To Score: ${leg.side}`;
   return `${leg.team_or_player ?? ""} ${leg.side}${line} ${stat}`.trim();
@@ -279,6 +285,13 @@ export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookK
     if (quotes.length) return { label, bookOdds, fair: consensus(quotes), source: "sharp", quotes };
     const p = locate(markets("pinnacle"), leg);
     if (p && p.sides.length === 1) return { label, bookOdds, fair: fairFrom(p.sides, p.outcome).fair, source: "sharp-1way" };
+    // First/last TD scorer is one market with a price on every player: with no
+    // sharp line, devig the book's whole field rather than assume a small margin.
+    if (b && FIELD_MARKETS.includes(leg.market)) {
+      const field = markets(bookKey).find((m) => m.key === b.key)?.outcomes.filter((o) => o.name !== "No") ?? [];
+      const total = field.reduce((a, o) => a + impliedProb(o.price), 0);
+      if (field.length > 2 && total > 1) return { label, bookOdds, fair: impliedProb(b.outcome.price) / total, source: "book-field" };
+    }
     if (b) {
       const { fair, oneWay } = fairFrom(b.sides, b.outcome);
       return { label, bookOdds, fair, source: oneWay ? "book-1way" : "book" };
@@ -384,6 +397,7 @@ const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
   "sharp-1way": ` (Pinnacle posts only this side; assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
   book: " (no sharp line; the book's own price, devigged)",
   "book-1way": ` (no sharp line; the book's price, assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
+  "book-field": " (no sharp line; the book's whole scorer list devigged)",
   none: "",
 };
 
@@ -398,7 +412,8 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   out.push("");
   const shown = c.boostSource === "slip" && slip.boosted_odds !== null ? formatAmerican(slip.boosted_odds) : formatAmerican(decimalToAmerican(c.eval.boostedDecimal));
   const pct = c.boostSource === "slip" ? slip.boost_pct! : Math.round(c.boost * 100);
-  const boosted = c.boost ? `, boosted ${pct}% to ${shown}${c.boostSource === "slip" ? " (the boost on the slip)" : ""}` : "";
+  const whose = c.boostSource !== "slip" ? "" : slip.boost_entered ? " (your boost)" : " (the boost on the slip)";
+  const boosted = c.boost ? `, boosted ${pct}% to ${shown}${whose}` : "";
   out.push(`Slip: ${formatAmerican(c.totalOdds)}${boosted}`);
   if (promo && c.promoIssues.length) out.push(`⚠️ Doesn't qualify for ${promo.title}: ${c.promoIssues.join("; ")}.${c.boostSource === "slip" ? "" : " Priced without the boost."}`);
   if (c.method === "correlation" && c.correlation !== null) {

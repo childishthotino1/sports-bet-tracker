@@ -256,3 +256,37 @@ test("a boost on the slip: base and boosted prices, team totals, and the boost t
   const text = formatSlipCheck(slip, "BetMGM", c, null);
   assert.match(text, /^Slip: -105, boosted 15% to \+109 \(the boost on the slip\)$/m);
 });
+
+test("1st TD scorer: priced against Novig's Yes/No, or the book's whole field when no sharp posts it", () => {
+  // Real prices, Ravens @ Bills, pulled 2026-10-31.
+  const slip = normalizeSlip({ book: "MGM", league: "NFL", bet_kind: "single", total_odds: 550, boosted_odds: 0, boost_pct: 0, game: "Baltimore Ravens @ Buffalo Bills",
+    legs: [{ team_or_player: "Derrick Henry", market: "player_1st_td", line: null, side: "Yes", team: "Baltimore Ravens", game: "Baltimore Ravens @ Buffalo Bills" }] })!;
+  assert.equal(legLabel(slip.legs[0]), "Derrick Henry 1st TD");
+  const field = (prices: [string, number][]) => prices.map(([p, price]) => ({ name: "Yes", description: p, price }));
+  const mgm = { key: "betmgm", title: "BetMGM", markets: [{ key: "player_1st_td", outcomes: field([["Derrick Henry", 550], ["James Cook", 150], ["Josh Allen", 200], ["Lamar Jackson", 300], ["Zay Flowers", 400]]) }] };
+  const novig = { key: "novig", title: "Novig", markets: [{ key: "player_1st_td", outcomes: [
+    { name: "Yes", description: "Derrick Henry", price: 488, bet_limit: 667 }, { name: "No", description: "Derrick Henry", price: -641, bet_limit: 1615 },
+  ] }] };
+  const base = { id: "bal-buf", sport_key: "americanfootball_nfl", commence_time: "2026-11-01T18:00:00Z", home_team: "Buffalo Bills", away_team: "Baltimore Ravens" };
+  const [sharp] = priceSlipLegs(slip, [{ ...base, bookmakers: [mgm, novig] }], "betmgm");
+  assert.equal(sharp.source, "sharp");
+  assert.equal(sharp.bookOdds, 550);
+  // Worst-case devig of +488/-641 (a long shot, so the power/Shin methods bite): ~14.6%, about +586.
+  assert.ok(sharp.fair! > 0.14 && sharp.fair! < 0.15, String(sharp.fair));
+  assert.ok(checkSlip(slip, [sharp], null, "BetMGM")!.eval.ev < 0, "+550 is short of the ~+586 fair price");
+
+  // No sharp: the book's field (cut to five players here, priced so it sums past 100% like a real one), devigged together.
+  const [own] = priceSlipLegs(slip, [{ ...base, bookmakers: [mgm] }], "betmgm");
+  assert.equal(own.source, "book-field");
+  const total = [550, 150, 200, 300, 400].reduce((a, p) => a + 100 / (p + 100), 0);
+  assert.ok(Math.abs(own.fair! - (100 / 650) / total) < 1e-12);
+});
+
+test("a boost typed in the chat is labelled as yours", () => {
+  const slip = { ...normalizeSlip({ book: "MGM", league: "NFL", bet_kind: "single", total_odds: -110, boosted_odds: 0, boost_pct: 0, game: "",
+    legs: [{ team_or_player: "Buffalo Bills", market: "h2h", line: null, side: "Buffalo Bills", team: "", game: "" }] })!, boost_pct: 25, boost_entered: true };
+  const priced = [{ label: "Buffalo Bills ML", bookOdds: -110, fair: 0.5, source: "sharp" as const, quotes: [] }];
+  const c = checkSlip(slip, priced, null, "BetMGM")!;
+  assert.equal(c.boostSource, "slip");
+  assert.match(formatSlipCheck(slip, "BetMGM", c, null), /^Slip: -110, boosted 25% to \+114 \(your boost\)$/m);
+});

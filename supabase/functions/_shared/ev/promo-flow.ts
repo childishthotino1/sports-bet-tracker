@@ -18,7 +18,7 @@ export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; 
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "sport" | "target" | "slip" | "fair" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "target" | "slip" | "fair" | "boost" | "end";
   sport?: string; // league to search for picks, e.g. "NBA", or "ALL" for every one the promo covers
   target?: OddsRange; // odds the picks should land in; unset = any price that qualifies
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
@@ -32,11 +32,26 @@ export const BOOKS = SPORTSBOOKS.map((b) => b.name); // shared with the tracker 
 const MARGINS = [15, 20, 25, 30]; // parlays and SGPs
 const SINGLE_MARGINS = [4, 6, 8, 10]; // one leg: a two-way line's usual hold
 const TARGETS = [200, 300, 400, 600, 1000];
+const BOOSTS = [20, 25, 30, 50, 100];
 const KIND_LABELS: Record<BetKind, string> = { sgp: "Same Game Parlay", parlay: "Parlay", single: "Straight bet" };
 
 // State for a slip sent with no promo in play.
 export function slipOnly(slip: Slip): FlowState {
   return { promo: normalizePromo({ title: "No promo" }), step: "action", slip, noPromo: true };
+}
+
+// A slip with no promo in play and no boost on screen: ask which boost (if any)
+// you're putting on it, so the check prices the bet you'll actually place.
+export function askBoost(slip: Slip): FlowState {
+  return { ...slipOnly(slip), step: "boost" };
+}
+
+// "25", "25%", "none", "0" → the boost %, null for none, undefined if unreadable.
+export function parseBoost(text: string): number | null | undefined {
+  const v = text.trim().toLowerCase().replace(/%$/, "").trim();
+  if (["none", "no", "no boost", "0"].includes(v)) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= 200 ? n : undefined;
 }
 
 export function startFlow(promo: Promo): FlowState {
@@ -93,6 +108,14 @@ export function prompt(s: FlowState): Prompt {
       return {
         text: "How should I price it fairly? Pick the book's likely margin on this bet, or type a fair price (e.g. +425).",
         buttons: [(s.legs === 1 ? SINGLE_MARGINS : MARGINS).map((m) => ({ label: `${m}% margin`, value: `m${m}` }))],
+      };
+    case "boost":
+      return {
+        text: "Is a boost going on this bet? Tap it, or type the % (e.g. 33).",
+        buttons: [
+          BOOSTS.slice(0, 3).map((b) => ({ label: `${b}%`, value: String(b) })),
+          [...BOOSTS.slice(3).map((b) => ({ label: `${b}%`, value: String(b) })), { label: "No boost", value: "none" }],
+        ],
       };
     case "end":
       return { text: "👍 Send another promo or bet slip screenshot anytime.", buttons: [] };
@@ -228,6 +251,11 @@ export function step(s: FlowState, input: string): StepResult {
       // No promo menu to return to: stay on this price, so a typed fair price re-checks it.
       const next: FlowState = s.noPromo ? s : { ...s, step: "action", bookOdds: undefined, legs: undefined };
       return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis) };
+    }
+    case "boost": {
+      const boost = parseBoost(v);
+      if (boost === undefined) return { state: s, reply: "Tap a boost, type a % like 33, or tap No boost." };
+      return { state: { ...s, step: "action", slip: { ...s.slip!, boost_pct: boost, boost_entered: boost !== null } }, action: "slip" };
     }
     case "end":
       return { state: s };

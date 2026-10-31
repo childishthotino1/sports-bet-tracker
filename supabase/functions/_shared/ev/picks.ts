@@ -42,6 +42,8 @@ export function selectionLabel(market: string, o: Outcome): string {
   if (market.includes("spreads") || market.includes("totals")) return sideLabel(market, o);
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;
+  if (market === "player_1st_td") return `${o.description} ${o.name === "No" ? "No " : ""}1st TD`;
+  if (market === "player_last_td") return `${o.description} ${o.name === "No" ? "No " : ""}Last TD`;
   if (market === "player_goal_scorer_anytime") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime Goal`;
   if (market === "btts") return `Both Teams To Score: ${o.name}`;
   return [o.description, o.name, o.point, statLabel(market)].filter((x) => x !== undefined && x !== "").join(" ");

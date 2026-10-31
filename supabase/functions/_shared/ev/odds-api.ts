@@ -100,7 +100,7 @@ export const HALF_MARKETS: Record<string, string[]> = Object.fromEntries(
 // More props for a question about one game, where one call covers them all.
 // Each has a sharp price at Pinnacle or the exchanges (checked on a real NFL pull).
 export const QUESTION_PROP_MARKETS: Record<string, string[]> = {
-  NFL: ["player_pass_tds", "player_pass_completions", "player_pass_attempts", "player_rush_attempts", "player_reception_longest", "player_rush_reception_yds"],
+  NFL: ["player_1st_td", "player_pass_tds", "player_pass_completions", "player_pass_attempts", "player_rush_attempts", "player_reception_longest", "player_rush_reception_yds"],
 };
 
 export type EventInfo = Pick<OddsEvent, "id" | "sport_key" | "commence_time" | "home_team" | "away_team">;

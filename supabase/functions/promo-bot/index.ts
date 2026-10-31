@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, americanToDecimal, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, americanToDecimal, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -204,6 +204,7 @@ async function sendPicks(chatId: number, s: FlowState) {
       bookOdds: p.americanOdds,
       boost: (promo.boost_pct ?? 0) / 100,
       legs: cardLegs(p),
+      maxStake: promo.max_stake,
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
     }).text, ...cautions].join("\n\n"));
   }
@@ -338,16 +339,17 @@ async function priceSlip(chatId: number, s: FlowState) {
       missing.length ? `I couldn't find ${book} or sharp prices for: ${missing.join(", ")}.` : "",
     ].filter(Boolean).join(" ") || "I couldn't read the slip's total price.";
     // No promo, but the slip shows its own boost: check it at the boosted price the book pays.
-    const slipBoost = s.noPromo && slip.boost_pct && slip.boosted_odds !== null && slip.total_odds !== null
+    const slipBoost = !s.noPromo || !slip.boost_pct ? null
+      : slip.boosted_odds !== null && slip.total_odds !== null
       ? ((americanToDecimal(slip.boosted_odds) - 1) / (americanToDecimal(slip.total_odds) - 1) - 1) * 100
-      : null;
+      : slip.boost_pct;
     const typing: FlowState = { ...done, promo: { ...done.promo, book, ...(slipBoost ? { boost_pct: slipBoost } : {}) }, step: "slip", legs: slip.legs.length };
     if (shopNote) await send(chatId, shopNote);
     // The slip's total was read: go straight to the margin question, through the
     // same promo checks a typed price gets.
     const r = slip.total_odds !== null ? step(typing, formatAmerican(slip.total_odds)) : null;
     if (r && r.state.step === "fair") {
-      const shown = slipBoost ? ` (boosted ${slip.boost_pct}% to ${formatAmerican(slip.boosted_odds!)})` : "";
+      const shown = slipBoost ? ` (boosted ${slip.boost_pct}%${slip.boosted_odds !== null ? ` to ${formatAmerican(slip.boosted_odds)}` : ""})` : "";
       await send(chatId, `${why} I'll check the slip's ${formatAmerican(slip.total_odds!)}${shown} with an assumed margin instead.`);
       await saveState(chatId, r.state);
       return sendPrompt(chatId, prompt(r.state));
@@ -480,7 +482,12 @@ async function handle(update: any) {
     if (read.kind === "slip") {
       const current = await loadState(chatId);
       const inPlay = current && !current.noPromo && current.step !== "end";
-      return priceSlip(chatId, inPlay ? { ...current, slip: read.slip } : slipOnly(read.slip));
+      if (inPlay) return priceSlip(chatId, { ...current, slip: read.slip });
+      if (read.slip.boost_pct) return priceSlip(chatId, slipOnly(read.slip));
+      // No promo and no boost on screen: ask which boost (if any) is going on it.
+      const asking = askBoost(read.slip);
+      await saveState(chatId, asking);
+      return sendPrompt(chatId, prompt(asking));
     }
     return send(chatId, "That doesn't look like a promo or a bet slip. Send a screenshot of a promo's details or of your bet slip.");
   }
@@ -492,7 +499,7 @@ async function advance(chatId: number, input: string, typed = false) {
   const s = await loadState(chatId);
   // Typed text that isn't an answer to a question the bot asked: a question
   // about a game ("good bets on the Ravens game?").
-  if (typed && (!s || s.noPromo || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
+  if (typed && (!s || (s.noPromo && s.step !== "boost") || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
   if (!s) return send(chatId, HELP);
   const r = step(s, input);
   await saveState(chatId, r.state);
