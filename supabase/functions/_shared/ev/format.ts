@@ -10,6 +10,7 @@ export type SharpSide = { label: string; odds: number };
 
 export type Leg = {
   selection: string; // "John Collins Over 6.5 Rebounds (7+)"
+  bookOdds?: number; // the book's price on this leg alone, shown next to it
   game?: string; // "DET @ NYK" — also used to flag same-game legs
   start?: string; // "8:10 PM"
   sharp?: { sides: SharpSide[]; betIndex?: number }; // raw sharp market to devig
@@ -49,7 +50,8 @@ export function formatBet(card: BetCard): FormattedBet {
   out.push(`BET TO BUILD: ${card.kindLabel ?? (n === 1 ? "Single" : `${n}-leg parlay`)} on ${card.book}`);
   card.legs.forEach((leg, i) => {
     const where = [leg.game, leg.start].filter(Boolean).join(", ");
-    out.push(`${i + 1}. ${leg.selection}${where ? ` | ${where}` : ""}`);
+    const price = leg.bookOdds !== undefined ? ` ${formatAmerican(leg.bookOdds)}` : "";
+    out.push(`${i + 1}. ${leg.selection}${price}${where ? ` | ${where}` : ""}`);
   });
   const bookLine = `Book odds: ${formatAmerican(card.bookOdds)}`;
   out.push(boost ? `${bookLine}, boosted to ${formatAmerican(decimalToAmerican(ev.boostedDecimal))}` : bookLine);

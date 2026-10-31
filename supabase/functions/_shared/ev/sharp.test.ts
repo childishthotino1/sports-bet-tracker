@@ -65,6 +65,8 @@ test("the card lists every source with its hold", () => {
   const pick = { kind: "single", legs, americanOdds: -200 } as unknown as Pick;
   const { text } = formatBet({ book: "BetMGM", bookOdds: -200, boost: 0.25, legs: cardLegs(pick) });
   assert.match(text, /^DEVIG \(sharp source: Pinnacle, Novig, ProphetX, Kalshi, Polymarket\)$/m);
+  // Each leg shows its own price on the book next to the selection.
+  assert.match(text, /^1\. Green Bay Packers ML -\d{3} \| Carolina Panthers @ Green Bay Packers, /m);
   assert.match(text, /^Leg 1: Pinnacle -196\/\+171 \(\d\.\d%\), Novig -186\/\+178 \(\d\.\d%\), .* -> fair -1\d\d \(6\d\.\d%\)$/m);
   assert.match(text, /^Method: worst-case of .* per source; Pinnacle is half on game lines/m);
 });

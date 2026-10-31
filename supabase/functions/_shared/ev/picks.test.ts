@@ -132,7 +132,7 @@ test("a pick prints as the brief's bet card", () => {
   });
   assert.match(text, /^DEVIG \(sharp source: Pinnacle\)$/m);
   assert.match(text, /^BET TO BUILD: 2-leg parlay on DraftKings$/m);
-  assert.match(text, /^\d\. John Collins Over 6\.5 Rebounds \| Detroit Pistons @ New York Knicks, Sat 8:10 PM ET$/m);
+  assert.match(text, /^\d\. John Collins Over 6\.5 Rebounds -110 \| Detroit Pistons @ New York Knicks, Sat 8:10 PM ET$/m);
   assert.match(text, /^Leg \d: Pinnacle -150\/\+122 \(\d\.\d%\) -> fair -1\d\d \(5\d\.\d%\)$/m);
   assert.match(text, /^Method: worst-case of multiplicative, additive, power, Shin$/m);
   assert.match(text, /^EV: \+\d+\.\d%$/m);
