@@ -10,7 +10,7 @@ export type SharpSide = { label: string; odds: number };
 
 export type Leg = {
   selection: string; // "John Collins Over 6.5 Rebounds (7+)"
-  bookOdds?: number; // the book's price on this leg alone, shown next to it
+  bookOdds?: number; // the book's American price for this leg alone, when known
   game?: string; // "DET @ NYK" — also used to flag same-game legs
   start?: string; // "8:10 PM"
   sharp?: { sides: SharpSide[]; betIndex?: number }; // raw sharp market to devig
