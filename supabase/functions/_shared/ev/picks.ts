@@ -193,7 +193,7 @@ export function formatStart(iso: string): string {
 
 // A pick's legs in the shape formatBet() prints.
 export function cardLegs(p: Pick): CardLeg[] {
-  return p.legs.map((l) => ({ selection: l.selection, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes }));
+  return p.legs.map((l) => ({ selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes }));
 }
 
 // Why bestBets() came back empty, in words the bot can send.
