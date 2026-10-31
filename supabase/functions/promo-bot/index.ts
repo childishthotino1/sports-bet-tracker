@@ -143,25 +143,22 @@ async function sendPicks(chatId: number, s: FlowState) {
   if (!bookKey) return send(chatId, `I can't pull odds for ${promo.book ?? "this book"} yet.`);
   if (!leagues.length) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
   const sgpOnly = promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp";
-  const sgpx = sgpOnly && allowsSgpx(promo);
+  // An SGPx spans games, so it's out when the promo names one game.
+  const covered = sgpOnly ? await coveredGames(promo, leagues) : [];
+  const named = findEvent(covered, [promo.notes, promo.title]);
+  const sgpx = sgpOnly && covered.length > 0 && !named && allowsSgpx(promo);
 
   const { markets: mode } = await loadSettings(chatId);
   const what = mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
   const where = leagues.length === 1 ? leagues[0] : `${leagues.length} leagues`;
   await send(chatId, `🔎 Pulling ${promo.book} ${where} ${what} and the sharp prices (Pinnacle + exchanges)…`);
 
-  // Main lines: one call per league. SGP-only promos need them to rank games.
-  const events: OddsEvent[] = [];
-  let remaining: number | null = null;
-  if (mode !== "props" || sgpOnly) {
-    for (const league of leagues) {
-      const r = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
-      events.push(...r.data.filter((e) => promoCovers(promo, e.commence_time)));
-      remaining = r.remaining;
-    }
-  }
-  // Props (and a single-game SGP's legs) need one call per game.
-  if (sgpOnly && !sgpx) return sendSgpLegs(chatId, s, bookKey, leagues, events, remaining);
+  if (sgpOnly && !sgpx) return sendSgpLegs(chatId, s, bookKey, leagues, null, null);
+  // Main lines: one call per league.
+  let { events, remaining } = mode !== "props" || sgpx
+    ? await mainLines(promo, bookKey, leagues)
+    : { events: [] as OddsEvent[], remaining: null as number | null };
+  // Props need one call per game.
   if (mode !== "main") {
     if (remaining !== null && remaining < PROP_CREDIT_FLOOR) {
       await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props this time.`);
@@ -205,6 +202,18 @@ async function sendPicks(chatId: number, s: FlowState) {
   await sendPrompt(chatId, prompt(s));
 }
 
+// Main lines for every game the promo covers in these leagues: one call per league.
+async function mainLines(promo: Promo, bookKey: string, leagues: string[]) {
+  const events: OddsEvent[] = [];
+  let remaining: number | null = null;
+  for (const league of leagues) {
+    const r = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
+    events.push(...r.data.filter((e) => promoCovers(promo, e.commence_time)));
+    remaining = r.remaining;
+  }
+  return { events, remaining };
+}
+
 // What each book calls a parlay of same-game parlays from different games.
 const SGPX_NAME: Record<string, string> = { DraftKings: "SGPx", FanDuel: "SGP+" };
 
@@ -221,8 +230,8 @@ async function coveredGames(promo: Promo, leagues: string[]) {
 // SGP-only promo: suggest the best-priced legs in the promo's game, or in the
 // best games it covers (trying the next one when a game's sharp lines aren't
 // up yet), then wait for the user's slip screenshot to price the SGP.
-// mainEvents: the leagues' main lines, already pulled, to rank games by.
-async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, leagues: string[], mainEvents: OddsEvent[], remaining: number | null) {
+// mainEvents: the leagues' main lines to rank games by, if already pulled.
+async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, leagues: string[], mainEvents: OddsEvent[] | null, remaining: number | null) {
   const { promo } = s;
   const events = await coveredGames(promo, leagues);
   if (!events.length) {
@@ -230,7 +239,8 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     return sendPrompt(chatId, prompt(s));
   }
   const named = findEvent(events, [promo.notes, promo.title]);
-  const candidates = named ? [named] : rankSgpGames(priceLegs(mainEvents, bookKey))
+  if (!named && !mainEvents) ({ events: mainEvents, remaining } = await mainLines(promo, bookKey, leagues));
+  const candidates = named ? [named] : rankSgpGames(priceLegs(mainEvents!, bookKey))
     .map((id) => events.find((e) => e.id === id))
     .filter((e) => !!e)
     .slice(0, SGP_GAMES);
