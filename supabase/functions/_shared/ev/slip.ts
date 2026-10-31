@@ -37,6 +37,7 @@ export type SlipLeg = {
   line: number | null; // signed for spreads (+3.5 → 3.5, -3.5 → -3.5)
   side: string; // "Over" / "Under" / "Yes" / a team name
   team: string | null; // the team the leg is on (a player's team for props), for the SGP rules
+  game: string | null; // the leg's matchup as the slip shows it ("Brentford vs Nottingham Forest")
 };
 
 export type Slip = {
@@ -63,10 +64,11 @@ export const SLIP_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["team_or_player", "market", "line", "side", "team"],
+        required: ["team_or_player", "market", "line", "side", "team", "game"],
         properties: {
           team_or_player: { type: "string" },
           team: { type: "string" },
+          game: { type: "string" },
           market: { type: "string", enum: [...SLIP_MARKETS] },
           line: { type: ["number", "null"] },
           side: { type: "string" },
@@ -86,6 +88,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
   - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_rush_yds, player_reception_yds, player_points, ...; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
+  - game: the matchup this leg is from, as the slip shows it above or beside the leg ("Brentford vs Nottingham Forest"); "" if none is shown.
   - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
   - side: "Over" or "Under" for totals and over/under props, "Yes" (or "No") for anytime scorer props and btts, the team name (or "Draw") for spreads and moneylines.`;
 
@@ -100,7 +103,7 @@ export function normalizeSlip(raw: unknown): Slip | null {
     const side = str(o.side);
     if (!side) return [];
     const market = (SLIP_MARKETS as readonly string[]).includes(String(o.market)) ? String(o.market) : "other";
-    return [{ team_or_player: str(o.team_or_player), market, line: num(o.line), side, team: str(o.team) }];
+    return [{ team_or_player: str(o.team_or_player), market, line: num(o.line), side, team: str(o.team), game: str(o.game) }];
   });
   if (!legs.length) return null;
   const total = num(r.total_odds);
@@ -342,12 +345,14 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   return out.join("\n");
 }
 
-// Which game each leg is on. Team legs name their game; a player prop (or a
-// game total) falls back to the game the whole slip is on.
+// Which game each leg is on: the matchup the slip prints with the leg, else
+// the team it names (a draw or a game total names none), else, outside a
+// parlay, the game the whole slip is on.
 export function legEventIds<E extends EventRef>(slip: Slip, events: E[], now = new Date()): (string | null)[] {
   const whole = findEvent(events, slipNames(slip), now);
   return slip.legs.map((leg) => {
-    const own = leg.market === "h2h" || leg.market === "spreads" ? findEvent(events, [leg.side, leg.team_or_player], now) : null;
+    const teams = leg.market === "h2h" || leg.market === "spreads" ? [leg.side, leg.team_or_player, leg.team] : [leg.team];
+    const own = (leg.game ? findEvent(events, [leg.game], now) : null) ?? findEvent(events, teams, now);
     return (own ?? (slip.bet_kind === "parlay" ? null : whole))?.id ?? null;
   });
 }

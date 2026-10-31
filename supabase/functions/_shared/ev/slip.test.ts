@@ -194,3 +194,29 @@ test("soccer: a DraftKings SGP slip prices draw, BTTS and a goalscorer", () => {
   const c = checkSlip(slip, priced, soccer)!;
   assert.deepEqual(c.promoIssues, ["sgp needs 4+ legs, not 3"], "an EPL slip counts as Soccer; only the leg count fails");
 });
+
+// The DraftKings EPL slip: a 4-pick parlay with a draw. A draw names no team,
+// so it used to match no game ("couldn't find the game for 1 of the legs").
+test("a parlay leg is placed by the matchup the slip prints with it", () => {
+  const slip = normalizeSlip({
+    book: "DraftKings", league: "EPL", bet_kind: "parlay", total_odds: 2662, game: "",
+    legs: [
+      { team_or_player: "Man City", market: "h2h", line: null, side: "Man City", team: "Manchester City", game: "Man City vs Brighton" },
+      { team_or_player: "", market: "h2h", line: null, side: "Draw", team: "", game: "Brentford vs Nottingham Forest" },
+      { team_or_player: "Bournemouth", market: "h2h", line: null, side: "Bournemouth", team: "AFC Bournemouth", game: "Bournemouth vs Leeds" },
+      { team_or_player: "Aston Villa", market: "h2h", line: null, side: "Aston Villa", team: "Aston Villa", game: "Aston Villa vs Fulham" },
+    ],
+  })!;
+  const at = "2026-10-31T15:00:00Z";
+  const events = [
+    { id: "mci", home_team: "Manchester City", away_team: "Brighton and Hove Albion", commence_time: at },
+    { id: "bre", home_team: "Brentford", away_team: "Nottingham Forest", commence_time: at },
+    { id: "bou", home_team: "Bournemouth", away_team: "Leeds United", commence_time: at },
+    { id: "avl", home_team: "Aston Villa", away_team: "Fulham", commence_time: "2026-10-31T20:00:00Z" },
+    { id: "hul", home_team: "Hull City", away_team: "Ipswich Town", commence_time: at },
+  ];
+  assert.deepEqual(legEventIds(slip, events, new Date("2026-10-31T14:25:00Z")), ["mci", "bre", "bou", "avl"]);
+  // Without the matchup, the draw can't be placed in a parlay.
+  const bare = { ...slip, legs: slip.legs.map((l) => ({ ...l, game: null })) };
+  assert.deepEqual(legEventIds(bare, events, new Date("2026-10-31T14:25:00Z")), ["mci", null, "bou", "avl"]);
+});

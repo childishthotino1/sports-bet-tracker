@@ -14,7 +14,7 @@ import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
   allowsSgpx, bestBets, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
-  formatSlipCheck, formatStart, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
+  formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
 } from "../_shared/ev/mod.ts";
@@ -296,7 +296,8 @@ async function priceSlip(chatId: number, s: FlowState) {
   const ids = legEventIds(slip, events);
   const lost = slip.legs.filter((_, i) => !ids[i]);
   if (lost.length) {
-    return send(chatId, `I couldn't find the game for ${lost.length === slip.legs.length ? "this slip" : `${lost.length} of the legs`} in the ${league} schedule. Is the game today or upcoming?`);
+    const which = lost.map((l) => `${legLabel(l)}${l.game ? ` (${l.game})` : ""}`).join("; ");
+    return send(chatId, `I couldn't match ${lost.length === slip.legs.length ? "any leg" : which} to a game on the ${league} schedule. If the game has already started, or isn't ${league}, I can't price it.`);
   }
   const odds = new Map<string, OddsEvent>();
   let remaining: number | null = null;
