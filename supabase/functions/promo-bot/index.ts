@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, americanToDecimal, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, americanToDecimal, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -160,14 +160,17 @@ async function sendPicks(chatId: number, s: FlowState) {
     ? await mainLines(promo, bookKey, leagues)
     : { events: [] as OddsEvent[], remaining: null as number | null };
   // Props need one call per game.
-  if (mode !== "main") {
+  // Per-game calls for the next few games: 1st-half lines (unless props only)
+  // and props (unless main lines only).
+  const wantsHalf = mode !== "props" && leagues.some((l) => HALF_MARKETS[l]);
+  if (mode !== "main" || wantsHalf) {
     if (remaining !== null && remaining < PROP_CREDIT_FLOOR) {
-      await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props this time.`);
+      await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props and 1st-half lines this time.`);
     } else {
       const games = (await coveredGames(promo, leagues)).slice(0, PROP_GAMES);
       for (const g of games) {
         const league = LEAGUE_OF[g.sport_key];
-        const markets = PROP_MARKETS[league] ?? [];
+        const markets = [...(mode === "props" ? [] : HALF_MARKETS[league] ?? []), ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
         if (!markets.length) continue;
         const r = await eventOdds(g.sport_key, g.id, markets, bookKey);
         events.push(r.data);
@@ -396,7 +399,8 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   await send(chatId, `🔎 Pricing ${game.away_team} @ ${game.home_team} at ${Object.values(QUESTION_BOOKS).join(", ")} against the sharp price…`);
   // Team totals for every sport but soccer (+1 credit); soccer gets its own extra markets.
   const extra = EXTRA_MARKETS[league] ?? ["team_totals"];
-  const markets = [...MAIN_MARKETS, ...extra, ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
+  const props = mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])];
+  const markets = [...MAIN_MARKETS, ...extra, ...(mode === "props" ? [] : HALF_MARKETS[league] ?? []), ...props];
   const bookmakers = [...Object.keys(QUESTION_BOOKS), ...SHARP_KEYS];
   // If the feed rejects a market for this league, ask again for the main lines alone.
   const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets, bookmakers })

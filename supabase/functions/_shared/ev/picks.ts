@@ -35,6 +35,10 @@ export function selectionLabel(market: string, o: Outcome): string {
   if (market === "draw_no_bet") return `${o.name} Draw No Bet`;
   if (market.includes("corners")) return `${sideLabel(market, o)} Corners`;
   if (market.includes("team_totals")) return `${o.description} Team Total ${sideLabel(market, o)}`;
+  if (/_(h1|q1)$/.test(market)) {
+    const period = market.endsWith("_h1") ? "1st Half" : "1st Quarter";
+    return market.startsWith("h2h") ? (o.name === "Draw" ? `${period} Draw` : `${o.name} ${period} ML`) : `${period} ${sideLabel(market, o)}`;
+  }
   if (market.includes("spreads") || market.includes("totals")) return sideLabel(market, o);
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;

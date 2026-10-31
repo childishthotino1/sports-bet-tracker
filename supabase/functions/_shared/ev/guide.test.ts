@@ -71,3 +71,18 @@ test("line shopping: a better price on the same leg at another of your books", (
   assert.equal(formatBetterPrices(slip, "BetMGM", better), "💲 Better price elsewhere:\nBaltimore Ravens -7.5: DraftKings -108 vs BetMGM -115");
   assert.equal(formatBetterPrices(slip, "BetMGM", [null]), null);
 });
+
+test("1st-half and 1st-quarter lines are labelled with their period", () => {
+  const e: OddsEvent = {
+    id: "bal-buf", sport_key: "americanfootball_nfl", commence_time: START, home_team: "Buffalo Bills", away_team: "Baltimore Ravens",
+    bookmakers: ["betmgm", "pinnacle"].map((key) => ({ key, title: key, markets: [
+      { key: "spreads_h1", outcomes: [{ name: "Buffalo Bills", point: -1.5, price: key === "pinnacle" ? -105 : -110 }, { name: "Baltimore Ravens", point: 1.5, price: key === "pinnacle" ? -105 : -110 }] },
+      { key: "totals_h1", outcomes: [{ name: "Over", point: 24.5, price: -110 }, { name: "Under", point: 24.5, price: key === "pinnacle" ? -102 : -110 }] },
+      { key: "h2h_q1", outcomes: [{ name: "Buffalo Bills", price: 140 }, { name: "Baltimore Ravens", price: 170 }, { name: "Draw", price: 340 }] },
+    ] })),
+  };
+  const labels = shopLegs(e, { betmgm: "BetMGM" }, { now: new Date("2030-11-01T00:00:00Z") }).map((l) => l.selection).sort();
+  assert.ok(labels.includes("1st Half Baltimore Ravens +1.5"), labels.join(" | "));
+  assert.ok(labels.includes("1st Half Over 24.5"));
+  assert.ok(labels.includes("Buffalo Bills 1st Quarter ML"));
+});

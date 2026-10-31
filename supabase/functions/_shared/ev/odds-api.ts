@@ -89,6 +89,20 @@ export const EXTRA_MARKETS: Record<string, string[]> = {
   ...Object.fromEntries(SOCCER.map((l) => [l, ["alternate_totals", "alternate_spreads", "draw_no_bet", "btts", "alternate_totals_corners", "h2h_h1"]])),
 };
 
+// 1st-half moneyline, spread and total: every book you use posts them for
+// football and basketball, and Pinnacle prices all three. Per-game calls only
+// (the sport-wide feed is main lines). Hockey uses periods and baseball the
+// first five innings, so they're left out.
+export const HALF_MARKETS: Record<string, string[]> = Object.fromEntries(
+  ["NFL", "NCAAF", "NBA", "WNBA", "NCAAB"].map((l) => [l, ["h2h_h1", "spreads_h1", "totals_h1"]]),
+);
+
+// More props for a question about one game, where one call covers them all.
+// Each has a sharp price at Pinnacle or the exchanges (checked on a real NFL pull).
+export const QUESTION_PROP_MARKETS: Record<string, string[]> = {
+  NFL: ["player_pass_tds", "player_pass_completions", "player_pass_attempts", "player_rush_attempts", "player_reception_longest", "player_rush_reception_yds"],
+};
+
 export type EventInfo = Pick<OddsEvent, "id" | "sport_key" | "commence_time" | "home_team" | "away_team">;
 
 // Upcoming games (no odds). Free: costs no credits.
