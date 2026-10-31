@@ -24,6 +24,7 @@ export type BetCard = {
   bookOdds: number; // the book's American price for the whole bet (pre-boost)
   boost?: number; // fraction
   sharpSource?: string; // defaults to the sources in the legs' quotes
+  kindLabel?: string; // "SGPx (one leg per game)"; default "Single" / "n-leg parlay"
 };
 
 export type FormattedBet = { text: string; eval: BetEval; correlated: number[] };
@@ -44,7 +45,7 @@ export function formatBet(card: BetCard): FormattedBet {
   const out: string[] = [];
   if (card.title) out.push(`@${card.title}`, "");
 
-  out.push(`BET TO BUILD: ${n === 1 ? "Single" : `${n}-leg parlay`} on ${card.book}`);
+  out.push(`BET TO BUILD: ${card.kindLabel ?? (n === 1 ? "Single" : `${n}-leg parlay`)} on ${card.book}`);
   card.legs.forEach((leg, i) => {
     const where = [leg.game, leg.start].filter(Boolean).join(", ");
     out.push(`${i + 1}. ${leg.selection}${where ? ` | ${where}` : ""}`);

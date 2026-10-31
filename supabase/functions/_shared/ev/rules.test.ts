@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
-  americanToDecimal, bestBets, checkSlip, filterMode, findRuleBlocks, formatRange, formatSgpSuggestion, formatSlipCheck,
+  allowsSgpx, americanToDecimal, bestBets, cardLegs, checkSlip, formatBet, filterMode, findRuleBlocks, formatRange, formatSgpSuggestion, formatSlipCheck,
   impliedProb, normalizePromo, normalizeSlip, parseTarget, priceLegs, priceSlipLegs, prompt, QB_TD_GIVEN_TEAMMATE_TD,
   startFlow, step, suggestSgpLegs, type OddsEvent, type RuleLeg,
 } from "./mod.ts";
@@ -173,4 +173,39 @@ test("SGP suggestions on theScore add the favorite's moneyline as a free leg", (
   const mgm = suggestSgpLegs(legs.filter((l) => l.selection !== "Carolina Panthers +3.5"), 2, CAR_GB.id, "BetMGM")!;
   assert.deepEqual(mgm.free, []);
   assert.ok(impliedProb(-200) > 0.6);
+});
+
+// Real La Liga game: DraftKings' per-game soccer markets, priced by Pinnacle.
+// The sport-wide feed gave DraftKings' moneyline only, which used to stop SGP
+// suggestions cold.
+test("a soccer SGP finds four legs in one game's own markets", () => {
+  const game: OddsEvent = JSON.parse(readFileSync(new URL("./samples/laliga-2026-10-31-mal-bet.json", import.meta.url), "utf8"));
+  const legs = priceLegs([game], "draftkings", { now: new Date("2026-10-31T14:30:00Z") });
+  const sg = suggestSgpLegs(legs, 4, game.id, "DraftKings")!;
+  assert.ok(sg, legs.map((l) => l.selection).join(", "));
+  const markets = sg.legs.map((l) => l.market.replace(/^alternate_/, ""));
+  assert.equal(new Set(markets).size, 4, "four different markets");
+  assert.ok(markets.filter((m) => ["h2h", "spreads", "draw_no_bet"].includes(m)).length <= 1, "one result leg");
+  assert.equal(sg.legs.filter((l) => l.market === "alternate_totals_corners").length <= 1, true, "one corners total");
+});
+
+test("SGPx builds one leg per game for an SGP-only promo", () => {
+  const promo = normalizePromo({ book: "DraftKings", title: "Soccer 20% SGP(x) Boost", type: "profit_boost", boost_pct: 20, max_stake: 100,
+    min_total_odds: 100, min_legs: 2, bet_kinds: ["sgp"], leagues: ["SOCCER"], notes: "SGPx (multi-game same-game parlays) also qualifies" });
+  assert.equal(allowsSgpx(promo), true);
+  assert.equal(allowsSgpx({ ...promo, title: "NFL SGP Boost", notes: null }), false);
+  const game = (id: string, book: number, sharp: [number, number]): OddsEvent => ({
+    id, sport_key: "soccer_epl", commence_time: "2026-11-01T15:00:00Z", home_team: `${id} H`, away_team: `${id} A`,
+    bookmakers: [
+      { key: "draftkings", title: "DraftKings", markets: [{ key: "btts", outcomes: [{ name: "Yes", price: book }, { name: "No", price: -book }] }] },
+      { key: "pinnacle", title: "Pinnacle", markets: [{ key: "btts", outcomes: [{ name: "Yes", price: sharp[0] }, { name: "No", price: sharp[1] }] }] },
+    ],
+  });
+  const legs = priceLegs([game("a", 110, [105, -115]), game("b", 115, [108, -118])], "draftkings", { now: PULLED });
+  const [pick] = bestBets(legs, promo);
+  assert.equal(pick.kind, "sgp");
+  assert.deepEqual(pick.legs.map((l) => l.eventId).sort(), ["a", "b"], "one leg per game");
+  assert.ok(pick.eval.ev > 0);
+  assert.match(formatBet({ book: "DraftKings", bookOdds: pick.americanOdds, boost: 0.2, legs: cardLegs(pick), kindLabel: "2-leg SGPx, one leg per game" }).text,
+    /^BET TO BUILD: 2-leg SGPx, one leg per game on DraftKings$/m);
 });

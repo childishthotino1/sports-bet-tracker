@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { example } from "./examples.test-helper.ts";
 const NFL_30_PARLAY_BOOST = example("Unknown book: 30% NFL Parlay Profit Boost");
-import { normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, type FlowState } from "./mod.ts";
+import { leaguesToSearch, normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, type FlowState } from "./mod.ts";
 
 // The 33% MLB SGP boost screenshot: no book shown, max $50, min +300.
 const promo = () => normalizePromo({
@@ -124,11 +124,15 @@ test("a Soccer promo asks which league, with readable names", () => {
   assert.equal(r.state.step, "sport");
   const p = prompt(r.state);
   assert.equal(p.text, "Which league should I search?");
-  assert.deepEqual(p.buttons.flat().map((b) => b.label), ["Premier League", "Champions League", "MLS", "La Liga", "Serie A", "Bundesliga"]);
+  assert.deepEqual(p.buttons.flat().map((b) => b.label), ["Premier League", "Champions League", "MLS", "La Liga", "Serie A", "Bundesliga", "🌐 All of them"]);
+  const all = step(r.state, "ALL");
+  assert.equal(all.action, "picks");
+  assert.deepEqual(leaguesToSearch(all.state), ["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"]);
   assert.equal(step(r.state, "NBA").reply, "Pick a sport above.", "a soccer promo can't search the NBA");
   r = step(r.state, "EPL");
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "EPL");
+  assert.deepEqual(leaguesToSearch(r.state), ["EPL"]);
   assert.match(prompt({ ...r.state, step: "action" }).text, /Same Game Parlay \(4\+ legs\) · Soccer · min \+400 · max \$100/);
 });
 

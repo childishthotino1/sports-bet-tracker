@@ -40,9 +40,12 @@ export type Quote = {
 // exchanges put milestone lines ("25+ points") in the main prop market.
 export function marketFamily(key: string): string[] {
   const base = key.replace(/^alternate_/, "").replace(/_alternate$/, "");
-  if (base === "spreads" || base === "totals") return [base, `alternate_${base}`];
-  return [base, `${base}_alternate`];
+  // Game markets put "alternate_" in front (alternate_totals_corners), player
+  // props behind (player_points_alternate).
+  return isPropMarket(base) ? [base, `${base}_alternate`] : [base, `alternate_${base}`];
 }
+
+const isPropMarket = (m: string) => /^(player|batter|pitcher)_/.test(m);
 
 // Is b on the same line as a? Spreads pair Panthers +3.5 with Packers -3.5;
 // everything else pairs on the same player and number.

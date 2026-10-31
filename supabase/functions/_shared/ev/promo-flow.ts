@@ -18,7 +18,7 @@ export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; 
 export type FlowState = {
   promo: Promo;
   step: "book" | "max_stake" | "action" | "sport" | "target" | "slip" | "fair" | "end";
-  sport?: string; // league to search for picks, e.g. "NBA"
+  sport?: string; // league to search for picks, e.g. "NBA", or "ALL" for every one the promo covers
   target?: OddsRange; // odds the picks should land in; unset = any price that qualifies
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
   slip?: Slip; // a slip screenshot waiting to be priced (only while asking which book)
@@ -73,6 +73,7 @@ export function prompt(s: FlowState): Prompt {
       const list = options.length ? options : Object.keys(SPORT_KEYS);
       const rows: Button[][] = [];
       for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: LEAGUE_LABELS[l] ?? l, value: l })));
+      rows.push([{ label: options.length ? "🌐 All of them" : "🌐 All sports", value: "ALL" }]);
       return { text: options.length > 1 ? "Which league should I search?" : "Which sport should I search?", buttons: rows };
     }
     case "target":
@@ -106,6 +107,14 @@ export function summary(p: Promo): string {
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
   return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+}
+
+// The leagues a search covers: the one picked, or for "ALL" every league the
+// promo covers (every league the feed has, for a promo that names none).
+export function leaguesToSearch(s: FlowState): string[] {
+  if (s.sport && s.sport !== "ALL") return [s.sport];
+  const options = searchable(s.promo);
+  return s.sport === "ALL" ? (options.length ? options : Object.keys(SPORT_KEYS)) : options.slice(0, 1);
 }
 
 // The promo's leagues that the odds feed covers.
@@ -192,6 +201,7 @@ export function step(s: FlowState, input: string): StepResult {
     }
     case "sport": {
       const sport = v.toUpperCase();
+      if (sport === "ALL" || sport === "ANY") return { state: { ...s, step: "action", sport: "ALL" }, action: "picks" };
       const options = searchable(s.promo);
       if (!SPORT_KEYS[sport] || (options.length && !options.includes(sport))) return { state: s, reply: "Pick a sport above." };
       return { state: { ...s, step: "action", sport }, action: "picks" };

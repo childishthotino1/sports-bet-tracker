@@ -13,10 +13,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  bestBets, BOOK_KEYS, cardLegs, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, bestBets, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
-  type OddsEvent, type Prompt,
+  type OddsEvent, type Promo, type Prompt,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
@@ -139,40 +139,51 @@ async function creditsNote(chatId: number, remaining: number | null) {
 async function sendPicks(chatId: number, s: FlowState) {
   const { promo } = s;
   const bookKey = promo.book ? BOOK_KEYS[promo.book] : undefined;
-  const league = s.sport ?? promo.leagues.find((l) => SPORT_KEYS[l]);
+  const leagues = leaguesToSearch(s);
   if (!bookKey) return send(chatId, `I can't pull odds for ${promo.book ?? "this book"} yet.`);
-  if (!league) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
-  if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp") return sendSgpLegs(chatId, s, bookKey, league);
+  if (!leagues.length) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
+  const sgpOnly = promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp";
+  const sgpx = sgpOnly && allowsSgpx(promo);
 
   const { markets: mode } = await loadSettings(chatId);
   const what = mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
-  await send(chatId, `🔎 Pulling ${promo.book} ${league} ${what} and the sharp prices (Pinnacle + exchanges)…`);
-  const sportKey = SPORT_KEYS[league];
+  const where = leagues.length === 1 ? leagues[0] : `${leagues.length} leagues`;
+  await send(chatId, `🔎 Pulling ${promo.book} ${where} ${what} and the sharp prices (Pinnacle + exchanges)…`);
+
+  // Main lines: one call per league. SGP-only promos need them to rank games.
   const events: OddsEvent[] = [];
   let remaining: number | null = null;
-  if (mode !== "props") {
-    const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
-    events.push(...main.data.filter((e) => promoCovers(promo, e.commence_time)));
-    remaining = main.remaining;
+  if (mode !== "props" || sgpOnly) {
+    for (const league of leagues) {
+      const r = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
+      events.push(...r.data.filter((e) => promoCovers(promo, e.commence_time)));
+      remaining = r.remaining;
+    }
   }
-  const propMarkets = PROP_MARKETS[league] ?? [];
-  if (mode !== "main" && propMarkets.length) {
+  // Props (and a single-game SGP's legs) need one call per game.
+  if (sgpOnly && !sgpx) return sendSgpLegs(chatId, s, bookKey, leagues, events, remaining);
+  if (mode !== "main") {
     if (remaining !== null && remaining < PROP_CREDIT_FLOOR) {
       await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props this time.`);
     } else {
-      const games = (await getEvents(ODDS_API_KEY, sportKey))
-        .filter((e) => promoCovers(promo, e.commence_time))
-        .sort((a, b) => a.commence_time.localeCompare(b.commence_time))
-        .slice(0, PROP_GAMES);
+      const games = (await coveredGames(promo, leagues)).slice(0, PROP_GAMES);
       for (const g of games) {
-        const r = await eventOdds(sportKey, g.id, propMarkets, bookKey);
+        const league = LEAGUE_OF[g.sport_key];
+        const markets = PROP_MARKETS[league] ?? [];
+        if (!markets.length) continue;
+        const r = await eventOdds(g.sport_key, g.id, markets, bookKey);
         events.push(r.data);
         remaining = r.remaining;
       }
     }
   }
+
   const legs = filterMode(priceLegs(events, bookKey), mode);
-  const picks = bestBets(legs, promo, { league, target: s.target });
+  const picks = bestBets(legs, promo, { league: leagues.length === 1 ? leagues[0] : undefined, target: s.target });
+  if (sgpx && !picks.length) {
+    // No SGPx of one leg per game works: try single-game SGP legs instead.
+    return sendSgpLegs(chatId, s, bookKey, leagues, events, remaining);
+  }
   if (!picks.length) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
     await send(chatId, noPicksReason(legs, promo, s.target) + setting);
@@ -184,45 +195,56 @@ async function sendPicks(chatId: number, s: FlowState) {
       bookOdds: p.americanOdds,
       boost: (promo.boost_pct ?? 0) / 100,
       legs: cardLegs(p),
+      kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
     }).text);
+  }
+  if (sgpx && picks.length) {
+    await send(chatId, `Each leg is from a different game, so ${promo.book} should price the ${SGPX_NAME[promo.book!] ?? "SGPx"} as the legs multiplied, the price shown. If the slip shows a different total, send me the screenshot and I'll reprice it.`);
   }
   await creditsNote(chatId, remaining);
   await sendPrompt(chatId, prompt(s));
 }
 
+// What each book calls a parlay of same-game parlays from different games.
+const SGPX_NAME: Record<string, string> = { DraftKings: "SGPx", FanDuel: "SGP+" };
+
+// Our league name for a feed sport key.
+const LEAGUE_OF: Record<string, string> = Object.fromEntries(Object.entries(SPORT_KEYS).map(([l, k]) => [k, l]));
+
+// Upcoming games in these leagues that the promo covers, soonest first. Free.
+async function coveredGames(promo: Promo, leagues: string[]) {
+  const all = [];
+  for (const league of leagues) all.push(...await getEvents(ODDS_API_KEY, SPORT_KEYS[league]));
+  return all.filter((e) => promoCovers(promo, e.commence_time)).sort((a, b) => a.commence_time.localeCompare(b.commence_time));
+}
+
 // SGP-only promo: suggest the best-priced legs in the promo's game, or in the
-// best games it covers (trying the next one when a game's sharp prop lines
-// aren't up yet), then wait for the user's slip screenshot to price the SGP.
-async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league: string) {
+// best games it covers (trying the next one when a game's sharp lines aren't
+// up yet), then wait for the user's slip screenshot to price the SGP.
+// mainEvents: the leagues' main lines, already pulled, to rank games by.
+async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, leagues: string[], mainEvents: OddsEvent[], remaining: number | null) {
   const { promo } = s;
-  const sportKey = SPORT_KEYS[league];
-  await send(chatId, `🔎 Pulling ${promo.book} and sharp lines for SGP legs…`);
-  const events = (await getEvents(ODDS_API_KEY, sportKey)).filter((e) => promoCovers(promo, e.commence_time));
+  const events = await coveredGames(promo, leagues);
   if (!events.length) {
-    await send(chatId, `No ${league} games left that this promo covers${promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
+    await send(chatId, `No ${leagues.join("/")} games left that this promo covers${promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
     return sendPrompt(chatId, prompt(s));
   }
   const named = findEvent(events, [promo.notes, promo.title]);
-  let candidates = named ? [named] : [];
-  let remaining: number | null = null;
-  if (!named) {
-    // No game named: start with the games whose main lines price best.
-    const main = await getOdds(ODDS_API_KEY, sportKey, { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
-    remaining = main.remaining;
-    const covered = main.data.filter((e) => events.some((x) => x.id === e.id));
-    candidates = rankSgpGames(priceLegs(covered, bookKey))
-      .map((id) => events.find((e) => e.id === id)!)
-      .slice(0, SGP_GAMES);
-  }
+  const candidates = named ? [named] : rankSgpGames(priceLegs(mainEvents, bookKey))
+    .map((id) => events.find((e) => e.id === id))
+    .filter((e) => !!e)
+    .slice(0, SGP_GAMES);
   if (!candidates.length) {
-    await send(chatId, "No sharp lines are up for these games yet. Try closer to game time, or build an SGP and send me the slip.");
+    await send(chatId, `Neither ${promo.book} nor the sharp sources have lines up for these games yet. Try closer to game time, or build an SGP and send me the slip.`);
     return sendPrompt(chatId, prompt(s));
   }
   const { markets: mode } = await loadSettings(chatId);
   const tried: string[] = [];
   let sg = null;
   for (const game of candidates) {
-    const odds = await eventOdds(sportKey, game.id, [...MAIN_MARKETS, ...(PROP_MARKETS[league] ?? [])], bookKey);
+    const league = LEAGUE_OF[game.sport_key];
+    const markets = [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(PROP_MARKETS[league] ?? [])];
+    const odds = await eventOdds(game.sport_key, game.id, markets, bookKey);
     remaining = odds.remaining;
     sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), mode), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
     if (sg) break;
@@ -230,7 +252,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
   }
   if (!sg) {
     const setting = mode === "all" ? "" : ` (picks are set to ${MODE_LABELS[mode]}; /settings to change)`;
-    await send(chatId, `The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to tip-off, or build an SGP and send me the slip; I'll price it.`);
+    await send(chatId, `The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to kickoff, or build an SGP and send me the slip; I'll price it.`);
   } else {
     await send(chatId, formatSgpSuggestion(sg, promo.book!));
   }

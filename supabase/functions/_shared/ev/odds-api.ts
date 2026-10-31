@@ -64,6 +64,8 @@ async function get<T>(path: string, apiKey: string, q: Query): Promise<OddsResul
   return { data: (await res.json()) as T, remaining: num("x-requests-remaining"), used: num("x-requests-used") };
 }
 
+const SOCCER = ["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"];
+
 // Player-prop markets worth pulling per sport for SGP legs (one per-game call).
 export const PROP_MARKETS: Record<string, string[]> = {
   NFL: ["player_anytime_td", "player_pass_yds", "player_rush_yds", "player_reception_yds", "player_receptions"],
@@ -73,7 +75,15 @@ export const PROP_MARKETS: Record<string, string[]> = {
   NCAAB: ["player_points", "player_rebounds", "player_assists"],
   MLB: ["batter_hits", "batter_total_bases", "batter_home_runs", "pitcher_strikeouts"],
   NHL: ["player_points", "player_shots_on_goal"],
-  ...Object.fromEntries(["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"].map((l) => [l, ["btts", "player_goal_scorer_anytime"]])),
+  ...Object.fromEntries(SOCCER.map((l) => [l, ["player_goal_scorer_anytime"]])),
+};
+
+// Game markets beyond h2h/spreads/totals that a single game's call should
+// pull. DraftKings posts soccer totals and both-teams-to-score only here (its
+// sport-wide feed is the moneyline alone), and soccer's main totals are often
+// quarter-goal lines (2.25) where the alternates have the 2.5.
+export const EXTRA_MARKETS: Record<string, string[]> = {
+  ...Object.fromEntries(SOCCER.map((l) => [l, ["alternate_totals", "alternate_spreads", "draw_no_bet", "btts", "alternate_totals_corners", "h2h_h1"]])),
 };
 
 export type EventInfo = Pick<OddsEvent, "id" | "sport_key" | "commence_time" | "home_team" | "away_team">;

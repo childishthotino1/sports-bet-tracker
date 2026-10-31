@@ -30,6 +30,9 @@ function statLabel(market: string): string {
 
 export function selectionLabel(market: string, o: Outcome): string {
   if (market === "h2h") return `${o.name} ML`;
+  if (market === "h2h_h1") return o.name === "Draw" ? "1st Half Draw" : `${o.name} 1st Half ML`;
+  if (market === "draw_no_bet") return `${o.name} Draw No Bet`;
+  if (market.includes("corners")) return `${sideLabel(market, o)} Corners`;
   if (market.includes("spreads") || market.includes("totals")) return sideLabel(market, o);
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;
@@ -110,8 +113,17 @@ export type PickOptions = { league?: string; top?: number; pool?: number; maxLeg
 // Best qualifying bets for a promo. Parlays only combine legs from different
 // games, so independence holds; same-game parlays aren't auto-picked (the
 // book's SGP price includes correlation the feed doesn't give us).
+// SGPx (DraftKings) and SGP+ (FanDuel) combine same-game parlays from
+// different games, so an SGP-only promo that allows them takes a parlay of
+// one leg per game. Those legs don't move together, so it's priced like any
+// parlay: the legs multiplied.
+export function allowsSgpx(promo: Promo): boolean {
+  return /\bsgp\s*\(?x\)?|\bsgp\+/i.test(`${promo.title} ${promo.notes ?? ""}`);
+}
+
 export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
-  const { league, top = 3, pool = 15, maxLegs = 4, target } = opts;
+  const { league, top = 3, pool = 15, target } = opts;
+  const maxLegs = Math.max(opts.maxLegs ?? 4, promo.min_legs ?? 0);
   const boost = (promo.boost_pct ?? 0) / 100;
   const allows = (k: BetKind) => !promo.bet_kinds.length || promo.bet_kinds.includes(k);
   const candidates: Pick[] = [];
@@ -126,13 +138,18 @@ export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}
   };
 
   if (allows("single")) for (const l of legs) consider("single", [l]);
-  if (allows("parlay")) {
-    const best = legs.slice(0, pool);
+  // A cross-game parlay, or an SGPx of one leg per game.
+  const multi: BetKind | null = allows("parlay") ? "parlay" : allows("sgp") && allowsSgpx(promo) ? "sgp" : null;
+  if (multi) {
+    // The pool takes the best leg per game first, so every game gets a look.
+    const perGame = new Map<string, PricedLeg>();
+    for (const l of legs) if (!perGame.has(l.eventId)) perGame.set(l.eventId, l);
+    const best = [...new Set([...perGame.values(), ...legs])].slice(0, pool);
     const lo = Math.max(2, promo.min_legs ?? 2);
     const hi = Math.min(maxLegs, promo.max_legs ?? maxLegs);
     for (let n = lo; n <= hi; n++) {
       for (const c of combos(best, n)) {
-        if (new Set(c.map((l) => l.eventId)).size === c.length) consider("parlay", c);
+        if (new Set(c.map((l) => l.eventId)).size === c.length) consider(multi, c);
       }
     }
   }
@@ -158,14 +175,14 @@ export function promoCovers(promo: Promo, commence: string, now = new Date()): b
   return promo.expires_at.length === 10 ? start.slice(0, 10) <= promo.expires_at : start <= promo.expires_at;
 }
 
-// Games ordered by their two best compatible legs against the sharp price:
-// where to look first for SGP legs.
+// Games ordered by their best leg against the sharp price: where to look
+// first for SGP legs. One leg is enough to rank on: the sport-wide call can
+// carry a single market for a book (DraftKings soccer: the moneyline only),
+// and the game's own call fills in the rest.
 export function rankSgpGames(legs: PricedLeg[]): string[] {
-  const scored = [...new Set(legs.map((l) => l.eventId))].map((id) => {
-    const sg = suggestSgpLegs(legs, 2, id);
-    return { id, score: sg ? sg.legs.reduce((a, l) => a + l.edge, 0) : -Infinity };
-  });
-  return scored.filter((g) => g.score > -Infinity).sort((a, b) => b.score - a.score).map((g) => g.id);
+  const best = new Map<string, number>();
+  for (const l of legs) best.set(l.eventId, Math.max(best.get(l.eventId) ?? -Infinity, l.edge));
+  return [...best].sort((a, b) => b[1] - a[1]).map(([id]) => id);
 }
 
 export function formatStart(iso: string): string {
@@ -185,7 +202,7 @@ export function noPicksReason(legs: PricedLeg[], promo: Promo, target?: OddsRang
   const games = new Set(legs.map((l) => l.eventId)).size;
   const parlayOnly = promo.bet_kinds.length > 0 && !promo.bet_kinds.includes("single");
   const minLegs = Math.max(parlayOnly ? 2 : 1, promo.min_legs ?? 0);
-  if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp") {
+  if (promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp" && !allowsSgpx(promo)) {
     return "This promo is same-game parlays only. Build one and send me a screenshot of the slip, and I'll price it.";
   }
   if (games < minLegs) {
@@ -196,6 +213,10 @@ export function noPicksReason(legs: PricedLeg[], promo: Promo, target?: OddsRang
   }
   return "No bet that qualifies for this promo is +EV right now: the boost doesn't cover the book's margin. Skip it, or use it on a bet you already like.";
 }
+
+// Markets that each say who wins: an SGP takes at most one, so it never bets
+// both sides of the game.
+const RESULT_MARKETS = ["h2h", "spreads", "alternate_spreads", "draw_no_bet"];
 
 export type SgpSuggestion = {
   game: string;
@@ -215,8 +236,11 @@ export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: strin
   for (const [id, evLegs] of byEvent) {
     const seen = new Set<string>();
     const picked = evLegs.filter((l) => {
-      const key = l.market === "h2h" || l.market === "spreads" ? "result" : l.market === "totals" ? "total"
-        : `${l.market}|${l.selection.split(" ").slice(0, 2).join(" ")}`;
+      // One leg per game result, per player and stat, and per other market
+      // (one corners total, not Over 9.5 and Under 10.5).
+      const key = RESULT_MARKETS.includes(l.market) ? "result"
+        : isPropMarket(l.market) ? `${l.market}|${l.selection.split(" ").slice(0, 2).join(" ")}`
+        : l.market.replace(/^alternate_/, "");
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
