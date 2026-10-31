@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// Sportsbook names, screenshot rules and boost reading, shared with the promo bot.
+import { BOOK_ALIASES, BOOK_ID_RULES, MARKET_READING_RULES, ODDS_READING_RULES, boostFromPrices } from "../_shared/books/books.ts";
 
 const TELEGRAM_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
 const ANTHROPIC_KEY  = Deno.env.get("ANTHROPIC_API_KEY")!;
@@ -84,6 +86,7 @@ interface ParsedSlip {
   boost_pct: number;
   total_wager: number;
   base_odds: number;
+  boosted_odds?: number; // the boosted price shown on the slip, if any; only used to work out boost_pct
   his_wager?: number;
   my_wager?: number;
   legs?: BetLeg[]; // populated for parlays/SGPs so the bet can be graded later; omitted/empty for straight bets
@@ -113,70 +116,24 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
             text: `Parse this sportsbook bet slip and return a JSON object with these fields:
 
 {
-  "book": "sportsbook abbreviation. Use these SPECIFIC visual rules to identify the book — check them in order:
-
-    CZR = Caesars Sportsbook
-      • WHITE or light grey background (the only book with a light background)
-      • 'CAESARS SPORTSBOOK' logo in green inside the bet card
-      • 'CAESARS REWARDS.' badge visible
-      • Trophy icon in top-right of card
-      • Labels: 'Cash Wagered', 'To Win', 'Pays'
-      • Dark green 'Done' button, outlined 'Reuse Selections' button
-
-    FAN = Fanatics Sportsbook
-      • Dark background
-      • 'Fanatics Sportsbook' wordmark with F-flag logo ALWAYS visible on the slip
-      • 'FanCash' column in the header; purple 'FCash' badge next to a dollar amount
-      • Green oval 'Cash out $X.XX' button
-      • Labels: 'Wager' and 'Payout'
-      • Header says 'Receipt / 1 bet placed'
-
-    MGM = BetMGM
-      • Dark background
-      • NO sportsbook name or logo visible on the slip itself
-      • White banner saying 'Your bet has been accepted. Good luck!'  with a green left border
-      • 'Account Balance $X,XXX' shown at top center
-      • Gold/tan 'Done' button (bottom right); 'View my bets' outline button (bottom left)
-      • Labels: 'Stake', 'Total payout'
-      • 'incl. Boosted Winnings $X in Cash' in green text when boosted
-      • 'Keep placed bets in bet slip' checkbox; 'Share My Bet' link
-
-    DK = DraftKings
-      • Dark background, green DraftKings crown logo
-      • 'DraftKings' wordmark visible
-
-    FD = FanDuel
-      • Blue background, 'FanDuel' wordmark
-
-    SCORE = theScore Bet
-      • Dark navy background
-      • 'theScore BET' logo top-left with yellow 'BET' pill
-      • Blue circular '+' button next to account balance top-right
-      • Green upward-arrow boost icon (not a dollar-sign like Fanatics)
-      • 'SGP' badge on same-game parlays
-      • Labels: 'BET' and 'POTENTIAL PAYOUT' at bottom
-
-    B365 = Bet365
-      • Green background, 'bet365' wordmark
-
-    CRITICAL DISAMBIGUATION:
-    - If background is WHITE/LIGHT → always CZR
-    - If dark background AND 'Fanatics Sportsbook' text visible → always FAN
-    - If dark background AND 'Your bet has been accepted. Good luck!' banner visible → always MGM
-    - If dark background AND gold 'Done' button → always MGM
-    - If dark background AND green oval 'Cash out' button + FanCash → always FAN",
+  "book": "sportsbook abbreviation. ${BOOK_ID_RULES}",
   "sport": "sport abbreviation — NBA, NFL, NHL, MLB, NCAAF, NCAAB, SOCCER, WNBA, GOLF, etc. If this is a parlay/SGP whose legs span MORE THAN ONE distinct sport, join each distinct sport's abbreviation with '/' in the order the legs appear (e.g. 'NFL/MLB') — never use a placeholder like 'MULTI'.",
   "description": "short label, no spaces or dots, that identifies the specific bet — include enough to recognize it later:
     • Single bet: team or player + bet type — e.g. LakersML, BrownsCover, CurrieO29pts, MartaHR
     • Parlay: up to 3 key teams or players from the legs + leg count — e.g. Angels-TBRays-3Leg, Wemby-Castle-2Leg, KurtzHR-SabresRL-MGM3Leg
     • Never use generic labels like '3LegParlay' or 'Parlay' alone — always include at least one team or player name",
-  "boost_pct": boost percentage as a number (0 if no boost shown),
+  "boost_pct": boost percentage as a number (0 if no boost shown). If the % isn't printed but a boosted price is, work it out as described below,
   "total_wager": total wager amount as a number,
-  "base_odds": the ORIGINAL pre-boost odds as an integer in American format (e.g. 180, -110, -114). If a profit boost is applied, use the original odds shown BEFORE the boost. If no boost, use the displayed odds.,
+  "base_odds": the ORIGINAL pre-boost odds as an integer in American format (e.g. 180, -110, -114). If a profit boost is applied, use the original odds shown BEFORE the boost (the struck-through price). If no boost, use the displayed odds.,
+  "boosted_odds": the boosted price as an integer in American format if a boost is shown, else 0,
   "legs": ONLY include this field if the slip has more than one leg (parlay, SGP, round robin, etc). Omit it entirely for a single straight bet. When present, an array with one object per leg:
     { "team_or_player": "the team or player name for this leg", "market": "the bet type, e.g. 'moneyline', 'spread -3.5', 'total over 220.5', 'anytime TD', 'points over 24.5'", "selection": "the specific side/pick, e.g. 'Ravens', 'Over', 'Yes'" }
     Extract EVERY leg shown on the slip, even if the "description" field only summarizes 2-3 of them. This is used later to verify whether the bet won or lost, so it must be complete and specific enough to look up each leg's result independently.
 }
+
+${ODDS_READING_RULES}
+
+${MARKET_READING_RULES}
 
 Return ONLY valid JSON. No explanation.`,
           },
@@ -191,7 +148,12 @@ Return ONLY valid JSON. No explanation.`,
 
   try {
     const clean = text.replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
-    return JSON.parse(clean) as ParsedSlip;
+    const parsed = JSON.parse(clean) as ParsedSlip;
+    // A boosted price with no % printed: work the % out from the two prices.
+    if (!(parsed.boost_pct > 0) && parsed.boosted_odds) {
+      parsed.boost_pct = boostFromPrices(parsed.base_odds, parsed.boosted_odds) ?? 0;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -199,15 +161,7 @@ Return ONLY valid JSON. No explanation.`,
 
 // ── Sportsbook matching ───────────────────────────────────
 
-const BOOK_ALIASES: Record<string, string> = {
-  "ESPN": "theScore Bet", "THESCORE": "theScore Bet", "SCORE": "theScore Bet", "THESCOREBET": "theScore Bet",
-  "FD": "FanDuel", "FANDUEL": "FanDuel",
-  "DK": "DraftKings", "DRAFTKINGS": "DraftKings",
-  "MGM": "BetMGM", "BETMGM": "BetMGM",
-  "B365": "Bet365", "BET365": "Bet365",
-  "FAN": "Fanatics", "FANATICS": "Fanatics",
-  "CZR": "Caesars", "CS": "Caesars", "CAESARS": "Caesars", "CEASARS": "Caesars",
-};
+// BOOK_ALIASES comes from _shared/books (the promo bot uses the same list).
 
 function matchBook(book: string, sportsbooks: { id: string; name: string }[]) {
   const upper = book.toUpperCase().replace(/\s/g, "");

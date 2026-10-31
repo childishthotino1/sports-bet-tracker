@@ -1,0 +1,49 @@
+{
+  "_note": "Real /events/{id}/odds pull, 2026-10-31 ~10:30 ET, Málaga @ Real Betis. Trimmed to DraftKings and Pinnacle (Pinnacle's alternate lines and DraftKings' goalscorers left out). DraftKings posts soccer totals, corners, BTTS and first-half lines only on the per-game endpoint.",
+  "id": "8f0b7ef29a47f675429758e83a426d7e",
+  "sport_key": "soccer_spain_la_liga",
+  "commence_time": "2026-10-31T17:30:00Z",
+  "home_team": "Real Betis",
+  "away_team": "Málaga",
+  "bookmakers": [
+    { "key": "pinnacle", "title": "Pinnacle", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Málaga", "price": 877, "bet_limit": 15000 }, { "name": "Real Betis", "price": -319, "bet_limit": 15000 }, { "name": "Draw", "price": 495, "bet_limit": 15000 }] },
+      { "key": "spreads", "outcomes": [{ "name": "Málaga", "point": 1.5, "price": 106, "bet_limit": 15000 }, { "name": "Real Betis", "point": -1.5, "price": -114, "bet_limit": 15000 }] },
+      { "key": "totals", "outcomes": [{ "name": "Over", "point": 3.25, "price": 102, "bet_limit": 10000 }, { "name": "Under", "point": 3.25, "price": -112, "bet_limit": 10000 }] },
+      { "key": "alternate_totals_corners", "outcomes": [
+        { "name": "Over", "point": 10.0, "price": -101, "bet_limit": 2500 }, { "name": "Over", "point": 9.0, "price": -182, "bet_limit": 2500 },
+        { "name": "Over", "point": 9.5, "price": -130, "bet_limit": 2500 }, { "name": "Over", "point": 10.5, "price": 121, "bet_limit": 2500 },
+        { "name": "Over", "point": 11.0, "price": 157, "bet_limit": 2500 }, { "name": "Under", "point": 10.0, "price": -117, "bet_limit": 2500 },
+        { "name": "Under", "point": 9.0, "price": 142, "bet_limit": 2500 }, { "name": "Under", "point": 9.5, "price": 107, "bet_limit": 2500 },
+        { "name": "Under", "point": 10.5, "price": -150, "bet_limit": 2500 }, { "name": "Under", "point": 11.0, "price": -204, "bet_limit": 2500 }
+      ] },
+      { "key": "btts", "outcomes": [{ "name": "Yes", "price": -115, "bet_limit": 1500 }, { "name": "No", "price": 100, "bet_limit": 1500 }] },
+      { "key": "draw_no_bet", "outcomes": [{ "name": "Málaga", "price": 703, "bet_limit": 1500 }, { "name": "Real Betis", "price": -938, "bet_limit": 1500 }] },
+      { "key": "h2h_h1", "outcomes": [{ "name": "Málaga", "price": 732, "bet_limit": 2500 }, { "name": "Real Betis", "price": -138, "bet_limit": 2500 }, { "name": "Draw", "price": 197, "bet_limit": 2500 }] }
+    ] },
+    { "key": "draftkings", "title": "DraftKings", "markets": [
+      { "key": "h2h", "outcomes": [{ "name": "Málaga", "price": 800 }, { "name": "Real Betis", "price": -330 }, { "name": "Draw", "price": 475 }] },
+      { "key": "alternate_spreads", "outcomes": [
+        { "name": "Málaga", "point": 2.0, "price": -180 }, { "name": "Málaga", "point": 1.75, "price": -135 }, { "name": "Málaga", "point": 1.5, "price": -105 },
+        { "name": "Málaga", "point": 1.25, "price": 120 }, { "name": "Real Betis", "point": -2.0, "price": 130 }, { "name": "Real Betis", "point": -1.75, "price": -105 },
+        { "name": "Real Betis", "point": -1.5, "price": -130 }, { "name": "Real Betis", "point": -1.25, "price": -170 }
+      ] },
+      { "key": "alternate_totals", "outcomes": [
+        { "name": "Over", "point": 0.5, "price": -8000 }, { "name": "Over", "point": 1.5, "price": -700 }, { "name": "Over", "point": 2.5, "price": -210 },
+        { "name": "Over", "point": 3.5, "price": 120 }, { "name": "Over", "point": 4.5, "price": 275 }, { "name": "Over", "point": 5.5, "price": 550 },
+        { "name": "Over", "point": 6.5, "price": 1100 }, { "name": "Under", "point": 0.5, "price": 1600 }, { "name": "Under", "point": 1.5, "price": 450 },
+        { "name": "Under", "point": 2.5, "price": 170 }, { "name": "Under", "point": 3.5, "price": -150 }, { "name": "Under", "point": 4.5, "price": -360 },
+        { "name": "Under", "point": 5.5, "price": -900 }, { "name": "Under", "point": 6.5, "price": -3000 }
+      ] },
+      { "key": "alternate_totals_corners", "outcomes": [
+        { "name": "Over", "point": 7.5, "price": -425 }, { "name": "Over", "point": 8.5, "price": -230 }, { "name": "Over", "point": 9.5, "price": -140 },
+        { "name": "Over", "point": 10.5, "price": 115 }, { "name": "Over", "point": 11.5, "price": 180 }, { "name": "Under", "point": 7.5, "price": 265 },
+        { "name": "Under", "point": 8.5, "price": 160 }, { "name": "Under", "point": 9.5, "price": 100 }, { "name": "Under", "point": 10.5, "price": -160 },
+        { "name": "Under", "point": 11.5, "price": -255 }
+      ] },
+      { "key": "btts", "outcomes": [{ "name": "Yes", "price": -125 }, { "name": "No", "price": 100 }] },
+      { "key": "draw_no_bet", "outcomes": [{ "name": "Málaga", "price": 600 }, { "name": "Real Betis", "price": -1100 }] },
+      { "key": "h2h_h1", "outcomes": [{ "name": "Málaga", "price": 700 }, { "name": "Real Betis", "price": -150 }, { "name": "Draw", "price": 165 }] }
+    ] }
+  ]
+}

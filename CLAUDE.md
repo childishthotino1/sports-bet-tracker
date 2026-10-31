@@ -29,6 +29,7 @@ Supabase edge functions (Telegram bot, bet parser, auto-grader) live in `supabas
 supabase functions deploy telegram-bot
 supabase functions deploy parse-bet
 supabase functions deploy grade-bets
+supabase functions deploy promo-bot --no-verify-jwt   # Telegram can't send a JWT
 ```
 
 No `package.json` — dependencies are CDN-loaded in `index.html` (Supabase JS v2, Chart.js v4).
@@ -46,7 +47,20 @@ supabase/functions/
   telegram-bot/     # Webhook: photo → Claude vision → conversational intake → save
   parse-bet/        # Simple CORS endpoint for direct image parsing (legacy)
   grade-bets/       # Daily auto-checker: Claude + web search verifies open bets, recommend-and-confirm
+  promo-bot/        # @Bmorepromobot webhook: promo screenshot → rules → best bets / check a bet (separate bot)
+  _shared/ev/       # +EV core used by promo-bot: devig, EV, Kelly, promo rules + flow, odds client, picks
+  _shared/books/    # Sportsbook knowledge shared by telegram-bot AND promo-bot (see below)
 ```
+
+**Shared sportsbook knowledge (`_shared/books/books.ts`).** Both Telegram bots import it, so a rule fixed there teaches both:
+
+- `SPORTSBOOKS`: names (as in the `sportsbooks` table), codes, aliases and Odds API keys. `BOOK_ALIASES` and `canonicalBook()` are built from it.
+- `BOOK_ID_RULES`: how to tell the books apart in a screenshot. BetMGM shows no logo, so it's recognized by layout, both the placed receipt and the slip before Place Bet.
+- `ODDS_READING_RULES`: the struck-through price is the base odds; how each book shows a boost; working out the boost % from the two prices.
+- `MARKET_READING_RULES`: team totals vs game totals, and period lines.
+- `boostFromPrices()`: the boost a base and boosted price imply (-105 → +109 is 15%; books round the boosted price down).
+
+The tracker's vision prompt interpolates these rules. When a slip shows a boosted price but no %, the tracker fills `boost_pct` from the two prices. The promo bot's slip prompt uses the same rules. Both edge functions are deployed as single-file esbuild bundles, so the shared file is inlined (`supabase functions deploy` also resolves the `../_shared` import). Tests: `node --test supabase/functions/_shared/books/*.test.ts`.
 
 **Load order matters:** `config.js` must load before `db.js`; `math.js` before `app.js`.
 
@@ -87,7 +101,7 @@ supabase/functions/
 3. Bot saves a `pending_bet` row (stage: `awaiting_splits`), asks Dan's cut
 4. User replies with Dan's dollar amount → bot computes Brent's cut → previews → saves to `bets` table → adjusts sportsbook balance
 
-Sportsbook aliases in the bot: DK→DraftKings, FD→FanDuel, MGM→BetMGM, CS/theScore→theScore Bet, etc.
+Sportsbook aliases (DK→DraftKings, FD→FanDuel, MGM→BetMGM, SCORE/ESPN→theScore Bet, CS/CZR→Caesars, etc.) and the screenshot rules come from `_shared/books` (above).
 
 The bot never settles a bet (won/lost/push) — settlement only happens through the app UI, or the auto-grader below.
 
@@ -104,4 +118,46 @@ Runs daily via `pg_cron` (job `grade-bets-daily`, `0 13 * * *` UTC, calls the ed
 
 ## Migrations
 
-SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above).
+SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above), `add_promo_bot_state.sql` (promo bot's per-chat conversation state; RLS on, no policies), `add_promo_bot_settings.sql` (its per-chat settings; already applied).
+
+## +EV Core (`supabase/functions/_shared/ev/`)
+
+Pure TypeScript for the planned +EV promo bot (`/devig`, `/promo`, `/best`): odds conversions, four devig methods (multiplicative, additive, power, Shin) plus worst-case, profit-boost EV, Kelly, free-bet value, and the plain-text bet card. No Telegram, DB, or Deno APIs, so a Discord adapter can reuse it. Imports use `.ts` extensions, so it runs under Deno and Node. Tests: `node --test supabase/functions/_shared/ev/*.test.ts` (or `deno test`); the DK 50% boost worked example is pinned there.
+
+`promo-examples.md` is the bot's reference for reading promos: real screenshots described in words, the gotcha each one teaches, and the JSON it should produce. Its whole text goes into the vision prompt (`promoPrompt()`), and the tests check every JSON block in it, so it doubles as the promo test cases. To teach the bot a new kind of promo, add a section there; no code change needed. It's context, not a database: there's no promo log.
+
+`promo-flow.ts` is the conversation after a screenshot is read: buttons for whatever the screenshot didn't show (book, max wager), then "check a bet I'm building" → book price → fair price (an assumed book margin, or a typed price) → EV verdict. It's stateless; the bot stores `FlowState` per chat (its own table) and calls `step()` with each tap or reply.
+
+`promo.ts` holds the promo JSON schema and prompt, `normalizePromo`, and the rule checks (`promoViolations`, `promoStake`, `breakEvenProb`). `slip.ts` does the same for bet slips and prices them (below). `image.ts` combines both into one vision schema (`kind`: promo / slip / other); `vision.ts` is the Claude call that fills it, and it imports `npm:@anthropic-ai/sdk`, so it's Deno-only and not re-exported from `mod.ts`.
+
+**Odds feed: The Odds API** (v4, `odds-api.ts`). Book prices come from the promo's book; sharp prices from Pinnacle (its `pinnacle` key; Pinnacle closed its own public API in July 2025). Credits per odds call are markets × regions, so main lines for a whole sport are one call, while player props need one `/events/{id}/odds` call per game. `picks.ts` prices every leg the book offers against Pinnacle's worst-case devig (`priceLegs`), then builds qualifying singles and cross-game parlays and ranks them by boosted EV (`bestBets`). Same-game parlays aren't auto-picked: the feed has no SGP prices, and the book's SGP price includes correlation. **Sharp prices: Pinnacle plus four exchanges** (`sharp.ts`): Novig, ProphetX, Kalshi and Polymarket ride in the same request as the book (up to 10 bookmakers bill as one region, so no extra credits). Each source's line is devigged on its own (worst case), then combined (`consensus`): on game lines Pinnacle is half the fair price (`PINNACLE_MAIN_SHARE`) and the exchanges share the other half weighted by 1/hold (floored at 1%); on props, where Pinnacle's limits are low, every source is weighted by 1/hold. Exchange holds aren't comparable to Pinnacle's (they charge commission on winnings instead), which is why Pinnacle gets a fixed share rather than competing on hold. The card lists every source with its hold. The exchanges post both sides of bets the sportsbooks sell one way (anytime TD "No") and price lines Pinnacle skips (Pinnacle added NFL anytime TD by 2026-10-31; it still skips longest-reception, rush + rec and similar props, which Novig and ProphetX price). Exchanges list every resting offer, many stale or for a few dollars, so each side keeps its best price with at least $50 behind it (`includeBetLimits`), and a line is dropped if a side is missing or the hold is under 0 (crossed) or over 10%. Pinnacle's prop limits are $250–500 against $10K+ on game lines, so its prop prices are the weakest of its quotes. Caesars and Fanatics need a paid Odds API plan; Circa and Bookmaker aren't on the feed. Real CAR@GB pull with all five: `samples/nfl-2026-10-29-car-gb.json`. Checked against a real NBA pull (`samples/nba-2026-10-29.json`): Pinnacle main lines come through; Caesars and Fanatics returned nothing; Pinnacle posts lines close to game time; started games are skipped by default because live lines from different books are captured at different moments (a frozen BetMGM live market sat at +1400).
+
+**Keep the promo bot out of `telegram-bot`.** That function treats every incoming photo as a bet slip and queues it in `pending_bets`, so a promo screenshot sent there becomes a bogus pending bet. The promo bot gets its own edge function and its own Telegram bot token (its own webhook); nothing in `_shared/ev/` is imported by the live bet-tracking functions. The Supabase CLI doesn't deploy `_`-prefixed folders as functions.
+
+## Promo Bot (`promo-bot`, @Bmorepromobot)
+
+Its own Telegram bot, token, webhook, and table (`promo_bot_state`); it never reads or writes the bet tracker's tables. Any photo goes to `readImage` (Claude vision, with `promo-examples.md` as context), which says whether it's a promo, a bet slip, or neither.
+
+- **Promo** → `promo-flow.ts` buttons for whatever's missing (book, max wager; the sport when the promo names none) → **🎯 Find the best bets** (The Odds API: the promo's book + Pinnacle main lines, `priceLegs` → `bestBets`, or `noPicksReason`) or **🔍 Check a bet I'm building**, which waits for a slip screenshot (typing the slip's price is the fallback, priced with an assumed margin). SGP-only promos get leg suggestions instead (`suggestSgpLegs`: best-priced legs vs Pinnacle in the promo's game, at most one game-result leg so it never bets both sides), and then wait for the slip.
+- **Slip** (at any point; with the active promo's boost if one is in play, otherwise none) → find each leg's game (`/events`, free) → that game's odds for the slip's markets, alternate lines included → each leg devigged against Pinnacle, falling back to the book's own two-way price (or a 6% one-sided margin) and saying so → `checkSlip` / `formatSlipCheck`. **SGPs:** the feed has no SGP prices, so the fair estimate keeps the book's own correlation adjustment (its SGP price ÷ its legs multiplied) and swaps each leg's vig for the fair price; the card says how much extra SGP margin the book can add before the bet turns -EV.
+
+**Settings, target odds, rules.** `/settings` (callback `ps:all|main|props`, stored in `promo_bot_settings`, which `/skip` leaves alone) picks which markets picks and SGP suggestions use: both by default, or main lines only / props only (`filterMode`; main lines are healthier for accounts). Picks add one `/events/{id}/odds` call per game for the next `PROP_GAMES` (4) games, skipped below `PROP_CREDIT_FLOOR` credits. That call carries the 1st-half moneyline, spread and total (`HALF_MARKETS`: NFL, NCAAF, NBA, WNBA, NCAAB) unless props only, and the props unless main lines only. **🎚 Target odds** on a promo sets `FlowState.target` (`parseTarget`: "+400" means +400 up to 1.5x that profit, "+400-600" is exact), and `bestBets` keeps only picks in range. `sgp-rules.ts` lists book-specific redundant-leg rules (theScore: a spread + the same team's moneyline; DraftKings: a QB's 0.5 passing TDs + a teammate's anytime TD). `checkSlip` prices a rule pair at its exact joint (the favorite's spread alone, or the TD x `QB_TD_GIVEN_TEAMMATE_TD`) in place of the book's correlation for it, and SGP suggestions on theScore add the favorite's moneyline as a free leg. Slip legs carry `team` for the QB rule. To add a rule: an entry in `SGP_RULES`; a new `kind` only for a new pattern.
+
+**Leagues, SGPx, soccer.** A promo covering several leagues (Soccer) gets a **🌐 All of them** button (`sport: "ALL"`, `leaguesToSearch`): one main-line call per league. SGP-only promos whose title or notes allow SGPx/SGP+ (`allowsSgpx`) get `bestBets` parlays of one leg per game, kind `sgp`, priced as the legs multiplied (the card says to send the slip if the book's total differs); with none +EV, they fall back to single-game SGP leg suggestions. Games are ranked on their best single main-line leg (`rankSgpGames`): DraftKings' sport-wide soccer feed is the 3-way moneyline only, and its totals, BTTS, corners and first-half lines come from the game's own call (`EXTRA_MARKETS`). SGP suggestions take one leg per market (one result, one goals total, one corners total). Real per-game soccer pull: `samples/laliga-2026-10-31-mal-bet.json`.
+
+**Slips read like the tracker reads them.** The slip prompt uses `_shared/books`: the book comes from its layout (a code, then `canonicalBook`), the base price is the struck-through one, and a boost on the slip (`boosted_odds`, `boost_pct`, worked out from the prices if not printed) is what gets priced, at the exact boosted price the book pays. The slip's own boost wins over a promo's. Team totals (`team_totals`, matched by team so one team's 31.5 never pairs with the other's) and 1st-half / 1st-quarter lines (`*_h1`, `*_q1`) are slip markets. An unboosted slip check also asks for your other free-plan books (`SHOP_BOOKS`, same credits) and lists any leg priced better elsewhere (`betterPrices`).
+
+**Betting guide (`betting-guide.md`, `guide.ts`).** What the bot took from The Betting Insider's guide, and what it can't use:
+- Stakes cap at a full unit, 3% of bankroll (`MAX_BET_SHARE`).
+- Player Overs in a basketball game with a big spread get a blowout-risk note (`blowoutNote`).
+- NFL Wong teaser legs (favorites -7.5 to -8.5, underdogs +1.5 to +2.5, teased 6) show on game answers, and "teasers" lists the slate's (`wongLegs`, one spreads call).
+- Line shopping and break-even rates are covered in the paragraphs above.
+- Reverse line movement and hedging need data or bets the bot doesn't have.
+
+**Wagers and questions.** Every verdict (pick cards, slip checks, typed-price checks) ends with `wagerLine`: quarter-Kelly stakes for $500/$1K/$5K/$10K bankrolls, capped at 3% of bankroll and at the promo's max wager. Typed text that isn't an answer to the bot's current question (no promo in play, or at the action/end step) goes to `answerQuestion`: the game whose team it names (nickname is enough; every league's `/events`, free, soonest first), one per-game odds call at BetMGM, DraftKings, FanDuel and theScore plus the five sharps (nine books, one region). It asks for main lines, team totals and 1st-half lines, plus props with the extra `QUESTION_PROP_MARKETS` (NFL pass TDs, completions, attempts, rush attempts, longest reception, rush + rec), about 18 credits for an NFL game. Then and `shopLegs` / `formatShop`: each leg at its best book vs the sharp price, best edge first. Text that names no team falls back to the help.
+
+Button taps arrive as `callback_data` `pf:<value>`. `/skip` (also `/cancel`, `/new`, `/reset`) deletes the chat's `promo_bot_state` row so the next screenshot starts fresh; any command re-sends `setMyCommands` so Telegram's menu lists /skip and /help.
+
+Secrets: `PROMO_BOT_TOKEN`, `PROMO_WEBHOOK_SECRET` (Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; anything else gets 403), `PROMO_ALLOWED` (comma list of chat IDs and/or `@usernames`; others get "This bot is private" with their chat ID), `ODDS_API_KEY`, and the existing `ANTHROPIC_API_KEY`. Never name a secret `TELEGRAM_BOT_TOKEN`: secrets are project-wide, and that one belongs to the tracker bot.
+
+The bot imports the examples from `promo-examples.ts`, generated from the `.md` (edge functions can't read a bundled `.md`): after editing the `.md`, run `node supabase/functions/_shared/ev/gen-examples.mjs` (a test fails if they drift).
