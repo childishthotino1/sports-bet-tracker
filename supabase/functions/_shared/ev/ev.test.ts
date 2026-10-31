@@ -18,6 +18,7 @@ import {
   probToAmerican,
   shin,
   worstCaseDevig,
+  wagerLine,
 } from "./mod.ts";
 
 const close = (actual: number, expected: number, tol: number, msg?: string) =>
@@ -129,6 +130,7 @@ test("worked example renders in the brief's output format", () => {
       "EV: +34.1%",
       "Kelly: Full 9.75u | 1/2 4.88u | 1/4 2.44u (1u = 1% bankroll)",
       "FB: 104.2%",
+      "Wager (¼ Kelly): $500 bank: $12 · $1K bank: $24 · $5K bank: $122 · $10K bank: $244",
     ].join("\n"),
   );
 });
@@ -149,4 +151,11 @@ test("card with raw sharp odds shows the devig lines and flags same-game legs", 
   assert.match(text, /^Leg 1: Over -150 \/ Under \+122 -> fair -1\d\d \(5\d\.\d%\)$/m);
   assert.match(text, /^Method: worst-case of multiplicative, additive, power, Shin$/m);
   assert.match(text, /Legs 1, 2 share a game/);
+});
+
+test("suggested wagers cover four bankrolls and stop at the promo's max", () => {
+  assert.equal(wagerLine(0.0975, 50), "Wager (¼ Kelly, max $50): $500 bank: $12 · $1K bank: $24 · $5K bank: $50 · $10K bank: $50");
+  assert.equal(wagerLine(0.004), "Wager (¼ Kelly): $500 bank: <$1 · $1K bank: $1 · $5K bank: $5 · $10K bank: $10");
+  assert.equal(wagerLine(0.001), "Wager (¼ Kelly): $500 bank: <$1 · $1K bank: <$1 · $5K bank: $1.5 · $10K bank: $2.5");
+  assert.equal(wagerLine(0), null, "no stake on a -EV bet");
 });

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
-  allowsSgpx, americanToDecimal, bestBets, cardLegs, checkSlip, formatBet, filterMode, findRuleBlocks, formatRange, formatSgpSuggestion, formatSlipCheck,
+  allowsSgpx, formatShop, shopLegs, americanToDecimal, bestBets, cardLegs, checkSlip, formatBet, filterMode, findRuleBlocks, formatRange, formatSgpSuggestion, formatSlipCheck,
   impliedProb, normalizePromo, normalizeSlip, parseTarget, priceLegs, priceSlipLegs, prompt, QB_TD_GIVEN_TEAMMATE_TD,
   startFlow, step, suggestSgpLegs, type OddsEvent, type RuleLeg,
 } from "./mod.ts";
@@ -208,4 +208,16 @@ test("SGPx builds one leg per game for an SGP-only promo", () => {
   assert.ok(pick.eval.ev > 0);
   assert.match(formatBet({ book: "DraftKings", bookOdds: pick.americanOdds, boost: 0.2, legs: cardLegs(pick), kindLabel: "2-leg SGPx, one leg per game" }).text,
     /^BET TO BUILD: 2-leg SGPx, one leg per game on DraftKings$/m);
+});
+
+test("a question about a game shops each leg across the books", () => {
+  const legs = shopLegs(CAR_GB, { betmgm: "BetMGM", draftkings: "DraftKings" }, { now: PULLED });
+  // Panthers +3.5 is only at DraftKings; Panthers +4 only at BetMGM.
+  assert.equal(legs.find((l) => l.selection === "Carolina Panthers +3.5")!.book, "DraftKings");
+  assert.equal(legs.find((l) => l.selection === "Carolina Panthers +4")!.book, "BetMGM");
+  assert.equal(new Set(legs.map((l) => l.selection)).size, legs.length, "each leg once, at its best book");
+  for (let i = 1; i < legs.length; i++) assert.ok(legs[i - 1].edge >= legs[i].edge);
+  const text = formatShop(CAR_GB, legs);
+  assert.match(text, /^🔎 Carolina Panthers @ Green Bay Packers, /);
+  assert.match(text, /^1\. .* at (BetMGM|DraftKings) \(fair /m);
 });

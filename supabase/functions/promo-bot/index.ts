@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, bestBets, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, bestBets, formatShop, shopLegs, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -323,10 +323,40 @@ async function priceSlip(chatId: number, s: FlowState) {
   if (!s.noPromo) await sendPrompt(chatId, prompt(done));
 }
 
+// ── Questions ─────────────────────────────────────────────
+
+// Books a question is priced at: the ones on the free plan that the bettors
+// use. With the five sharp sources that's nine, inside one region's credits.
+const QUESTION_BOOKS: Record<string, string> = { betmgm: "BetMGM", draftkings: "DraftKings", fanduel: "FanDuel", espnbet: "theScore Bet" };
+
+// Finds the game a question names (a team's nickname is enough) among every
+// league's upcoming games, soonest first, and lists its best-priced legs.
+// False when no team is named, so the caller can fall back.
+async function answerQuestion(chatId: number, text: string): Promise<boolean> {
+  const now = Date.now();
+  const lists = await Promise.all(Object.values(SPORT_KEYS).map((k) => getEvents(ODDS_API_KEY, k).catch(() => [])));
+  const events = lists.flat()
+    .filter((e) => new Date(e.commence_time).getTime() > now)
+    .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
+  const game = findEvent(events, [text]);
+  if (!game) return false;
+  const league = LEAGUE_OF[game.sport_key];
+  const { markets: mode } = await loadSettings(chatId);
+  await send(chatId, `🔎 Pricing ${game.away_team} @ ${game.home_team} at ${Object.values(QUESTION_BOOKS).join(", ")} against the sharp price…`);
+  const markets = [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
+  const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, {
+    markets, bookmakers: [...Object.keys(QUESTION_BOOKS), ...SHARP_KEYS],
+  });
+  await send(chatId, formatShop(game, filterMode(shopLegs(data, QUESTION_BOOKS), mode)));
+  await creditsNote(chatId, remaining);
+  return true;
+}
+
 // ── Handler ───────────────────────────────────────────────
 
 const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
+  "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books.\n\n" +
   "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both.";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
@@ -396,11 +426,14 @@ async function handle(update: any) {
     return send(chatId, "That doesn't look like a promo or a bet slip. Send a screenshot of a promo's details or of your bet slip.");
   }
 
-  if (text) return advance(chatId, text);
+  if (text) return advance(chatId, text, true);
 }
 
-async function advance(chatId: number, input: string) {
+async function advance(chatId: number, input: string, typed = false) {
   const s = await loadState(chatId);
+  // Typed text that isn't an answer to a question the bot asked: a question
+  // about a game ("good bets on the Ravens game?").
+  if (typed && (!s || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
   if (!s) return send(chatId, HELP);
   const r = step(s, input);
   await saveState(chatId, r.state);

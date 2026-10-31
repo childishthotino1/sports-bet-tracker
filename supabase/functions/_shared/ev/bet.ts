@@ -49,6 +49,21 @@ export type BetEval = {
 // legProbs: fair probability per leg. legOdds: the book's American price per
 // leg, or a single entry with the combined parlay price when the book prices
 // it as one (as DK's +233 does). boost: fraction, 0 for none.
+// Stakes for a few bankroll sizes at quarter Kelly, capped at the promo's max
+// wager, so a card fits whoever reads it.
+export const BANKROLLS = [500, 1000, 5000, 10000];
+
+export function wagerLine(kelly: number, maxStake: number | null = null): string | null {
+  if (!(kelly > 0)) return null;
+  const money = (n: number) => (n >= 1000 ? `$${n / 1000}K` : `$${n}`);
+  const stakes = BANKROLLS.map((bank) => {
+    const raw = Math.min(bank * kelly / 4, maxStake ?? Infinity);
+    const stake = raw < 1 ? "<$1" : `$${raw < 10 ? Math.round(raw * 2) / 2 : Math.round(raw)}`;
+    return `${money(bank)} bank: ${stake}`;
+  });
+  return `Wager (¼ Kelly${maxStake ? `, max $${maxStake}` : ""}): ${stakes.join(" · ")}`;
+}
+
 export function evaluateBet(legProbs: number[], legOdds: number[], boost = 0): BetEval {
   const fairProb = parlayProb(legProbs);
   const bookDecimal = legOdds.map(americanToDecimal).reduce((a, b) => a * b, 1);

@@ -295,3 +295,38 @@ export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
     `These are the best-priced legs in this game against the sharp price (Pinnacle and the exchanges). ${book}'s SGP price depends on how the legs move together, which the odds feed doesn't show, so build the SGP (swap legs if you like) and send me a screenshot of the slip. I'll price the whole thing.`,
   ].join("\n");
 }
+
+// ── Questions about a game ────────────────────────────────
+
+export type ShopLeg = PricedLeg & { book: string };
+
+// Every leg in one game at its best price across the books (key → name),
+// against the sharp price, best edge first: line shopping for "good bets on
+// the Ravens game?".
+export function shopLegs(event: OddsEvent, books: Record<string, string>, opts: PriceOptions = {}): ShopLeg[] {
+  const best = new Map<string, ShopLeg>();
+  for (const [key, name] of Object.entries(books)) {
+    for (const l of priceLegs([event], key, { ...opts, sharpKeys: SHARP_KEYS })) {
+      const seen = best.get(l.selection);
+      if (!seen || l.edge > seen.edge) best.set(l.selection, { ...l, book: name });
+    }
+  }
+  return [...best.values()].sort((a, b) => b.edge - a.edge);
+}
+
+export function formatShop(event: { away_team: string; home_team: string; commence_time: string }, legs: ShopLeg[], top = 6): string {
+  const head = `🔎 ${event.away_team} @ ${event.home_team}, ${formatStart(event.commence_time)}`;
+  if (!legs.length) return `${head}\nThe sharp sources (Pinnacle and the exchanges) don't price this game's lines yet. Try closer to kickoff.`;
+  const lines = legs.slice(0, top).map((l, i) =>
+    `${i + 1}. ${l.edge > 0 ? "✅ " : ""}${l.selection} ${formatAmerican(l.bookOdds)} at ${l.book} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}%)`);
+  const plus = legs.filter((l) => l.edge > 0).length;
+  return [
+    head,
+    "Best prices across your books against the sharp price (Pinnacle + exchanges):",
+    ...lines,
+    "",
+    plus
+      ? `✅ ${plus} line${plus === 1 ? " beats" : "s beat"} the fair price as is. Bet those at that book; the rest only make sense with a boost.`
+      : "Nothing beats the fair price as is: every book's margin wins. These are the closest; send a promo screenshot and the boost may flip them +EV.",
+  ].join("\n");
+}

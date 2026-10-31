@@ -6,7 +6,7 @@
 // Button values stay short: Telegram caps callback_data at 64 bytes.
 
 import { americanToDecimal, decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
-import { evaluateBet } from "./bet.ts";
+import { evaluateBet, wagerLine } from "./bet.ts";
 import { eligibleLeagues, legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
 import type { Slip } from "./slip.ts";
@@ -240,7 +240,7 @@ export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string
   ];
   if (e.kelly > 0) {
     lines.push(`Kelly: Full ${units(e.kelly)} | 1/2 ${units(e.kelly / 2)} | 1/4 ${units(e.kelly / 4)} (1u = 1% bankroll)`);
-    if (p.max_stake !== null) lines.push(`Max wager $${p.max_stake}`);
+    lines.push(wagerLine(e.kelly, p.max_stake)!);
   }
   lines.push(e.ev > 0 ? "✅ +EV — worth it at this price." : "❌ -EV — skip it, or find a better price.");
   return lines.join("\n");

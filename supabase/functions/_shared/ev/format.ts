@@ -2,7 +2,7 @@
 // brief). Platform-agnostic: Telegram and Discord adapters send it as-is.
 
 import { DEVIG_METHODS, worstCaseDevig } from "./devig.ts";
-import { correlatedLegs, evaluateBet, type BetEval } from "./bet.ts";
+import { correlatedLegs, evaluateBet, wagerLine, type BetEval } from "./bet.ts";
 import { decimalToAmerican, formatAmerican, formatPct, probToAmerican } from "./odds.ts";
 import { formatQuote, type Quote } from "./sharp.ts";
 
@@ -24,6 +24,7 @@ export type BetCard = {
   bookOdds: number; // the book's American price for the whole bet (pre-boost)
   boost?: number; // fraction
   sharpSource?: string; // defaults to the sources in the legs' quotes
+  maxStake?: number | null; // the promo's max wager, to cap the suggested stakes
   kindLabel?: string; // "SGPx (one leg per game)"; default "Single" / "n-leg parlay"
 };
 
@@ -80,6 +81,8 @@ export function formatBet(card: BetCard): FormattedBet {
   out.push(`EV: ${ev.ev >= 0 ? "+" : ""}${formatPct(ev.ev)}`);
   out.push(`Kelly: Full ${units(ev.kelly)} | 1/2 ${units(ev.kelly / 2)} | 1/4 ${units(ev.kelly / 4)} (1u = 1% bankroll)`);
   out.push(`FB: ${formatPct(ev.freeBet)}`);
+  const wager = wagerLine(ev.kelly, card.maxStake ?? null);
+  if (wager) out.push(wager);
 
   return { text: out.join("\n"), eval: ev, correlated };
 }

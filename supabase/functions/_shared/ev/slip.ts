@@ -11,7 +11,7 @@
 
 import { americanToDecimal, decimalToAmerican, formatAmerican, formatPct, impliedProb, probToAmerican } from "./odds.ts";
 import { worstCaseDevig } from "./devig.ts";
-import { evaluateBet, type BetEval } from "./bet.ts";
+import { evaluateBet, wagerLine, type BetEval } from "./bet.ts";
 import { promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, formatQuote, marketFamily, sameLine, sharpQuotes, SHARP_KEYS, type Quote } from "./sharp.ts";
 import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
@@ -334,7 +334,7 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   if (e.kelly > 0) {
     const u = (f: number) => `${(f * 100).toFixed(2)}u`;
     out.push(`Kelly: Full ${u(e.kelly)} | 1/2 ${u(e.kelly / 2)} | 1/4 ${u(e.kelly / 4)} (1u = 1% bankroll)`);
-    if (promo?.max_stake && c.boost) out.push(`Max wager $${promo.max_stake}`);
+    out.push(wagerLine(e.kelly, c.boost ? promo?.max_stake ?? null : null)!);
   }
   if (c.method === "correlation") {
     out.push(e.ev > 0
