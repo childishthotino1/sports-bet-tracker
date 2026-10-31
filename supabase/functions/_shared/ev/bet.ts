@@ -53,15 +53,20 @@ export type BetEval = {
 // wager, so a card fits whoever reads it.
 export const BANKROLLS = [500, 1000, 5000, 10000];
 
+// The most one bet should risk: a full unit, which the betting guide puts at
+// 1-3% of bankroll (guide.ts). Quarter Kelly on a big boost can ask for more.
+export const MAX_BET_SHARE = 0.03;
+
 export function wagerLine(kelly: number, maxStake: number | null = null): string | null {
   if (!(kelly > 0)) return null;
   const money = (n: number) => (n >= 1000 ? `$${n / 1000}K` : `$${n}`);
+  const capped = kelly / 4 > MAX_BET_SHARE;
   const stakes = BANKROLLS.map((bank) => {
-    const raw = Math.min(bank * kelly / 4, maxStake ?? Infinity);
+    const raw = Math.min(bank * Math.min(kelly / 4, MAX_BET_SHARE), maxStake ?? Infinity);
     const stake = raw < 1 ? "<$1" : `$${raw < 10 ? Math.round(raw * 2) / 2 : Math.round(raw)}`;
     return `${money(bank)} bank: ${stake}`;
   });
-  return `Wager (¼ Kelly${maxStake ? `, max $${maxStake}` : ""}): ${stakes.join(" · ")}`;
+  return `Wager (¼ Kelly${capped ? `, capped at ${MAX_BET_SHARE * 100}% of bank` : ""}${maxStake ? `, max $${maxStake}` : ""}): ${stakes.join(" · ")}`;
 }
 
 export function evaluateBet(legProbs: number[], legOdds: number[], boost = 0): BetEval {

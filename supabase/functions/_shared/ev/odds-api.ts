@@ -3,6 +3,8 @@
 // free. Player props need the per-event endpoint.
 // Docs: https://the-odds-api.com/liveapi/guides/v4/
 
+import { SPORTSBOOKS } from "../books/books.ts";
+
 const BASE = "https://api.the-odds-api.com/v4";
 
 // Our sport names → The Odds API sport keys.
@@ -22,17 +24,18 @@ export const SPORT_KEYS: Record<string, string> = {
   BUNDESLIGA: "soccer_germany_bundesliga",
 };
 
-// Book names as the bot shows them → The Odds API bookmaker keys. Caesars is
-// listed under its old William Hill key.
+// Book names as the bot shows them → The Odds API bookmaker keys, from the
+// sportsbook list both bots share (_shared/books). Caesars is listed under its
+// old William Hill key, theScore under ESPN Bet's.
 export const BOOK_KEYS: Record<string, string> = {
-  BetMGM: "betmgm",
-  DraftKings: "draftkings",
-  FanDuel: "fanduel",
-  Caesars: "williamhill_us",
-  Fanatics: "fanatics",
-  "theScore Bet": "espnbet", // formerly ESPN Bet
+  ...Object.fromEntries(SPORTSBOOKS.flatMap((b) => (b.oddsApi ? [[b.name, b.oddsApi]] : []))),
   Pinnacle: "pinnacle",
 };
+
+// Retail books on the free plan, by feed key: where line shopping looks.
+export const SHOP_BOOKS: Record<string, string> = Object.fromEntries(
+  SPORTSBOOKS.flatMap((b) => (b.oddsApi && b.freeFeed ? [[b.oddsApi, b.name]] : [])),
+);
 
 export type Outcome = { name: string; price: number; point?: number; description?: string; bet_limit?: number | null };
 export type Market = { key: string; last_update?: string; outcomes: Outcome[] };

@@ -9,6 +9,7 @@ import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sha
 import { findRuleBlocks, type SgpRule } from "./sgp-rules.ts";
 import type { Leg as CardLeg } from "./format.ts";
 import type { OddsEvent, Outcome } from "./odds-api.ts";
+import { blowoutNote, formatWongLeg, isPropOver, WONG_NOTE, wongLegs, type WongLeg } from "./guide.ts";
 
 export type PricedLeg = {
   eventId: string;
@@ -33,6 +34,7 @@ export function selectionLabel(market: string, o: Outcome): string {
   if (market === "h2h_h1") return o.name === "Draw" ? "1st Half Draw" : `${o.name} 1st Half ML`;
   if (market === "draw_no_bet") return `${o.name} Draw No Bet`;
   if (market.includes("corners")) return `${sideLabel(market, o)} Corners`;
+  if (market.includes("team_totals")) return `${o.description} Team Total ${sideLabel(market, o)}`;
   if (market.includes("spreads") || market.includes("totals")) return sideLabel(market, o);
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;
@@ -314,7 +316,17 @@ export function shopLegs(event: OddsEvent, books: Record<string, string>, opts: 
   return [...best.values()].sort((a, b) => b.edge - a.edge);
 }
 
-export function formatShop(event: { away_team: string; home_team: string; commence_time: string }, legs: ShopLeg[], top = 6): string {
+// The guide's checks for one game: blowout risk on the listed player Overs, and
+// any Wong teaser leg. Needs the game's main spread among the event's markets.
+export function guideNotes(event: OddsEvent, legs: { market: string; side: string }[]): string[] {
+  const notes: string[] = [];
+  const blowout = blowoutNote(event);
+  if (blowout && legs.some((l) => isPropOver(l.market, l.side))) notes.push(blowout);
+  for (const w of wongLegs(event)) notes.push(`🧠 ${formatWongLeg(w)}. ${WONG_NOTE}`);
+  return notes;
+}
+
+export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6): string {
   const head = `🔎 ${event.away_team} @ ${event.home_team}, ${formatStart(event.commence_time)}`;
   if (!legs.length) return `${head}\nThe sharp sources (Pinnacle and the exchanges) don't price this game's lines yet. Try closer to kickoff.`;
   const lines = legs.slice(0, top).map((l, i) =>
@@ -328,5 +340,18 @@ export function formatShop(event: { away_team: string; home_team: string; commen
     plus
       ? `✅ ${plus} line${plus === 1 ? " beats" : "s beat"} the fair price as is. Bet those at that book; the rest only make sense with a boost.`
       : "Nothing beats the fair price as is: every book's margin wins. These are the closest; send a promo screenshot and the boost may flip them +EV.",
+    ...guideNotes(event, legs.slice(0, top)).flatMap((n) => ["", n]),
+  ].join("\n");
+}
+
+// Every Wong teaser leg on the slate, soonest first.
+export function formatWongSlate(events: OddsEvent[]): string {
+  const legs: WongLeg[] = events.flatMap(wongLegs).sort((a, b) => a.start.localeCompare(b.start));
+  if (!legs.length) return "No NFL lines fit a Wong teaser right now (favorites of -7.5 to -8.5, underdogs of +1.5 to +2.5). Lines move during the week; check again.";
+  return [
+    "🧠 Wong teaser legs (6-point tease through 3 and 7):",
+    ...legs.map((w, i) => `${i + 1}. ${formatWongLeg(w)} | ${w.game}, ${formatStart(w.start)}`),
+    "",
+    "Pair any two in a 6-point teaser; two Wong legs usually price around -110 to -120. Spreads are Pinnacle's where it posts them.",
   ].join("\n");
 }

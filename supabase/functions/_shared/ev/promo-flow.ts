@@ -11,6 +11,7 @@ import { eligibleLeagues, legLimitsApply, normalizePromo, promoViolations, type 
 import { SPORT_KEYS } from "./odds-api.ts";
 import type { Slip } from "./slip.ts";
 import type { OddsRange } from "./picks.ts";
+import { SPORTSBOOKS } from "../books/books.ts";
 
 export type Button = { label: string; value: string };
 export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; [] = expects typed text
@@ -27,7 +28,7 @@ export type FlowState = {
 };
 
 // BetMGM first: nearly all shared bets are there.
-export const BOOKS = ["BetMGM", "DraftKings", "FanDuel", "Caesars", "Fanatics", "bet365", "theScore Bet"];
+export const BOOKS = SPORTSBOOKS.map((b) => b.name); // shared with the tracker bot (_shared/books)
 const MARGINS = [15, 20, 25, 30]; // parlays and SGPs
 const SINGLE_MARGINS = [4, 6, 8, 10]; // one leg: a two-way line's usual hold
 const TARGETS = [200, 300, 400, 600, 1000];

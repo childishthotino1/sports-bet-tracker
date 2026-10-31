@@ -49,7 +49,18 @@ supabase/functions/
   grade-bets/       # Daily auto-checker: Claude + web search verifies open bets, recommend-and-confirm
   promo-bot/        # @Bmorepromobot webhook: promo screenshot → rules → best bets / check a bet (separate bot)
   _shared/ev/       # +EV core used by promo-bot: devig, EV, Kelly, promo rules + flow, odds client, picks
+  _shared/books/    # Sportsbook knowledge shared by telegram-bot AND promo-bot (see below)
 ```
+
+**Shared sportsbook knowledge (`_shared/books/books.ts`).** Both Telegram bots import it, so a rule fixed there teaches both:
+
+- `SPORTSBOOKS`: names (as in the `sportsbooks` table), codes, aliases and Odds API keys. `BOOK_ALIASES` and `canonicalBook()` are built from it.
+- `BOOK_ID_RULES`: how to tell the books apart in a screenshot. BetMGM shows no logo, so it's recognized by layout, both the placed receipt and the slip before Place Bet.
+- `ODDS_READING_RULES`: the struck-through price is the base odds; how each book shows a boost; working out the boost % from the two prices.
+- `MARKET_READING_RULES`: team totals vs game totals, and period lines.
+- `boostFromPrices()`: the boost a base and boosted price imply (-105 → +109 is 15%; books round the boosted price down).
+
+The tracker's vision prompt interpolates these rules. When a slip shows a boosted price but no %, the tracker fills `boost_pct` from the two prices. The promo bot's slip prompt uses the same rules. Both edge functions are deployed as single-file esbuild bundles, so the shared file is inlined (`supabase functions deploy` also resolves the `../_shared` import). Tests: `node --test supabase/functions/_shared/books/*.test.ts`.
 
 **Load order matters:** `config.js` must load before `db.js`; `math.js` before `app.js`.
 
@@ -90,7 +101,7 @@ supabase/functions/
 3. Bot saves a `pending_bet` row (stage: `awaiting_splits`), asks Dan's cut
 4. User replies with Dan's dollar amount → bot computes Brent's cut → previews → saves to `bets` table → adjusts sportsbook balance
 
-Sportsbook aliases in the bot: DK→DraftKings, FD→FanDuel, MGM→BetMGM, CS/theScore→theScore Bet, etc.
+Sportsbook aliases (DK→DraftKings, FD→FanDuel, MGM→BetMGM, SCORE/ESPN→theScore Bet, CS/CZR→Caesars, etc.) and the screenshot rules come from `_shared/books` (above).
 
 The bot never settles a bet (won/lost/push) — settlement only happens through the app UI, or the auto-grader below.
 
@@ -134,7 +145,16 @@ Its own Telegram bot, token, webhook, and table (`promo_bot_state`); it never re
 
 **Leagues, SGPx, soccer.** A promo covering several leagues (Soccer) gets a **🌐 All of them** button (`sport: "ALL"`, `leaguesToSearch`): one main-line call per league. SGP-only promos whose title or notes allow SGPx/SGP+ (`allowsSgpx`) get `bestBets` parlays of one leg per game, kind `sgp`, priced as the legs multiplied (the card says to send the slip if the book's total differs); with none +EV, they fall back to single-game SGP leg suggestions. Games are ranked on their best single main-line leg (`rankSgpGames`): DraftKings' sport-wide soccer feed is the 3-way moneyline only, and its totals, BTTS, corners and first-half lines come from the game's own call (`EXTRA_MARKETS`). SGP suggestions take one leg per market (one result, one goals total, one corners total). Real per-game soccer pull: `samples/laliga-2026-10-31-mal-bet.json`.
 
-**Wagers and questions.** Every verdict (pick cards, slip checks, typed-price checks) ends with `wagerLine`: quarter-Kelly stakes for $500/$1K/$5K/$10K bankrolls, capped at the promo's max wager. Typed text that isn't an answer to the bot's current question (no promo in play, or at the action/end step) goes to `answerQuestion`: the game whose team it names (nickname is enough; every league's `/events`, free, soonest first), one per-game odds call at BetMGM, DraftKings, FanDuel and theScore plus the five sharps (nine books, one region), and `shopLegs` / `formatShop`: each leg at its best book vs the sharp price, best edge first. Text that names no team falls back to the help.
+**Slips read like the tracker reads them.** The slip prompt uses `_shared/books`: the book comes from its layout (a code, then `canonicalBook`), the base price is the struck-through one, and a boost on the slip (`boosted_odds`, `boost_pct`, worked out from the prices if not printed) is what gets priced, at the exact boosted price the book pays. The slip's own boost wins over a promo's. Team totals (`team_totals`, matched by team so one team's 31.5 never pairs with the other's) and 1st-half / 1st-quarter lines (`*_h1`, `*_q1`) are slip markets. An unboosted slip check also asks for your other free-plan books (`SHOP_BOOKS`, same credits) and lists any leg priced better elsewhere (`betterPrices`).
+
+**Betting guide (`betting-guide.md`, `guide.ts`).** What the bot took from The Betting Insider's guide, and what it can't use:
+- Stakes cap at a full unit, 3% of bankroll (`MAX_BET_SHARE`).
+- Player Overs in a basketball game with a big spread get a blowout-risk note (`blowoutNote`).
+- NFL Wong teaser legs (favorites -7.5 to -8.5, underdogs +1.5 to +2.5, teased 6) show on game answers, and "teasers" lists the slate's (`wongLegs`, one spreads call).
+- Line shopping and break-even rates are covered in the paragraphs above.
+- Reverse line movement and hedging need data or bets the bot doesn't have.
+
+**Wagers and questions.** Every verdict (pick cards, slip checks, typed-price checks) ends with `wagerLine`: quarter-Kelly stakes for $500/$1K/$5K/$10K bankrolls, capped at 3% of bankroll and at the promo's max wager. Typed text that isn't an answer to the bot's current question (no promo in play, or at the action/end step) goes to `answerQuestion`: the game whose team it names (nickname is enough; every league's `/events`, free, soonest first), one per-game odds call at BetMGM, DraftKings, FanDuel and theScore plus the five sharps (nine books, one region), and `shopLegs` / `formatShop`: each leg at its best book vs the sharp price, best edge first. Text that names no team falls back to the help.
 
 Button taps arrive as `callback_data` `pf:<value>`. `/skip` (also `/cancel`, `/new`, `/reset`) deletes the chat's `promo_bot_state` row so the next screenshot starts fresh; any command re-sends `setMyCommands` so Telegram's menu lists /skip and /help.
 

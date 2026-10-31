@@ -15,3 +15,5 @@ export * from "./sgp-rules.ts";
 export * from "./picks.ts";
 export * from "./slip.ts";
 export * from "./image.ts";
+export * from "./guide.ts";
+export * from "../books/books.ts";

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { example } from "./examples.test-helper.ts";
 import {
-  checkSlip, findEvent, formatSlipCheck, IMAGE_JSON_SCHEMA, imagePrompt, legEventIds, marketsFor, normalizePromo,
+  checkSlip, findEvent, legLabel, formatSlipCheck, IMAGE_JSON_SCHEMA, imagePrompt, legEventIds, marketsFor, normalizePromo,
   normalizeSlip, priceLegs, priceSlipLegs, readImageJson, sameTeam, samePerson, suggestSgpLegs, type OddsEvent,
 } from "./mod.ts";
 
@@ -219,4 +219,40 @@ test("a parlay leg is placed by the matchup the slip prints with it", () => {
   // Without the matchup, the draw can't be placed in a parlay.
   const bare = { ...slip, legs: slip.legs.map((l) => ({ ...l, game: null })) };
   assert.deepEqual(legEventIds(bare, events, new Date("2026-10-31T14:25:00Z")), ["mci", null, "bou", "avl"]);
+});
+
+test("a boost on the slip: base and boosted prices, team totals, and the boost the book pays", () => {
+  const slip = normalizeSlip({
+    book: "MGM", league: "NCAAF", bet_kind: "single", total_odds: -105, boosted_odds: 109, boost_pct: 0, game: "Oregon State @ Fresno State",
+    legs: [{ team_or_player: "Oregon State", market: "team_totals", line: 31.5, side: "Over", team: "Oregon State", game: "Oregon State @ Fresno State" }],
+  })!;
+  assert.equal(slip.book, "BetMGM");
+  assert.equal(slip.total_odds, -105);
+  assert.equal(slip.boosted_odds, 109);
+  assert.equal(slip.boost_pct, 15); // worked out from the two prices
+  assert.equal(legLabel(slip.legs[0]), "Oregon State Team Total Over 31.5");
+
+  const event = {
+    id: "osu-fres", sport_key: "americanfootball_ncaaf", commence_time: "2026-11-01T02:00:00Z", home_team: "Fresno State Bulldogs", away_team: "Oregon State Beavers",
+    bookmakers: [
+      { key: "betmgm", title: "BetMGM", markets: [{ key: "team_totals", outcomes: [
+        { name: "Over", description: "Oregon State Beavers", point: 31.5, price: -105 }, { name: "Under", description: "Oregon State Beavers", point: 31.5, price: -125 },
+        { name: "Over", description: "Fresno State Bulldogs", point: 31.5, price: 120 }, { name: "Under", description: "Fresno State Bulldogs", point: 31.5, price: -150 },
+      ] }] },
+      { key: "pinnacle", title: "Pinnacle", markets: [{ key: "team_totals", outcomes: [
+        { name: "Over", description: "Oregon State Beavers", point: 31.5, price: -102 }, { name: "Under", description: "Oregon State Beavers", point: 31.5, price: -112 },
+        { name: "Over", description: "Fresno State Bulldogs", point: 31.5, price: 130 }, { name: "Under", description: "Fresno State Bulldogs", point: 31.5, price: -160 },
+      ] }] },
+    ],
+  };
+  assert.deepEqual(marketsFor(slip), ["team_totals", "alternate_team_totals"]);
+  const priced = priceSlipLegs(slip, [event], "betmgm");
+  // Oregon State's own line, not Fresno State's +120/+130 at the same number.
+  assert.equal(priced[0].bookOdds, -105);
+  assert.equal(priced[0].quotes![0].sides[priced[0].quotes![0].betIndex].odds, -102);
+  const c = checkSlip(slip, priced, null, "BetMGM")!;
+  assert.equal(c.boostSource, "slip");
+  assert.ok(Math.abs(c.eval.boostedDecimal - 2.09) < 1e-9); // priced at the +109 the book pays
+  const text = formatSlipCheck(slip, "BetMGM", c, null);
+  assert.match(text, /^Slip: -105, boosted 15% to \+109 \(the boost on the slip\)$/m);
 });

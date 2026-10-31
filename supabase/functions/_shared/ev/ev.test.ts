@@ -158,4 +158,6 @@ test("suggested wagers cover four bankrolls and stop at the promo's max", () => 
   assert.equal(wagerLine(0.004), "Wager (¼ Kelly): $500 bank: <$1 · $1K bank: $1 · $5K bank: $5 · $10K bank: $10");
   assert.equal(wagerLine(0.001), "Wager (¼ Kelly): $500 bank: <$1 · $1K bank: <$1 · $5K bank: $1.5 · $10K bank: $2.5");
   assert.equal(wagerLine(0), null, "no stake on a -EV bet");
+  // Quarter Kelly of 20% is 5%; one bet never risks more than a full unit, 3% of bank.
+  assert.equal(wagerLine(0.2), "Wager (¼ Kelly, capped at 3% of bank): $500 bank: $15 · $1K bank: $30 · $5K bank: $150 · $10K bank: $300");
 });

@@ -4,6 +4,7 @@
 
 import { americanToDecimal, formatAmerican } from "./odds.ts";
 import { boostDecimal } from "./bet.ts";
+import { canonicalBook } from "../books/books.ts";
 
 // Promo "leagues" that stand for several feed leagues: a "Soccer" promo
 // covers a Premier League slip.
@@ -110,7 +111,7 @@ export function normalizePromo(raw: unknown): Promo {
   const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   const kinds = (v: unknown) => list(v).filter((k): k is BetKind => k === "single" || k === "parlay" || k === "sgp");
 
-  const book = str(r.book);
+  const book = canonicalBook(str(r.book)) ?? str(r.book);
   const type = (["profit_boost", "free_bet", "no_sweat", "other"] as const).find((t) => t === r.type) ?? "other";
   const minOdds = num(r.min_total_odds);
 

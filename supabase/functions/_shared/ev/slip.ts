@@ -17,12 +17,15 @@ import { consensus, formatQuote, marketFamily, sameLine, sharpQuotes, SHARP_KEYS
 import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
 import { lastWord, norm, samePerson, sameTeam } from "./names.ts";
 import { blockJoint, findRuleBlocks, type RuleLeg, type SgpRule } from "./sgp-rules.ts";
+import { BOOK_ID_RULES, MARKET_READING_RULES, ODDS_READING_RULES, boostFromPrices, canonicalBook } from "../books/books.ts";
 
 export { samePerson, sameTeam };
 
 // Markets the vision call may name; they're The Odds API's market keys.
 export const SLIP_MARKETS = [
   "h2h", "spreads", "totals",
+  // Team totals and period lines (the feed has them per game only).
+  "team_totals", "h2h_h1", "spreads_h1", "totals_h1", "h2h_q1", "spreads_q1", "totals_q1",
   // NFL / NCAAF
   "player_anytime_td", "player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions",
   "player_pass_completions", "player_pass_attempts", "player_pass_interceptions", "player_pass_longest_completion",
@@ -57,6 +60,8 @@ export type Slip = {
   league: string | null;
   bet_kind: BetKind;
   total_odds: number | null; // whole slip, before any boost
+  boosted_odds: number | null; // the boosted price the slip shows, if a boost is applied
+  boost_pct: number | null; // that boost, printed or worked out from the two prices
   game: string | null; // "Carolina Panthers @ Green Bay Packers" when the slip shows one
   legs: SlipLeg[];
 };
@@ -64,12 +69,14 @@ export type Slip = {
 export const SLIP_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["book", "league", "bet_kind", "total_odds", "game", "legs"],
+  required: ["book", "league", "bet_kind", "total_odds", "boosted_odds", "boost_pct", "game", "legs"],
   properties: {
     book: { type: "string" },
     league: { type: "string" },
     bet_kind: { type: "string", enum: ["single", "parlay", "sgp"] },
     total_odds: { type: "integer" },
+    boosted_odds: { type: "integer" },
+    boost_pct: { type: "number" },
     game: { type: "string" },
     legs: {
       type: "array",
@@ -91,18 +98,25 @@ export const SLIP_JSON_SCHEMA = {
 } as const;
 
 export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already placed), fill "slip". Use "" for unknown text and 0 for unknown numbers:
-- book: the sportsbook, only if its name or logo is on screen; otherwise "".
+- book: the sportsbook's code (MGM, DK, FD, CZR, FAN, B365, SCORE). ${BOOK_ID_RULES}
+  If none of these rules fits, "".
 - league: NFL, NCAAF, NBA, WNBA, NCAAB, MLB or NHL, or for soccer EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA, from the teams and competition.
 - bet_kind: "sgp" if the slip says SGP / Same Game Parlay; "parlay" for legs from different games; "single" for one leg.
-- total_odds: the slip's total odds before any boost, as American odds (+990 -> 990).
+- total_odds: the slip's total odds before any boost (the struck-through price when boosted), as American odds (+990 -> 990).
+- boosted_odds: the boosted total odds if the slip shows a boost, else 0.
+- boost_pct: the boost % if printed (15 for "15%"), else 0.
 - game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
 - legs: one per selection.
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
-  - market: h2h for moneylines, spreads, totals, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
+  - market: h2h for moneylines, spreads, totals for the game total, team_totals for one team's total (team_or_player is that team), h2h_h1 / spreads_h1 / totals_h1 for 1st-half lines and h2h_q1 / spreads_q1 / totals_q1 for 1st-quarter lines, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
   - game: the matchup this leg is from, as the slip shows it above or beside the leg ("Brentford vs Nottingham Forest"); "" if none is shown.
   - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
-  - side: "Over" or "Under" for totals and over/under props, "Yes" (or "No") for anytime scorer props and btts, the team name (or "Draw") for spreads and moneylines.`;
+  - side: "Over" or "Under" for totals and over/under props, "Yes" (or "No") for anytime scorer props and btts, the team name (or "Draw") for spreads and moneylines.
+
+${ODDS_READING_RULES}
+
+${MARKET_READING_RULES}`;
 
 export function normalizeSlip(raw: unknown): Slip | null {
   if (!raw || typeof raw !== "object") return null;
@@ -119,12 +133,21 @@ export function normalizeSlip(raw: unknown): Slip | null {
   });
   if (!legs.length) return null;
   const total = num(r.total_odds);
+  const odds = (v: number | null) => (v !== null && Math.abs(v) >= 100 ? Math.round(v) : null);
+  const base = odds(total), boosted = odds(num(r.boosted_odds));
+  const printed = num(r.boost_pct);
+  // A boost counts when the slip shows one: its printed %, or the % its two prices imply.
+  const boost = boosted !== null && base !== null && boosted !== base
+    ? (printed && printed > 0 ? printed : boostFromPrices(base, boosted))
+    : printed && printed > 0 ? printed : null;
   const kind = r.bet_kind === "single" || r.bet_kind === "parlay" || r.bet_kind === "sgp" ? r.bet_kind : legs.length > 1 ? "parlay" : "single";
   return {
-    book: str(r.book),
+    book: canonicalBook(str(r.book)),
     league: str(r.league)?.toUpperCase() ?? null,
     bet_kind: kind,
-    total_odds: total !== null && Math.abs(total) >= 100 ? Math.round(total) : null,
+    total_odds: base,
+    boosted_odds: boost ? boosted : null,
+    boost_pct: boost,
     game: str(r.game),
     legs,
   };
@@ -169,6 +192,7 @@ export function marketsFor(slip: Slip): string[] {
     out.add(l.market);
     if (l.market === "spreads") out.add("alternate_spreads");
     if (l.market === "totals") out.add("alternate_totals");
+    if (l.market === "team_totals") out.add("alternate_team_totals");
   }
   return [...out];
 }
@@ -183,6 +207,11 @@ function matches(marketKey: string, o: Outcome, leg: SlipLeg): boolean {
   if (marketKey.includes("h2h")) return norm(o.name) === "draw" || norm(leg.side) === "draw" ? norm(o.name) === norm(leg.side) : sameTeam(o.name, leg.side);
   if (marketKey === "btts") return norm(o.name) === norm(leg.side);
   if (marketKey.includes("spreads")) return sameTeam(o.name, leg.side) && o.point === leg.line;
+  // Team totals carry the team in description: Oregon State's 31.5 isn't Fresno State's.
+  if (marketKey.includes("team_totals")) {
+    const team = leg.team_or_player ?? leg.team;
+    return !!o.description && !!team && sameTeam(o.description, team) && norm(o.name) === norm(leg.side) && o.point === leg.line;
+  }
   if (marketKey.includes("totals")) return norm(o.name) === norm(leg.side) && o.point === leg.line;
   return !!o.description && !!leg.team_or_player && samePerson(o.description, leg.team_or_player) &&
     sideMatches(o, leg) && (leg.line === null || o.point === leg.line);
@@ -219,9 +248,13 @@ export function legLabel(leg: SlipLeg): string {
   const stat = leg.market.replace(/^(player|batter|pitcher)_/, "").replace("anytime_td", "Anytime TD")
     .split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
   const line = leg.line === null ? "" : leg.market === "spreads" && leg.line > 0 ? ` +${leg.line}` : ` ${leg.line}`;
-  if (leg.market === "h2h") return `${leg.side} ML`;
-  if (leg.market === "spreads") return `${leg.side}${line}`;
-  if (leg.market === "totals") return `${leg.side}${line}`;
+  const period = leg.market.endsWith("_h1") ? "1st Half " : leg.market.endsWith("_q1") ? "1st Quarter " : "";
+  const base = leg.market.replace(/_(h1|q1)$/, "");
+  const signed = leg.line !== null && base === "spreads" && leg.line > 0 ? ` +${leg.line}` : line;
+  if (base === "h2h") return `${leg.side} ${period}ML`;
+  if (base === "spreads") return `${leg.side} ${period}${signed.trim()}`.replace(/  +/g, " ");
+  if (base === "totals") return `${period}${leg.side}${line}`;
+  if (leg.market === "team_totals") return `${leg.team_or_player ?? leg.team ?? ""} Team Total ${leg.side}${line}`.trim();
   if (leg.market === "player_anytime_td") return `${leg.team_or_player} Anytime TD`;
   if (leg.market === "player_goal_scorer_anytime") return `${leg.team_or_player} Anytime Goal`;
   if (leg.market === "btts") return `Both Teams To Score: ${leg.side}`;
@@ -265,9 +298,40 @@ export type SlipCheck = {
   correlation: number | null; // book SGP price vs its legs multiplied, >1 = legs win together
   eval: BetEval;
   boost: number;
+  boostSource: "slip" | "promo" | null; // a boost the slip shows is what the book pays, so it wins over the promo's
   promoIssues: string[];
   rules: RuleUse[]; // redundant pairs priced exactly (sgp-rules.ts)
 };
+
+// Line shopping (the betting guide: a few cents better on the same bet adds up):
+// for each leg, a better price on the same line at another of your books, or null.
+// books: feed key -> name. Compares each book's price on the leg itself.
+export function betterPrices(
+  slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string, books: Record<string, string>,
+): ({ book: string; odds: number; mine: number } | null)[] {
+  return slip.legs.map((leg, i) => {
+    const event = legEvents[i];
+    const price = (key: string) => {
+      const markets = event?.bookmakers.find((b) => b.key === key)?.markets ?? [];
+      return locate(markets, leg)?.outcome.price ?? null;
+    };
+    const mine = price(bookKey);
+    if (mine === null) return null;
+    let best: { book: string; odds: number; mine: number } | null = null;
+    for (const [key, name] of Object.entries(books)) {
+      if (key === bookKey) continue;
+      const odds = price(key);
+      if (odds !== null && americanToDecimal(odds) > americanToDecimal(best?.odds ?? mine)) best = { book: name, odds, mine };
+    }
+    return best;
+  });
+}
+
+export function formatBetterPrices(slip: Slip, book: string, better: ({ book: string; odds: number; mine: number } | null)[]): string | null {
+  const lines = better.flatMap((b, i) => (b ? [`${legLabel(slip.legs[i])}: ${b.book} ${formatAmerican(b.odds)} vs ${book} ${formatAmerican(b.mine)}`] : []));
+  if (!lines.length) return null;
+  return [`💲 Better price elsewhere${slip.legs.length > 1 ? " (leg by leg, before any boost)" : ""}:`, ...lines].join("\n");
+}
 
 const toRuleLeg = (l: SlipLeg): RuleLeg => ({
   market: l.market, side: l.side, line: l.line,
@@ -307,8 +371,12 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
   }
 
   const promoIssues = promo ? promoViolations(promo, { americanOdds: totalOdds, legs: slip.legs.length, kind: slip.bet_kind, league: slip.league ?? undefined }) : [];
-  const boost = promo && !promoIssues.length ? (promo.boost_pct ?? 0) / 100 : 0;
-  return { priced, missing, totalOdds, fairProb, method, correlation, eval: evaluateBet([fairProb], [totalOdds], boost), boost, promoIssues, rules };
+  const promoBoost = promo && !promoIssues.length ? (promo.boost_pct ?? 0) / 100 : 0;
+  const boostSource = slip.boost_pct ? "slip" : promoBoost ? "promo" : null;
+  // Books round the boosted price down, so a price on the slip is what it pays: price from it, not the %.
+  const shownBoost = slip.boosted_odds !== null ? americanToDecimal(slip.boosted_odds) - 1 : null;
+  const boost = slip.boost_pct ? (shownBoost !== null ? shownBoost / (americanToDecimal(totalOdds) - 1) - 1 : slip.boost_pct / 100) : promoBoost;
+  return { priced, missing, totalOdds, fairProb, method, correlation, eval: evaluateBet([fairProb], [totalOdds], boost), boost, boostSource, promoIssues, rules };
 }
 
 const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
@@ -328,9 +396,11 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
     out.push(`${i + 1}. ${l.label}${bookPart}${sharp} -> fair ${formatAmerican(probToAmerican(l.fair!))} (${formatPct(l.fair!)})${SOURCE_NOTE[l.source]}`);
   });
   out.push("");
-  const boosted = c.boost ? `, boosted ${Math.round(c.boost * 100)}% to ${formatAmerican(decimalToAmerican(c.eval.boostedDecimal))}` : "";
+  const shown = c.boostSource === "slip" && slip.boosted_odds !== null ? formatAmerican(slip.boosted_odds) : formatAmerican(decimalToAmerican(c.eval.boostedDecimal));
+  const pct = c.boostSource === "slip" ? slip.boost_pct! : Math.round(c.boost * 100);
+  const boosted = c.boost ? `, boosted ${pct}% to ${shown}${c.boostSource === "slip" ? " (the boost on the slip)" : ""}` : "";
   out.push(`Slip: ${formatAmerican(c.totalOdds)}${boosted}`);
-  if (promo && c.promoIssues.length) out.push(`⚠️ Doesn't qualify for ${promo.title}: ${c.promoIssues.join("; ")}. Priced without the boost.`);
+  if (promo && c.promoIssues.length) out.push(`⚠️ Doesn't qualify for ${promo.title}: ${c.promoIssues.join("; ")}.${c.boostSource === "slip" ? "" : " Priced without the boost."}`);
   if (c.method === "correlation" && c.correlation !== null) {
     const legsAlone = c.priced.reduce((d, l) => d * americanToDecimal(l.bookOdds!), 1);
     out.push(`Legs alone on ${book}: ${formatAmerican(decimalToAmerican(legsAlone))}. The SGP price implies the legs ${c.correlation >= 1 ? "win together" : "work against each other"} (×${c.correlation.toFixed(2)}).`);

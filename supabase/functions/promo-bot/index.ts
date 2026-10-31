@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, bestBets, formatAmerican, formatShop, shopLegs, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, americanToDecimal, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -114,8 +114,9 @@ function sendSettings(chatId: number, settings: Settings) {
 // One game's odds. Not every sport or plan offers every market (alternate
 // lines, soccer props), so a refused request is retried without alternates,
 // then with main lines only.
-async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string) {
-  const bookmakers = withSharps(bookKey);
+// extra: more books in the same request (up to 10 in all bill as one region).
+async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string, extra: string[] = []) {
+  const bookmakers = [...new Set([...withSharps(bookKey), ...extra])].slice(0, 10);
   const attempts = [
     markets,
     markets.filter((m) => !m.startsWith("alternate_")),
@@ -185,15 +186,23 @@ async function sendPicks(chatId: number, s: FlowState) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
     await send(chatId, noPicksReason(legs, promo, s.target) + setting);
   }
+  // The guide's prop checklist: a big spread means starters may sit, which hurts player Overs.
+  const byId = new Map<string, OddsEvent>();
+  for (const e of events) if (e.bookmakers.some((b) => b.markets.some((m) => m.key === "spreads"))) byId.set(e.id, e);
   for (const p of picks) {
-    await send(chatId, formatBet({
+    const cautions = [...new Set(p.legs.flatMap((l) => {
+      const e = byId.get(l.eventId);
+      const note = e && isPropOver(l.market, l.side) ? blowoutNote(e) : null;
+      return note ? [note] : [];
+    }))];
+    await send(chatId, [formatBet({
       title: `${promo.book} ${promo.title}${s.target ? ` (target ${formatRange(s.target)})` : ""}`,
       book: promo.book!,
       bookOdds: p.americanOdds,
       boost: (promo.boost_pct ?? 0) / 100,
       legs: cardLegs(p),
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
-    }).text);
+    }).text, ...cautions].join("\n\n"));
   }
   if (sgpx && picks.length) {
     await send(chatId, `Each leg is from a different game, so ${promo.book} should price the ${SGPX_NAME[promo.book!] ?? "SGPx"} as the legs multiplied, the price shown. If the slip shows a different total, send me the screenshot and I'll reprice it.`);
@@ -305,13 +314,18 @@ async function priceSlip(chatId: number, s: FlowState) {
     const legs = slip.legs.filter((_, i) => ids[i] === id);
     const markets = marketsFor({ ...slip, legs });
     if (!markets.length) continue; // only markets the feed doesn't carry: nothing to fetch
-    const r = await eventOdds(sportKey, id, markets, bookKey);
+    // Your other books ride along (same credits) so the check can line-shop each leg.
+    const r = await eventOdds(sportKey, id, markets, bookKey, Object.keys(SHOP_BOOKS));
     odds.set(id, r.data);
     remaining = r.remaining;
   }
-  const priced = priceSlipLegs(slip, ids.map((id) => odds.get(id!) ?? null), bookKey);
+  const legEvents = ids.map((id) => odds.get(id!) ?? null);
+  const priced = priceSlipLegs(slip, legEvents, bookKey);
   const promo = s.noPromo ? null : s.promo;
   const c = checkSlip(slip, priced, promo, book);
+  // A boost is tied to its book, so line shopping only helps an unboosted slip.
+  const boosted = !!slip.boost_pct || (!s.noPromo && !!s.promo.boost_pct);
+  const shopNote = boosted ? null : formatBetterPrices(slip, book, betterPrices(slip, legEvents, bookKey, SHOP_BOOKS));
   if (!c) {
     // Market types the odds feed doesn't carry come back as "other": say so, rather than blaming the prices.
     const unknown = slip.legs.flatMap((l, i) => l.market === "other" && priced[i].fair === null ? [priced[i].label.replace(/ Other$/, "")] : []);
@@ -320,12 +334,18 @@ async function priceSlip(chatId: number, s: FlowState) {
       unknown.length ? `The odds feed doesn't carry that kind of bet (${unknown.join(", ")}), so there's no sharp line to devig.` : "",
       missing.length ? `I couldn't find ${book} or sharp prices for: ${missing.join(", ")}.` : "",
     ].filter(Boolean).join(" ") || "I couldn't read the slip's total price.";
-    const typing: FlowState = { ...done, promo: { ...done.promo, book }, step: "slip", legs: slip.legs.length };
+    // No promo, but the slip shows its own boost: check it at the boosted price the book pays.
+    const slipBoost = s.noPromo && slip.boost_pct && slip.boosted_odds !== null && slip.total_odds !== null
+      ? ((americanToDecimal(slip.boosted_odds) - 1) / (americanToDecimal(slip.total_odds) - 1) - 1) * 100
+      : null;
+    const typing: FlowState = { ...done, promo: { ...done.promo, book, ...(slipBoost ? { boost_pct: slipBoost } : {}) }, step: "slip", legs: slip.legs.length };
+    if (shopNote) await send(chatId, shopNote);
     // The slip's total was read: go straight to the margin question, through the
     // same promo checks a typed price gets.
     const r = slip.total_odds !== null ? step(typing, formatAmerican(slip.total_odds)) : null;
     if (r && r.state.step === "fair") {
-      await send(chatId, `${why} I'll check the slip's ${formatAmerican(slip.total_odds!)} with an assumed margin instead.`);
+      const shown = slipBoost ? ` (boosted ${slip.boost_pct}% to ${formatAmerican(slip.boosted_odds!)})` : "";
+      await send(chatId, `${why} I'll check the slip's ${formatAmerican(slip.total_odds!)}${shown} with an assumed margin instead.`);
       await saveState(chatId, r.state);
       return sendPrompt(chatId, prompt(r.state));
     }
@@ -334,20 +354,36 @@ async function priceSlip(chatId: number, s: FlowState) {
     return;
   }
   await send(chatId, formatSlipCheck(slip, book, c, promo));
+  if (shopNote) await send(chatId, shopNote);
   await creditsNote(chatId, remaining);
   if (!s.noPromo) await sendPrompt(chatId, prompt(done));
 }
 
 // ── Questions ─────────────────────────────────────────────
 
-// Books a question is priced at: the ones on the free plan that the bettors
-// use. With the five sharp sources that's nine, inside one region's credits.
-const QUESTION_BOOKS: Record<string, string> = { betmgm: "BetMGM", draftkings: "DraftKings", fanduel: "FanDuel", espnbet: "theScore Bet" };
+// Books a question is priced at: the shared list's books on the free plan
+// (BetMGM, DraftKings, FanDuel, theScore). With the five sharp sources that's
+// nine, inside one region's credits.
+const QUESTION_BOOKS = SHOP_BOOKS;
+
+// "teasers?", "any Wong teasers this week": every NFL spread that fits a Wong
+// teaser (guide.ts). One spreads-only call for the whole slate: 1 credit.
+async function answerTeasers(chatId: number) {
+  await send(chatId, "🔎 Checking this week's NFL spreads for Wong teaser legs…");
+  const { data, remaining } = await getOdds(ODDS_API_KEY, SPORT_KEYS.NFL, { markets: ["spreads"], bookmakers: ["pinnacle", ...Object.keys(QUESTION_BOOKS)] });
+  const upcoming = data.filter((e) => new Date(e.commence_time).getTime() > Date.now());
+  await send(chatId, formatWongSlate(upcoming));
+  await creditsNote(chatId, remaining);
+}
 
 // Finds the game a question names (a team's nickname is enough) among every
 // league's upcoming games, soonest first, and lists its best-priced legs.
 // False when no team is named, so the caller can fall back.
 async function answerQuestion(chatId: number, text: string): Promise<boolean> {
+  if (/\b(teasers?|wong)\b/i.test(text)) {
+    await answerTeasers(chatId);
+    return true;
+  }
   const now = Date.now();
   const lists = await Promise.all(Object.values(SPORT_KEYS).map((k) => getEvents(ODDS_API_KEY, k).catch(() => [])));
   const events = lists.flat()
@@ -358,11 +394,14 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   const league = LEAGUE_OF[game.sport_key];
   const { markets: mode } = await loadSettings(chatId);
   await send(chatId, `🔎 Pricing ${game.away_team} @ ${game.home_team} at ${Object.values(QUESTION_BOOKS).join(", ")} against the sharp price…`);
-  const markets = [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
-  const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, {
-    markets, bookmakers: [...Object.keys(QUESTION_BOOKS), ...SHARP_KEYS],
-  });
-  await send(chatId, formatShop(game, filterMode(shopLegs(data, QUESTION_BOOKS), mode)));
+  // Team totals for every sport but soccer (+1 credit); soccer gets its own extra markets.
+  const extra = EXTRA_MARKETS[league] ?? ["team_totals"];
+  const markets = [...MAIN_MARKETS, ...extra, ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
+  const bookmakers = [...Object.keys(QUESTION_BOOKS), ...SHARP_KEYS];
+  // If the feed rejects a market for this league, ask again for the main lines alone.
+  const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets, bookmakers })
+    .catch(() => getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets: MAIN_MARKETS, bookmakers }));
+  await send(chatId, formatShop(data, filterMode(shopLegs(data, QUESTION_BOOKS), mode)));
   await creditsNote(chatId, remaining);
   return true;
 }
@@ -371,7 +410,8 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
 
 const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
-  "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books.\n\n" +
+  "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books, or ask for \"teasers\" and I'll list this week's Wong teaser legs.\n\n" +
+  "Stakes are ¼ Kelly, never more than 3% of your bankroll on one bet; keep a day's total under 7%.\n\n" +
   "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both.";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
