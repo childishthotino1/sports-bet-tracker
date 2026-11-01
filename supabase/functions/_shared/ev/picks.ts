@@ -13,12 +13,14 @@ import { blowoutNote, formatWongLeg, isPropOver, WONG_NOTE, wongLegs, type WongL
 
 export type PricedLeg = {
   eventId: string;
+  sportKey: string; // the feed's sport key, for grading the leg later
   game: string; // "DET @ NYK" style, as The Odds API names teams
   start: string; // ISO
   market: string; // "h2h", "totals", "player_points", ...
   selection: string; // "Ja Morant Over 15.5 Points"
   side: string; // the outcome's name: a team, "Over", "Yes"
   point?: number;
+  description?: string; // the player (props) or team (team totals) the outcome is about
   bookOdds: number;
   fair: number; // average of the sharp sources' worst-case devigged probabilities
   quotes: Quote[]; // each sharp source's line
@@ -74,12 +76,14 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
         const fair = consensus(quotes);
         legs.push({
           eventId: ev.id,
+          sportKey: ev.sport_key,
           game: `${ev.away_team} @ ${ev.home_team}`,
           start: ev.commence_time,
           market: m.key,
           selection,
           side: o.name,
           point: o.point,
+          description: o.description,
           bookOdds: o.price,
           fair,
           quotes,

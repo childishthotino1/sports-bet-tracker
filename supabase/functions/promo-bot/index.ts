@@ -17,6 +17,7 @@ import {
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
+  formatStats, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
@@ -228,6 +229,40 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
     }).text, ...cautions].join("\n\n"));
   }
+  await logPicks(picks.map((p) => pickRow({
+    chat_id: String(chatId), source: "pick", book: promo.book!, league: LEAGUE_OF[p.legs[0].sportKey] ?? null, kind: p.kind,
+    promo_title: promo.title, boost_pct: promo.boost_pct ?? 0, book_odds: p.americanOdds, fair_prob: p.eval.fairProb,
+    ev: p.eval.ev, verdict: "plus_ev", legs: p.legs.map(trackedLeg),
+  })));
+}
+
+// ── Tracking (promo_bot_picks; graded by the grade-picks function) ──
+
+// Logging never gets in the way of an answer: a failure is only logged.
+async function logPicks(rows: PickRow[]) {
+  if (!rows.length) return;
+  const { error } = await db.from("promo_bot_picks").upsert(rows, { onConflict: "dedup_key", ignoreDuplicates: true });
+  if (error) console.error("logPicks", error.message);
+}
+
+// SGP legs to build: logged as one SGP with no total price (the book prices it).
+function sgpRow(chatId: number, promo: Promo, sg: NonNullable<ReturnType<typeof suggestSgpLegs>>): PickRow {
+  return pickRow({
+    chat_id: String(chatId), source: "sgp_legs", book: promo.book!, league: LEAGUE_OF[sg.legs[0].sportKey] ?? null, kind: "sgp",
+    promo_title: promo.title, boost_pct: promo.boost_pct ?? 0, book_odds: null,
+    fair_prob: sg.legs.reduce((p, l) => p * l.fair, 1), ev: null, verdict: null, legs: sg.legs.map(trackedLeg),
+  });
+}
+
+// Every suggestion so far, paged past Supabase's 1000-row cap.
+async function loadPicks(): Promise<StoredPick[]> {
+  const out: StoredPick[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from("promo_bot_picks").select("*").order("id").range(from, from + 999);
+    if (error) throw new Error(error.message);
+    out.push(...(data as StoredPick[]));
+    if (!data || data.length < 1000) return out;
+  }
 }
 
 // The one game a promo is for, among these games: its `game`, or for a promo
@@ -261,7 +296,10 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
   await sendCards(chatId, s, picks, [data]);
   if (!promo.bet_kinds.length || promo.bet_kinds.includes("sgp")) {
     const sg = suggestSgpLegs(legs, Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
-    if (sg) await send(chatId, formatSgpSuggestion(sg, promo.book!));
+    if (sg) {
+      await send(chatId, formatSgpSuggestion(sg, promo.book!));
+      await logPicks([sgpRow(chatId, promo, sg)]);
+    }
   }
   await creditsNote(chatId, remaining);
   await sendPrompt(chatId, prompt(s));
@@ -346,6 +384,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     await send(chatId, `The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to kickoff, or build an SGP and send me the slip; I'll price it.`);
   } else {
     await send(chatId, formatSgpSuggestion(sg, promo.book!));
+    await logPicks([sgpRow(chatId, promo, sg)]);
   }
   await creditsNote(chatId, remaining);
   const next: FlowState = { ...s, step: "slip" };
@@ -430,6 +469,20 @@ async function priceSlip(chatId: number, s: FlowState) {
     return;
   }
   await send(chatId, formatSlipCheck(slip, book, c, promo));
+  const byId = new Map(events.map((e) => [e.id, e]));
+  await logPicks([pickRow({
+    chat_id: String(chatId), source: "slip", book, league: league ?? null, kind: slip.bet_kind, promo_title: promo?.title ?? null,
+    boost_pct: Math.round(c.boost * 10000) / 100, book_odds: c.totalOdds, fair_prob: c.fairProb, ev: c.eval.ev,
+    verdict: c.eval.ev > 0 ? "plus_ev" : "minus_ev",
+    legs: slip.legs.map((l, i): TrackedLeg => {
+      const e = ids[i] ? byId.get(ids[i]!) : undefined;
+      return {
+        event_id: ids[i] ?? null, sport_key: e?.sport_key ?? sportKey, game: e ? `${e.away_team} @ ${e.home_team}` : l.game,
+        start: e?.commence_time ?? null, market: l.market, selection: priced[i].label, side: l.side, point: l.line,
+        player: l.market === "h2h" || l.market === "spreads" ? null : l.team_or_player, book_odds: priced[i].bookOdds, fair: priced[i].fair,
+      };
+    }),
+  })]);
   if (shopNote) await send(chatId, shopNote);
   await creditsNote(chatId, remaining);
   if (!s.noPromo) await sendPrompt(chatId, prompt(done));
@@ -478,7 +531,13 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   // If the feed rejects a market for this league, ask again for the main lines alone.
   const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets, bookmakers })
     .catch(() => getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets: MAIN_MARKETS, bookmakers }));
-  await send(chatId, formatShop(data, filterMode(shopLegs(data, QUESTION_BOOKS), mode)));
+  const shopped = filterMode(shopLegs(data, QUESTION_BOOKS), mode);
+  await send(chatId, formatShop(data, shopped));
+  // The ✅ lines (better than fair as is) are the suggestions; log each as a single.
+  await logPicks(shopped.slice(0, 6).filter((l) => l.edge > 0).map((l) => pickRow({
+    chat_id: String(chatId), source: "question", book: l.book, league, kind: "single", promo_title: null, boost_pct: 0,
+    book_odds: l.bookOdds, fair_prob: l.fair, ev: l.edge, verdict: "plus_ev", legs: [trackedLeg(l)],
+  })));
   await creditsNote(chatId, remaining);
   return true;
 }
@@ -489,12 +548,13 @@ const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best 
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
   "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books, or ask for \"teasers\" and I'll list this week's Wong teaser legs.\n\n" +
   "Stakes are ¼ Kelly, never more than 3% of your bankroll on one bet; keep a day's total under 7%.\n\n" +
-  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both.";
+  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions have done (/stats 7 for the last week).";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
 const COMMANDS = [
   { command: "skip", description: "Drop the current promo and start over" },
   { command: "settings", description: "Main lines, props, or both" },
+  { command: "stats", description: "How the bot's suggestions have done" },
   { command: "help", description: "What this bot does" },
 ];
 const RESET_COMMANDS = ["skip", "cancel", "new", "reset"];
@@ -534,6 +594,10 @@ async function handle(update: any) {
   if (command) await tg("setMyCommands", { commands: COMMANDS }); // keeps the menu current; cheap and idempotent
   if (command === "start" || command === "help") return send(chatId, HELP);
   if (command === "settings") return sendSettings(chatId, await loadSettings(chatId));
+  if (command === "stats") {
+    const days = Number(text.split(/\s+/)[1]);
+    return send(chatId, formatStats(await loadPicks(), days > 0 ? days : null));
+  }
   if (command && RESET_COMMANDS.includes(command)) {
     await clearState(chatId);
     return send(chatId, "🧹 Cleared. Send a promo or bet slip screenshot to start fresh.");

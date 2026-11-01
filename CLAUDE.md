@@ -30,6 +30,7 @@ supabase functions deploy telegram-bot
 supabase functions deploy parse-bet
 supabase functions deploy grade-bets
 supabase functions deploy promo-bot --no-verify-jwt   # Telegram can't send a JWT
+supabase functions deploy grade-picks
 ```
 
 No `package.json` — dependencies are CDN-loaded in `index.html` (Supabase JS v2, Chart.js v4).
@@ -48,6 +49,7 @@ supabase/functions/
   parse-bet/        # Simple CORS endpoint for direct image parsing (legacy)
   grade-bets/       # Daily auto-checker: Claude + web search verifies open bets, recommend-and-confirm
   promo-bot/        # @Bmorepromobot webhook: promo screenshot → rules → best bets / check a bet (separate bot)
+  grade-picks/      # Grades the promo bot's logged suggestions after their games (Claude + web search), for /stats
   _shared/ev/       # +EV core used by promo-bot: devig, EV, Kelly, promo rules + flow, odds client, picks
   _shared/books/    # Sportsbook knowledge shared by telegram-bot AND promo-bot (see below)
 ```
@@ -118,7 +120,7 @@ Runs daily via `pg_cron` (job `grade-bets-daily`, `0 13 * * *` UTC, calls the ed
 
 ## Migrations
 
-SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above), `add_promo_bot_state.sql` (promo bot's per-chat conversation state; RLS on, no policies), `add_promo_bot_settings.sql` (its per-chat settings; already applied).
+SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above), `add_promo_bot_state.sql` (promo bot's per-chat conversation state; RLS on, no policies), `add_promo_bot_settings.sql` (its per-chat settings; already applied), `add_promo_bot_picks.sql` (the promo bot's suggestion log `promo_bot_picks`, the grader's `promo_bot_games`, and the per-leg view `promo_bot_pick_legs`; already applied).
 
 ## +EV Core (`supabase/functions/_shared/ev/`)
 
@@ -157,6 +159,8 @@ Its own Telegram bot, token, webhook, and table (`promo_bot_state`); it never re
 - Reverse line movement and hedging need data or bets the bot doesn't have.
 
 **Wagers and questions.** Every verdict (pick cards, slip checks, typed-price checks) ends with `wagerLine`: quarter-Kelly stakes for $500/$1K/$5K/$10K bankrolls, capped at 3% of bankroll and at the promo's max wager (pick cards pass `maxStake` too). Typed text that isn't an answer to the bot's current question (no promo in play, or at the action/end step) goes to `answerQuestion`: the game whose team it names (nickname is enough; every league's `/events`, free, soonest first), one per-game odds call at BetMGM, DraftKings, FanDuel and theScore plus the five sharps (nine books, one region). It asks for main lines, team totals and 1st-half lines, plus props with the extra `QUESTION_PROP_MARKETS` (NFL 1st TD scorer, pass TDs, completions, attempts, rush attempts, longest reception, rush + rec), about 18 credits for an NFL game. Then and `shopLegs` / `formatShop`: each leg at its best book vs the sharp price, best edge first. Text that names no team falls back to the help.
+
+**Tracking the bot's suggestions (`track.ts`, `promo_bot_picks`, `grade-picks`).** Every suggestion is logged: pick cards (`source` pick), SGP leg ideas (sgp_legs, no total price), the ✅ +EV lines in a game answer (question, one single each) and slips the bot checked (slip, with its +EV/-EV verdict). Each row keeps the book, league, kind, promo and boost, the total price, the bot's fair probability and EV, and every leg (event, market, selection, book price, fair). `dedup_key` makes the same suggestion twice in a day one row. `grade-picks` (pg_cron `grade-promo-picks`, every 3 hours, anon key like `grade-bets`) takes each game that started 4+ hours ago with ungraded legs, at most 8 a run, and asks Claude with web search for the final score and each leg's result (`gradePrompt`, one call per game). Game lines are graded from the score itself (`gradeFromScore`: moneyline, spread, totals, team totals, 1st half, draw no bet, BTTS; not 1st quarter or quarter lines), the rest from the research. A game not found is retried up to 4 times (`promo_bot_games.attempts`), then its legs are `unknown` and the picks `ungraded`. `settle` scores each pick at a flat 1 unit at the shown price and boost: any lost leg loses it, a pushed or void leg drops out. `/stats` (`/stats 7` for a week) reports record, units and ROI against the EV the bot predicted, by source, book, league, bet type, single-leg market and boost, the slips by verdict, and each market's leg hit rate against the bot's average fair probability (the earliest honest test of the fair prices). For SQL slicing, `promo_bot_pick_legs` has one row per leg.
 
 Button taps arrive as `callback_data` `pf:<value>`. `/skip` (also `/cancel`, `/new`, `/reset`) deletes the chat's `promo_bot_state` row so the next screenshot starts fresh; any command re-sends `setMyCommands` so Telegram's menu lists /skip and /help.
 
