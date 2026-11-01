@@ -34,6 +34,7 @@ The World Series limit isn't a league, so it goes in `notes`.
   "paid_in": "cash",
   "expires_at": "2026-10-29T08:07",
   "game": null,
+  "markets": [],
   "notes": "World Series games only"
 }
 ```
@@ -66,6 +67,7 @@ so `paid_in` is null. Live and pre-game aren't mentioned, so both are true.
   "paid_in": null,
   "expires_at": "2026-10-29T03:00",
   "game": null,
+  "markets": [],
   "notes": null
 }
 ```
@@ -99,6 +101,7 @@ bet kinds, so it goes in `notes`.
   "paid_in": null,
   "expires_at": "2026-10-29T09:29",
   "game": null,
+  "markets": [],
   "notes": "Super Parlays also qualify"
 }
 ```
@@ -134,6 +137,7 @@ reading "no minimum". No book name or logo is on screen; the user said BetMGM
   "paid_in": "cash",
   "expires_at": "2026-10-29T09:52",
   "game": null,
+  "markets": [],
   "notes": "Screenshot cut off below 'Bet on'; other rules (min odds, SGP) not visible"
 }
 ```
@@ -167,6 +171,7 @@ the same token showed 10/29/26 09:52 AM, so `expires_at` is null here.
   "paid_in": "cash",
   "expires_at": null,
   "game": null,
+  "markets": [],
   "notes": null
 }
 ```
@@ -201,6 +206,7 @@ shown for the expiry, so `expires_at` has no time. No book name or logo is shown
   "paid_in": null,
   "expires_at": "2026-11-02",
   "game": null,
+  "markets": [],
   "notes": null
 }
 ```
@@ -234,6 +240,7 @@ wager. No book name or logo is on screen.
   "paid_in": null,
   "expires_at": "2026-10-30",
   "game": "Carolina Panthers @ Green Bay Packers",
+  "markets": [],
   "notes": "SGP+ also qualifies"
 }
 ```
@@ -270,6 +277,7 @@ are called SGPx.
   "paid_in": null,
   "expires_at": null,
   "game": null,
+  "markets": [],
   "notes": "SGPx (multi-game same-game parlays) also qualifies"
 }
 ```
@@ -304,6 +312,41 @@ DraftKings' rewards layout, like the soccer SGPx boost).
   "paid_in": null,
   "expires_at": null,
   "game": "Florida vs Georgia",
+  "markets": [],
   "notes": null
+}
+```
+
+## DraftKings: NFL Sunday 30% TD Boost
+
+Shows (as the bot read it): "NFL Sunday 30% TD Boost", 30% boost, NFL, minimum
+odds -200, $20 max, eligible bet types Single, Parlay, SGP and SGPx.
+
+Gotcha: "TD Boost" in the title is the market rule: only touchdown scorer bets
+get the boost, so `markets` is the three TD scorer markets and every leg of a
+parlay must be one. It isn't a note, and it isn't "likely": the market a promo is
+named for is the market it requires. "Sunday" limits the games; it goes in
+`notes`.
+
+```json
+{
+  "book": "DraftKings",
+  "title": "NFL Sunday 30% TD Boost",
+  "type": "profit_boost",
+  "boost_pct": 30,
+  "max_stake": 20,
+  "min_total_odds": -200,
+  "min_legs": null,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["single", "parlay", "sgp"],
+  "leagues": ["NFL"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": null,
+  "game": null,
+  "markets": ["player_anytime_td", "player_1st_td", "player_last_td"],
+  "notes": "Sunday NFL games; SGPx also qualifies"
 }
 ```

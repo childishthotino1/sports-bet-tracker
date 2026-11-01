@@ -311,3 +311,12 @@ test("a leg from another game doesn't get a one-game promo's boost", () => {
   assert.deepEqual(c.promoIssues, ["only Carolina Panthers @ Green Bay Packers qualifies"]);
   assert.equal(c.boost, 0);
 });
+
+test("a leg outside a market-limited promo's markets doesn't get its boost", () => {
+  const slip = normalizeSlip(SLIP_JSON)!;
+  const priced = priceSlipLegs(slip, [GAME, GAME, GAME], "fanduel");
+  const td = { ...fdSgpBoost(), markets: ["player_anytime_td"] };
+  const c = checkSlip(slip, priced, td, "FanDuel")!;
+  assert.deepEqual(c.promoIssues, ["only touchdown scorer bets qualify"]);
+  assert.equal(c.boost, 0);
+});

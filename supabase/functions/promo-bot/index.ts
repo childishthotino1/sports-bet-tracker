@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, americanToDecimal, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, americanToDecimal, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -32,6 +32,7 @@ const withSharps = (bookKey: string) => [bookKey, ...SHARP_KEYS.filter((k) => k 
 // Props need one odds call per game, so picks with props check the next few
 // games only, and skip props when credits run low.
 const PROP_GAMES = 4;
+const FOCUSED_GAMES = 10; // games searched for a market-limited promo (a TD boost: 2 credits a game)
 const PROP_CREDIT_FLOOR = 60;
 // SGP legs: games to try, best main lines first, before giving up.
 const SGP_GAMES = 3;
@@ -154,29 +155,31 @@ async function sendPicks(chatId: number, s: FlowState) {
   }
   const sgpx = sgpOnly && covered.length > 0 && !named && allowsSgpx(promo);
 
-  const { markets: mode } = await loadSettings(chatId);
+  // A promo limited to some markets (a TD boost) searches those only, whatever /settings says.
+  const only = promo.markets ?? [];
+  const mode: MarketMode = only.length ? "all" : (await loadSettings(chatId)).markets;
   if (named && !sgpOnly) return sendGamePicks(chatId, s, bookKey, named, mode);
-  const what = mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
+  const what = only.length ? `${marketsLabel(promo)} prices` : mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
   const where = leagues.length === 1 ? leagues[0] : `${leagues.length} leagues`;
   await send(chatId, `🔎 Pulling ${promo.book} ${where} ${what} and the sharp prices (Pinnacle + exchanges)…`);
 
   if (sgpOnly && !sgpx) return sendSgpLegs(chatId, s, bookKey, leagues, null, null);
   // Main lines: one call per league.
-  let { events, remaining } = mode !== "props" || sgpx
+  const needMain = only.length ? only.some((m) => MAIN_MARKETS.includes(m)) : mode !== "props" || sgpx;
+  let { events, remaining } = needMain
     ? await mainLines(promo, bookKey, leagues)
     : { events: [] as OddsEvent[], remaining: null as number | null };
   // Props need one call per game.
   // Per-game calls for the next few games: 1st-half lines (unless props only)
   // and props (unless main lines only).
-  const wantsHalf = mode !== "props" && leagues.some((l) => HALF_MARKETS[l]);
-  if (mode !== "main" || wantsHalf) {
+  if (leagues.some((l) => gameMarkets(l, promo, mode).length)) {
     if (remaining !== null && remaining < PROP_CREDIT_FLOOR) {
       await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props and 1st-half lines this time.`);
     } else {
-      const games = (await coveredGames(promo, leagues)).slice(0, PROP_GAMES);
+      // A market-limited promo has fewer markets per game, so it can afford more games.
+      const games = covered.slice(0, only.length ? FOCUSED_GAMES : PROP_GAMES);
       for (const g of games) {
-        const league = LEAGUE_OF[g.sport_key];
-        const markets = [...(mode === "props" ? [] : HALF_MARKETS[league] ?? []), ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
+        const markets = gameMarkets(LEAGUE_OF[g.sport_key], promo, mode);
         if (!markets.length) continue;
         const r = await eventOdds(g.sport_key, g.id, markets, bookKey);
         events.push(r.data);
@@ -185,7 +188,7 @@ async function sendPicks(chatId: number, s: FlowState) {
     }
   }
 
-  const legs = filterMode(priceLegs(events, bookKey), mode);
+  const legs = filterMode(priceLegs(events, bookKey), mode).filter((l) => marketAllowed(promo, l.market));
   const picks = bestBets(legs, promo, { league: leagues.length === 1 ? leagues[0] : undefined, target: s.target });
   if (sgpx && !picks.length) {
     // No SGPx of one leg per game works: try single-game SGP legs instead.
@@ -244,8 +247,11 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
   await send(chatId, `🔎 This promo is for ${name} only (${formatStart(game.commence_time)}). Pulling ${promo.book} lines on that game and the sharp prices (Pinnacle + exchanges)…`);
   const lines = mode === "props" ? [] : [...(EXTRA_MARKETS[league] ?? ["alternate_spreads", "alternate_totals", "team_totals"]), ...(HALF_MARKETS[league] ?? [])];
   const props = mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])];
-  const { data, remaining } = await eventOdds(game.sport_key, game.id, [...MAIN_MARKETS, ...lines, ...props], bookKey);
-  const legs = filterMode(priceLegs([data], bookKey), mode);
+  const markets = promo.markets?.length
+    ? [...promo.markets.filter((m) => MAIN_MARKETS.includes(m)), ...gameMarkets(league, promo, mode)]
+    : [...MAIN_MARKETS, ...lines, ...props];
+  const { data, remaining } = await eventOdds(game.sport_key, game.id, markets, bookKey);
+  const legs = filterMode(priceLegs([data], bookKey), mode).filter((l) => marketAllowed(promo, l.market));
   const picks = bestBets(legs, promo, { league, target: s.target });
   if (!picks.length) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
@@ -259,6 +265,20 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
   }
   await creditsNote(chatId, remaining);
   await sendPrompt(chatId, prompt(s));
+}
+
+// The per-game markets to request: for a market-limited promo its non-main
+// markets (every prop for any_player_prop), else 1st-half lines and props per
+// the /settings mode. Last TD is left out of picks: no sharp source prices it
+// two-way, so it can never be priced against one.
+function gameMarkets(league: string, promo: Promo, mode: MarketMode): string[] {
+  const only = promo.markets ?? [];
+  if (only.length) {
+    return [...new Set(only.flatMap((m) =>
+      m === "any_player_prop" ? [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])]
+      : MAIN_MARKETS.includes(m) || m === "player_last_td" ? [] : [m]))];
+  }
+  return [...(mode === "props" ? [] : HALF_MARKETS[league] ?? []), ...(mode === "main" ? [] : PROP_MARKETS[league] ?? [])];
 }
 
 // Main lines for every game the promo covers in these leagues: one call per league.
@@ -312,10 +332,12 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
   let sg = null;
   for (const game of candidates) {
     const league = LEAGUE_OF[game.sport_key];
-    const markets = [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(PROP_MARKETS[league] ?? [])];
+    const markets = promo.markets?.length
+      ? [...promo.markets.filter((m) => MAIN_MARKETS.includes(m)), ...gameMarkets(league, promo, "all")]
+      : [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(PROP_MARKETS[league] ?? [])];
     const odds = await eventOdds(game.sport_key, game.id, markets, bookKey);
     remaining = odds.remaining;
-    sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), mode), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
+    sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), promo.markets?.length ? "all" : mode).filter((l) => marketAllowed(promo, l.market)), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
     if (sg) break;
     tried.push(`${game.away_team} @ ${game.home_team} (${formatStart(game.commence_time)})`);
   }

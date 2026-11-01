@@ -186,3 +186,7 @@ test("a one-game promo's summary names the game and skips a 1-leg minimum", () =
   assert.match(text, /^🏟 Florida vs Georgia only$/m);
   assert.doesNotMatch(text, /1\+ legs/);
 });
+
+test("a TD boost's summary says TD scorer bets only", () => {
+  assert.match(summary(normalizePromo(example("DraftKings: NFL Sunday 30% TD Boost"))), /^🎯 Touchdown scorer bets only$/m);
+});

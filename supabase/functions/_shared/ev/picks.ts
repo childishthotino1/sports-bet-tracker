@@ -4,7 +4,7 @@
 
 import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } from "./odds.ts";
 import { evaluateBet, type BetEval } from "./bet.ts";
-import { promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { marketAllowed, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
 import { findRuleBlocks, type SgpRule } from "./sgp-rules.ts";
 import type { Leg as CardLeg } from "./format.ts";
@@ -129,7 +129,8 @@ export function allowsSgpx(promo: Promo): boolean {
   return /\bsgp\s*\(?x\)?|\bsgp\+/i.test(`${promo.title} ${promo.notes ?? ""}`);
 }
 
-export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
+export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
+  const legs = allLegs.filter((l) => marketAllowed(promo, l.market)); // a TD boost takes TD scorer legs only
   const { league, top = 3, pool = 15, target } = opts;
   const maxLegs = Math.max(opts.maxLegs ?? 4, promo.min_legs ?? 0);
   const boost = (promo.boost_pct ?? 0) / 100;

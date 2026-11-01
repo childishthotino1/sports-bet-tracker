@@ -7,7 +7,7 @@
 
 import { americanToDecimal, decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet, wagerLine } from "./bet.ts";
-import { eligibleLeagues, legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { eligibleLeagues, legLimitsApply, marketsLabel, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
 import type { Slip } from "./slip.ts";
 import type { OddsRange } from "./picks.ts";
@@ -133,7 +133,8 @@ export function summary(p: Promo): string {
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
   const game = p.game ? `\n🏟 ${p.game} only` : "";
-  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${game}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+  const markets = p.markets?.length ? `\n🎯 ${marketsLabel(p)[0].toUpperCase()}${marketsLabel(p).slice(1)} bets only` : "";
+  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${game}${markets}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
 }
 
 // The leagues a search covers: the one picked, or for "ALL" every league the

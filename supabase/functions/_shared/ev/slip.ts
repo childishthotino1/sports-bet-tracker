@@ -12,7 +12,7 @@
 import { americanToDecimal, decimalToAmerican, formatAmerican, formatPct, impliedProb, probToAmerican } from "./odds.ts";
 import { worstCaseDevig } from "./devig.ts";
 import { evaluateBet, wagerLine, type BetEval } from "./bet.ts";
-import { promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { marketAllowed, marketsLabel, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, formatQuote, marketFamily, sameLine, sharpQuotes, SHARP_KEYS, type Quote } from "./sharp.ts";
 import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
 import { lastWord, norm, samePerson, sameTeam } from "./names.ts";
@@ -397,6 +397,7 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
 
   const promoIssues = promo ? promoViolations(promo, { americanOdds: totalOdds, legs: slip.legs.length, kind: slip.bet_kind, league: slip.league ?? undefined }) : [];
   if (promo?.game && otherGame) promoIssues.push(`only ${promo.game} qualifies`);
+  if (promo && slip.legs.some((l) => !marketAllowed(promo, l.market))) promoIssues.push(`only ${marketsLabel(promo)} bets qualify`);
   const promoBoost = promo && !promoIssues.length ? (promo.boost_pct ?? 0) / 100 : 0;
   const boostSource = slip.boost_pct ? "slip" : promoBoost ? "promo" : null;
   // Books round the boosted price down, so a price on the slip is what it pays: price from it, not the %.

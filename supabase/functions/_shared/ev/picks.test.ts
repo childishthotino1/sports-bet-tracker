@@ -120,6 +120,8 @@ test("respects the promo's rules", () => {
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ leagues: ["NFL"] }), { league: "NBA" }), [], "wrong league");
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ min_total_odds: 2000 }), { league: "NBA" }), [], "nothing long enough");
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ bet_kinds: ["sgp"] }), { league: "NBA" }), [], "SGPs aren't auto-picked");
+  const rebounds = bestBets(legs, nbaParlayBoost({ markets: ["player_rebounds"], min_total_odds: null, bet_kinds: [] }), { league: "NBA" });
+  assert.ok(rebounds.length && rebounds.every((p) => p.legs.every((l) => l.market.startsWith("player_rebounds"))), "a market-limited promo picks only that market");
   const singles = bestBets(legs, nbaParlayBoost({ bet_kinds: ["single"], min_total_odds: null }), { league: "NBA" });
   assert.ok(singles.every((p) => p.kind === "single" && p.legs.length === 1));
 });
