@@ -36,6 +36,7 @@ export type Promo = {
   pregame: boolean;
   paid_in: "cash" | "bonus" | null; // how the boosted part of the win is paid
   expires_at: string | null; // as shown, "2026-10-29T08:07" (book's local time)
+  game: string | null; // the one game the promo is limited to, "Florida vs Georgia"; null for any game
   notes: string | null;
 };
 
@@ -46,7 +47,7 @@ export const PROMO_JSON_SCHEMA = {
   additionalProperties: false,
   required: [
     "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
-    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
+    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "game", "notes",
   ],
   properties: {
     book: { type: "string" },
@@ -64,6 +65,7 @@ export const PROMO_JSON_SCHEMA = {
     pregame: { type: "boolean" },
     paid_in: { type: "string", enum: ["cash", "bonus", "unknown"] },
     expires_at: { type: "string" },
+    game: { type: "string" },
     notes: { type: "string" },
   },
 } as const;
@@ -82,7 +84,8 @@ export const PROMO_PROMPT = `If it's a sportsbook promotion, read its rules into
 - live / pregame: whether live and pre-game bets qualify. If the promo doesn't say, both are true.
 - paid_in: "cash" or "bonus", for how the boosted winnings are paid.
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.
-- notes: any other rule that limits which bets qualify (a specific event, a required market); null if none.
+- game: if the promo is for one game only (a matchup in its title or rules, like "Florida vs. Georgia 50% Boost" or "Carolina Panthers @ Green Bay Packers"), that matchup with the team names only, as shown: "Florida vs Georgia". Null when any game qualifies. Don't repeat it in notes.
+- notes: any other rule that limits which bets qualify (a specific tournament or round, a required market); null if none.
 
 For anything the screenshot doesn't state, use "" for text, 0 for numbers and "unknown" for paid_in (the examples below write those as null). Don't guess.`;
 
@@ -131,6 +134,7 @@ export function normalizePromo(raw: unknown): Promo {
     pregame: r.pregame !== false,
     paid_in: r.paid_in === "cash" || r.paid_in === "bonus" ? r.paid_in : null,
     expires_at: str(r.expires_at),
+    game: str(r.game),
     notes: str(r.notes),
   };
 }

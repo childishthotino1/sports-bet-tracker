@@ -85,7 +85,7 @@ test("finds the slip's game and the markets to request", () => {
   assert.deepEqual(legEventIds(slip, [OTHER, GAME], NOW), ["cargb", "cargb", "cargb"]);
   assert.deepEqual(marketsFor(slip), ["spreads", "alternate_spreads", "h2h", "player_anytime_td"]);
   // A promo naming the matchup in its notes points at the same game.
-  assert.equal(findEvent([OTHER, GAME], [fdSgpBoost().notes, fdSgpBoost().title], NOW)?.id, "cargb");
+  assert.equal(findEvent([OTHER, GAME], [fdSgpBoost().game], NOW)?.id, "cargb");
 });
 
 test("prices each leg: Pinnacle where it has the line, the book's own price where not", () => {
@@ -289,4 +289,25 @@ test("a boost typed in the chat is labelled as yours", () => {
   const c = checkSlip(slip, priced, null, "BetMGM")!;
   assert.equal(c.boostSource, "slip");
   assert.match(formatSlipCheck(slip, "BetMGM", c, null), /^Slip: -110, boosted 25% to \+114 \(your boost\)$/m);
+});
+
+test("a one-game promo finds its game, not a lookalike", () => {
+  const ev = (id: string, away: string, home: string) => ({ id, away_team: away, home_team: home, commence_time: "2026-11-01T00:00:00Z" });
+  const games = [
+    ev("fsu", "Florida State Seminoles", "Georgia Tech Yellow Jackets"),
+    ev("uga", "Florida Gators", "Georgia Bulldogs"),
+    ev("fau", "Florida Atlantic Owls", "Georgia Southern Eagles"),
+  ];
+  const promo = normalizePromo(example("Unknown book: Florida vs. Georgia 50% Boost (one game, singles or SGP)"));
+  assert.equal(promo.game, "Florida vs Georgia");
+  assert.equal(findEvent(games, [promo.game], new Date("2026-10-31T20:00:00Z"))?.id, "uga");
+  assert.equal(findEvent(games, ["Florida State @ Georgia Tech"], new Date("2026-10-31T20:00:00Z"))?.id, "fsu");
+});
+
+test("a leg from another game doesn't get a one-game promo's boost", () => {
+  const slip = normalizeSlip(SLIP_JSON)!;
+  const priced = priceSlipLegs(slip, [GAME, GAME, GAME], "fanduel");
+  const c = checkSlip(slip, priced, fdSgpBoost(), "FanDuel", true)!;
+  assert.deepEqual(c.promoIssues, ["only Carolina Panthers @ Green Bay Packers qualifies"]);
+  assert.equal(c.boost, 0);
 });

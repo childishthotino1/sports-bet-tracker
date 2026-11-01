@@ -144,12 +144,18 @@ async function sendPicks(chatId: number, s: FlowState) {
   if (!bookKey) return send(chatId, `I can't pull odds for ${promo.book ?? "this book"} yet.`);
   if (!leagues.length) return send(chatId, `I can only find picks for ${Object.keys(SPORT_KEYS).join(", ")} so far.`);
   const sgpOnly = promo.bet_kinds.length === 1 && promo.bet_kinds[0] === "sgp";
-  // An SGPx spans games, so it's out when the promo names one game.
-  const covered = sgpOnly ? await coveredGames(promo, leagues) : [];
-  const named = findEvent(covered, [promo.notes, promo.title]);
+  // A promo for one game is searched in that game only. An SGPx spans games,
+  // so it's out then too.
+  const covered = await coveredGames(promo, leagues);
+  const named = promoGame(promo, covered);
+  if (promo.game && !named) {
+    await send(chatId, `I can't find ${promo.game} among the upcoming ${leagues.join("/")} games. If it has already started, I can't price it: live lines move faster than the odds feed.`);
+    return sendPrompt(chatId, prompt(s));
+  }
   const sgpx = sgpOnly && covered.length > 0 && !named && allowsSgpx(promo);
 
   const { markets: mode } = await loadSettings(chatId);
+  if (named && !sgpOnly) return sendGamePicks(chatId, s, bookKey, named, mode);
   const what = mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
   const where = leagues.length === 1 ? leagues[0] : `${leagues.length} leagues`;
   await send(chatId, `🔎 Pulling ${promo.book} ${where} ${what} and the sharp prices (Pinnacle + exchanges)…`);
@@ -189,7 +195,18 @@ async function sendPicks(chatId: number, s: FlowState) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
     await send(chatId, noPicksReason(legs, promo, s.target) + setting);
   }
-  // The guide's prop checklist: a big spread means starters may sit, which hurts player Overs.
+  await sendCards(chatId, s, picks, events);
+  if (sgpx && picks.length) {
+    await send(chatId, `Each leg is from a different game, so ${promo.book} should price the ${SGPX_NAME[promo.book!] ?? "SGPx"} as the legs multiplied, the price shown. If the slip shows a different total, send me the screenshot and I'll reprice it.`);
+  }
+  await creditsNote(chatId, remaining);
+  await sendPrompt(chatId, prompt(s));
+}
+
+// One card per pick, with the guide's prop check: a big spread means starters
+// may sit, which hurts player Overs.
+async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof bestBets>, events: OddsEvent[]) {
+  const { promo } = s;
   const byId = new Map<string, OddsEvent>();
   for (const e of events) if (e.bookmakers.some((b) => b.markets.some((m) => m.key === "spreads"))) byId.set(e.id, e);
   for (const p of picks) {
@@ -208,8 +225,37 @@ async function sendPicks(chatId: number, s: FlowState) {
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
     }).text, ...cautions].join("\n\n"));
   }
-  if (sgpx && picks.length) {
-    await send(chatId, `Each leg is from a different game, so ${promo.book} should price the ${SGPX_NAME[promo.book!] ?? "SGPx"} as the legs multiplied, the price shown. If the slip shows a different total, send me the screenshot and I'll reprice it.`);
+}
+
+// The one game a promo is for, among these games: its `game`, or for a promo
+// saved before `game` was read, a matchup named in its notes or title.
+function promoGame<E extends Pick<OddsEvent, "id" | "home_team" | "away_team" | "commence_time">>(promo: Promo, events: E[]): E | null {
+  if (promo.game === undefined) return findEvent(events, [promo.notes, promo.title]);
+  return promo.game ? findEvent(events, [promo.game]) : null;
+}
+
+// A promo for one game: everything the feed has on that game in one call (main
+// and alternate lines, team totals, 1st-half lines, props), the best qualifying
+// singles, and for an SGP promo the legs to build it from.
+async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game: Pick<OddsEvent, "id" | "sport_key" | "home_team" | "away_team" | "commence_time">, mode: MarketMode) {
+  const { promo } = s;
+  const league = LEAGUE_OF[game.sport_key];
+  const name = `${game.away_team} @ ${game.home_team}`;
+  await send(chatId, `🔎 This promo is for ${name} only (${formatStart(game.commence_time)}). Pulling ${promo.book} lines on that game and the sharp prices (Pinnacle + exchanges)…`);
+  const lines = mode === "props" ? [] : [...(EXTRA_MARKETS[league] ?? ["alternate_spreads", "alternate_totals", "team_totals"]), ...(HALF_MARKETS[league] ?? [])];
+  const props = mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])];
+  const { data, remaining } = await eventOdds(game.sport_key, game.id, [...MAIN_MARKETS, ...lines, ...props], bookKey);
+  const legs = filterMode(priceLegs([data], bookKey), mode);
+  const picks = bestBets(legs, promo, { league, target: s.target });
+  if (!picks.length) {
+    const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
+    const why = legs.length ? noPicksReason(legs, { ...promo, bet_kinds: promo.bet_kinds.filter((k) => k !== "sgp") }, s.target) : `Neither ${promo.book} nor the sharp sources have lines up for ${name} yet. Try closer to kickoff.`;
+    await send(chatId, why + setting);
+  }
+  await sendCards(chatId, s, picks, [data]);
+  if (!promo.bet_kinds.length || promo.bet_kinds.includes("sgp")) {
+    const sg = suggestSgpLegs(legs, Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
+    if (sg) await send(chatId, formatSgpSuggestion(sg, promo.book!));
   }
   await creditsNote(chatId, remaining);
   await sendPrompt(chatId, prompt(s));
@@ -251,7 +297,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     await send(chatId, `No ${leagues.join("/")} games left that this promo covers${promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
     return sendPrompt(chatId, prompt(s));
   }
-  const named = findEvent(events, [promo.notes, promo.title]);
+  const named = promoGame(promo, events);
   if (!named && !mainEvents) ({ events: mainEvents, remaining } = await mainLines(promo, bookKey, leagues));
   const candidates = named ? [named] : rankSgpGames(priceLegs(mainEvents!, bookKey))
     .map((id) => events.find((e) => e.id === id))
@@ -326,7 +372,10 @@ async function priceSlip(chatId: number, s: FlowState) {
   const legEvents = ids.map((id) => odds.get(id!) ?? null);
   const priced = priceSlipLegs(slip, legEvents, bookKey);
   const promo = s.noPromo ? null : s.promo;
-  const c = checkSlip(slip, priced, promo, book);
+  // A promo for one game doesn't cover a leg from another.
+  const promoEvent = promo ? promoGame(promo, events) : null;
+  const otherGame = !!promoEvent && ids.some((id) => id !== promoEvent.id);
+  const c = checkSlip(slip, priced, promo, book, otherGame);
   // A boost is tied to its book, so line shopping only helps an unboosted slip.
   const boosted = !!slip.boost_pct || (!s.noPromo && !!s.promo.boost_pct);
   const shopNote = boosted ? null : formatBetterPrices(slip, book, betterPrices(slip, legEvents, bookKey, SHOP_BOOKS));

@@ -126,13 +126,14 @@ export function summary(p: Promo): string {
   const rules = [
     p.boost_pct !== null ? `${p.boost_pct}% boost` : null,
     p.bet_kinds.length
-      ? p.bet_kinds.map((k) => (legLimitsApply(p, k) ? `${KIND_LABELS[k]} (${legRange(p)})` : KIND_LABELS[k])).join(" / ")
+      ? p.bet_kinds.map((k) => (legLimitsApply(p, k) && !(p.max_legs === null && (p.min_legs ?? 0) <= 1) ? `${KIND_LABELS[k]} (${legRange(p)})` : KIND_LABELS[k])).join(" / ")
       : null,
     p.leagues.length ? p.leagues.map((l) => (l === "SOCCER" ? "Soccer" : l)).join(", ") : null,
     p.min_total_odds !== null ? `min ${formatAmerican(p.min_total_odds)}` : null,
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
-  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+  const game = p.game ? `\n🏟 ${p.game} only` : "";
+  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${game}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
 }
 
 // The leagues a search covers: the one picked, or for "ALL" every league the

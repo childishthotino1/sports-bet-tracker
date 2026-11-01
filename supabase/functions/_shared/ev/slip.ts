@@ -156,11 +156,22 @@ export function normalizeSlip(raw: unknown): Slip | null {
 
 // ── Matching slip text to the feed ────────────────────────
 
-// Does free text ("Carolina Panthers @ Green Bay Packers", "Packers ML") name this team?
-function mentions(text: string, team: string): boolean {
-  if (text.split(/ @ | vs\.? | at /i).some((part) => sameTeam(part, team))) return true;
+// How well free text ("Carolina Panthers @ Green Bay Packers", "Packers ML")
+// names this team: 0 for not at all. Among matches, more of the team's name
+// matched in order wins, so "Florida" is the Florida Gators before Florida State.
+function mentions(text: string, team: string): number {
+  const tw = norm(team).split(" ");
+  let best = 0;
+  for (const part of text.split(/ @ | vs\.? | at /i)) {
+    if (!sameTeam(part, team)) continue;
+    const pw = norm(part).split(" ");
+    let k = 0;
+    while (k < pw.length && k < tw.length && pw[k] === tw[k]) k++;
+    best = Math.max(best, 1 + 0.1 * k - 0.01 * (tw.length - k));
+  }
+  if (best) return best;
   const nick = lastWord(team);
-  return nick.length > 2 && ` ${norm(text)} `.includes(` ${nick} `);
+  return nick.length > 2 && ` ${norm(text)} `.includes(` ${nick} `) ? 1 : 0;
 }
 
 type EventRef = Pick<OddsEvent, "id" | "home_team" | "away_team" | "commence_time">;
@@ -170,13 +181,13 @@ export function slipNames(slip: Slip): string[] {
   return [slip.game, ...slip.legs.flatMap((l) => [l.team_or_player, l.side])].filter((x): x is string => !!x);
 }
 
-// The game these names point at: the event whose teams they mention most.
+// The game these names point at: the event whose teams they mention most, and best.
 export function findEvent<E extends EventRef>(events: E[], texts: (string | null | undefined)[], now = new Date()): E | null {
   const names = texts.filter((x): x is string => !!x);
   let best: E | null = null, bestScore = 0;
   for (const ev of events) {
     let score = 0;
-    for (const team of [ev.home_team, ev.away_team]) if (names.some((n) => mentions(n, team))) score++;
+    for (const team of [ev.home_team, ev.away_team]) score += Math.max(0, ...names.map((n) => mentions(n, team)));
     // Prefer games that haven't started when two match equally.
     const upcoming = new Date(ev.commence_time).getTime() > now.getTime() ? 0.5 : 0;
     if (score && score + upcoming > bestScore) { best = ev; bestScore = score + upcoming; }
@@ -353,7 +364,8 @@ const toRuleLeg = (l: SlipLeg): RuleLeg => ({
 });
 
 // book: the slip's book, for its SGP rules.
-export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | null, book: string | null = null): SlipCheck | null {
+// otherGame: true when a leg isn't from the one game the promo is for.
+export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | null, book: string | null = null, otherGame = false): SlipCheck | null {
   const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
   if (missing.length) return null;
   const fairs = priced.map((l) => l.fair!);
@@ -384,6 +396,7 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
   }
 
   const promoIssues = promo ? promoViolations(promo, { americanOdds: totalOdds, legs: slip.legs.length, kind: slip.bet_kind, league: slip.league ?? undefined }) : [];
+  if (promo?.game && otherGame) promoIssues.push(`only ${promo.game} qualifies`);
   const promoBoost = promo && !promoIssues.length ? (promo.boost_pct ?? 0) / 100 : 0;
   const boostSource = slip.boost_pct ? "slip" : promoBoost ? "promo" : null;
   // Books round the boosted price down, so a price on the slip is what it pays: price from it, not the %.

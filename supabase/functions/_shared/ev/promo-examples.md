@@ -33,6 +33,7 @@ The World Series limit isn't a league, so it goes in `notes`.
   "pregame": true,
   "paid_in": "cash",
   "expires_at": "2026-10-29T08:07",
+  "game": null,
   "notes": "World Series games only"
 }
 ```
@@ -64,6 +65,7 @@ so `paid_in` is null. Live and pre-game aren't mentioned, so both are true.
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-10-29T03:00",
+  "game": null,
   "notes": null
 }
 ```
@@ -96,6 +98,7 @@ bet kinds, so it goes in `notes`.
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-10-29T09:29",
+  "game": null,
   "notes": "Super Parlays also qualify"
 }
 ```
@@ -130,6 +133,7 @@ reading "no minimum". No book name or logo is on screen; the user said BetMGM
   "pregame": true,
   "paid_in": "cash",
   "expires_at": "2026-10-29T09:52",
+  "game": null,
   "notes": "Screenshot cut off below 'Bet on'; other rules (min odds, SGP) not visible"
 }
 ```
@@ -162,6 +166,7 @@ the same token showed 10/29/26 09:52 AM, so `expires_at` is null here.
   "pregame": true,
   "paid_in": "cash",
   "expires_at": null,
+  "game": null,
   "notes": null
 }
 ```
@@ -195,6 +200,7 @@ shown for the expiry, so `expires_at` has no time. No book name or logo is shown
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-11-02",
+  "game": null,
   "notes": null
 }
 ```
@@ -205,7 +211,7 @@ Shows: "Reward Restrictions", "30% Profit Boost", Exp 10/30/2026, "Carolina
 Panthers @ Green Bay Packers", "3+ leg SGP/SGP+", "Pre-game or Live bets", "No
 Min | $10 Max Wager", "+100 Min | +200000 Max Odds", and a "Go to event" button.
 
-Gotcha: the promo is for one game, so the matchup goes in `notes` and the league
+Gotcha: the promo is for one game, so the matchup goes in `game` and the league
 comes from the teams (NFL). "SGP+" is still a same-game parlay, so `bet_kinds` is
 `["sgp"]` with `min_legs` 3. "+100 Min" is the minimum odds; "No Min" is the
 wager. No book name or logo is on screen.
@@ -227,7 +233,8 @@ wager. No book name or logo is on screen.
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-10-30",
-  "notes": "Carolina Panthers @ Green Bay Packers only; SGP+ also qualifies"
+  "game": "Carolina Panthers @ Green Bay Packers",
+  "notes": "SGP+ also qualifies"
 }
 ```
 
@@ -262,6 +269,41 @@ are called SGPx.
   "pregame": true,
   "paid_in": null,
   "expires_at": null,
+  "game": null,
   "notes": "SGPx (multi-game same-game parlays) also qualifies"
+}
+```
+
+## Unknown book: Florida vs. Georgia 50% Boost (one game, singles or SGP)
+
+Shows: "Reward Claimed", "ID: 427825", "Expires 31m", "Florida vs. Georgia 50%
+Boost", tiles "$20 Max Bet", "-200 Min. Odds", "1 Min. Legs", a "College
+Football" tag, "Eligible Bet Types: Single, SGP", and a "Bet Now" button.
+
+Gotcha: the title names one game, so the promo is for that game only: `game` is
+"Florida vs Georgia", even though no rule line says "only". "College Football"
+is NCAAF. "1 Min. Legs" is no real limit, but it's shown, so `min_legs` is 1.
+"Expires 31m" is relative, so `expires_at` is null. No book is shown (it's
+DraftKings' rewards layout, like the soccer SGPx boost).
+
+```json
+{
+  "book": null,
+  "title": "Florida vs. Georgia 50% Boost",
+  "type": "profit_boost",
+  "boost_pct": 50,
+  "max_stake": 20,
+  "min_total_odds": -200,
+  "min_legs": 1,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["single", "sgp"],
+  "leagues": ["NCAAF"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": null,
+  "game": "Florida vs Georgia",
+  "notes": null
 }
 ```

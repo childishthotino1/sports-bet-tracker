@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { example } from "./examples.test-helper.ts";
 const NFL_30_PARLAY_BOOST = example("Unknown book: 30% NFL Parlay Profit Boost");
-import { askBoost, leaguesToSearch, parseBoost, normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, type FlowState } from "./mod.ts";
+import { askBoost, leaguesToSearch, parseBoost, normalizePromo, parseAmerican, prompt, slipOnly, startFlow, step, summary, type FlowState } from "./mod.ts";
 
 // The 33% MLB SGP boost screenshot: no book shown, max $50, min +300.
 const promo = () => normalizePromo({
@@ -179,4 +179,10 @@ test("a slip with no promo asks which boost is going on it", () => {
   assert.equal(step(s, "none").state.slip!.boost_pct, null);
   assert.match(step(s, "lots").reply!, /Tap a boost/);
   assert.equal(parseBoost("No boost"), null);
+});
+
+test("a one-game promo's summary names the game and skips a 1-leg minimum", () => {
+  const text = summary(normalizePromo(example("Unknown book: Florida vs. Georgia 50% Boost (one game, singles or SGP)")));
+  assert.match(text, /^🏟 Florida vs Georgia only$/m);
+  assert.doesNotMatch(text, /1\+ legs/);
 });
