@@ -643,7 +643,7 @@ async function handle(update: any) {
       if (inPlay) return priceSlip(chatId, { ...current, slip: read.slip });
       if (read.slip.boost_pct) return priceSlip(chatId, slipOnly(read.slip));
       // A caption like "25%" or "no boost" answers the boost question up front.
-      const boost = caption ? parseBoost(caption.match(/no boost|none|\d+(\.\d+)?\s*%?/i)?.[0] ?? "") : undefined;
+      const boost = caption ? parseBoost(caption.match(/no boost|\d+(\.\d+)?\s*%/i)?.[0] ?? "") : undefined;
       if (boost !== undefined) return priceSlip(chatId, { ...slipOnly(read.slip), slip: { ...read.slip, boost_pct: boost, boost_entered: boost !== null } });
       // No promo and no boost on screen: ask which boost (if any) is going on it.
       const asking = askBoost(read.slip);
