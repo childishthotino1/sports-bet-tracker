@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, americanToDecimal, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -508,6 +508,26 @@ async function answerTeasers(chatId: number) {
 // Finds the game a question names (a team's nickname is enough) among every
 // league's upcoming games, soonest first, and lists its best-priced legs.
 // False when no team is named, so the caller can fall back.
+// "Run the promo on the Ravens game": find that game among the promo's leagues,
+// limit the promo to it, and find the picks. False when the text names no game.
+async function focusPromo(chatId: number, s: FlowState, text: string): Promise<boolean> {
+  const leagues = leaguesToSearch({ ...s, sport: s.sport ?? "ALL" });
+  const now = Date.now();
+  const lists = await Promise.all(leagues.map((l) => getEvents(ODDS_API_KEY, SPORT_KEYS[l]).catch(() => [])));
+  const events = lists.flat().filter((e) => new Date(e.commence_time).getTime() > now)
+    .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
+  const game = findEvent(events, [text]);
+  if (!game) return false;
+  const focused: FlowState = {
+    ...s, step: "action", autoRun: false, sport: LEAGUE_OF[game.sport_key],
+    promo: { ...s.promo, game: `${game.away_team} @ ${game.home_team}` },
+  };
+  await saveState(chatId, focused);
+  await send(chatId, `🎯 Running ${s.promo.title} on ${focused.promo.game} only.`);
+  await sendPicks(chatId, focused);
+  return true;
+}
+
 async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   if (/\b(teasers?|wong)\b/i.test(text)) {
     await answerTeasers(chatId);
@@ -608,10 +628,13 @@ async function handle(update: any) {
   if (update.message.photo) {
     await send(chatId, "📖 Reading the screenshot…");
     const fileId = (update.message.photo as { file_id: string }[]).at(-1)!.file_id;
-    const read = await readImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD);
+    // A caption is instructions ("Ravens game", "props only"): the read applies it to the promo.
+    const caption = String(update.message.caption ?? "").trim() || null;
+    const read = await readImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD, "image/jpeg", caption);
     if (read.kind === "promo") {
-      const s = startFlow(read.promo);
+      const s: FlowState = { ...startFlow(read.promo), ...(caption ? { autoRun: true } : {}) };
       await saveState(chatId, s);
+      if (s.autoRun && s.step === "action") return advance(chatId, "picks");
       return sendPrompt(chatId, prompt(s));
     }
     if (read.kind === "slip") {
@@ -619,6 +642,9 @@ async function handle(update: any) {
       const inPlay = current && !current.noPromo && current.step !== "end";
       if (inPlay) return priceSlip(chatId, { ...current, slip: read.slip });
       if (read.slip.boost_pct) return priceSlip(chatId, slipOnly(read.slip));
+      // A caption like "25%" or "no boost" answers the boost question up front.
+      const boost = caption ? parseBoost(caption.match(/no boost|none|\d+(\.\d+)?\s*%?/i)?.[0] ?? "") : undefined;
+      if (boost !== undefined) return priceSlip(chatId, { ...slipOnly(read.slip), slip: { ...read.slip, boost_pct: boost, boost_entered: boost !== null } });
       // No promo and no boost on screen: ask which boost (if any) is going on it.
       const asking = askBoost(read.slip);
       await saveState(chatId, asking);
@@ -634,9 +660,16 @@ async function advance(chatId: number, input: string, typed = false) {
   const s = await loadState(chatId);
   // Typed text that isn't an answer to a question the bot asked: a question
   // about a game ("good bets on the Ravens game?").
+  // With a promo open, naming a game runs the promo on that game.
+  if (typed && s && !s.noPromo && (s.step === "action" || s.step === "end") && await focusPromo(chatId, s, input)) return;
   if (typed && (!s || (s.noPromo && s.step !== "boost") || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
   if (!s) return send(chatId, HELP);
-  const r = step(s, input);
+  let r = step(s, input);
+  // A promo sent with instructions runs its search once the bot's questions (book, max wager) are answered.
+  if (r.state.autoRun && r.state.step === "action" && !r.action) {
+    const run = step({ ...r.state, autoRun: false }, "picks");
+    r = { ...run, reply: r.reply ?? run.reply };
+  }
   await saveState(chatId, r.state);
   if (r.reply) await send(chatId, r.reply);
   if (r.action === "picks") return sendPicks(chatId, r.state);

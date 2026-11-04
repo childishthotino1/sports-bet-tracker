@@ -25,6 +25,7 @@ export type FlowState = {
   slip?: Slip; // a slip screenshot waiting to be priced (only while asking which book)
   noPromo?: boolean; // a slip sent with no promo in play: priced without a boost
   legs?: number; // legs on the slip whose price is being typed: a single gets single-bet margins
+  autoRun?: boolean; // the promo came with instructions: find the picks as soon as its questions are answered
 };
 
 // BetMGM first: nearly all shared bets are there.

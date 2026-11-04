@@ -320,3 +320,10 @@ test("a leg outside a market-limited promo's markets doesn't get its boost", () 
   assert.deepEqual(c.promoIssues, ["only touchdown scorer bets qualify"]);
   assert.equal(c.boost, 0);
 });
+
+test("a caption sent with the screenshot goes to the read as instructions", () => {
+  assert.doesNotMatch(imagePrompt(""), /sent this note/);
+  const p = imagePrompt("", 'Ravens game, "props only"');
+  assert.match(p, /The user sent this note with the screenshot: "Ravens game, 'props only'"/);
+  assert.match(p, /a game it names goes in "game"/);
+});
