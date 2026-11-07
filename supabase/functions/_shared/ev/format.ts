@@ -16,6 +16,7 @@ export type Leg = {
   sharp?: { sides: SharpSide[]; betIndex?: number }; // raw sharp market to devig
   fairProb?: number; // or a fair probability supplied directly
   quotes?: Quote[]; // the sharp sources behind fairProb, shown on the card
+  freeWith?: number; // index of the leg this one rides free with (won and priced together)
 };
 
 export type BetCard = {
@@ -40,8 +41,9 @@ function legFair(leg: Leg): number {
 export function formatBet(card: BetCard): FormattedBet {
   const boost = card.boost ?? 0;
   const probs = card.legs.map(legFair);
-  const ev = evaluateBet(probs, [card.bookOdds], boost);
-  const correlated = correlatedLegs(card.legs.map((l) => l.game));
+  // A free leg wins whenever its partner does: it adds nothing to the bet's chance.
+  const ev = evaluateBet(probs.map((p, i) => (card.legs[i].freeWith !== undefined ? 1 : p)), [card.bookOdds], boost);
+  const correlated = correlatedLegs(card.legs.map((l, i) => (l.freeWith !== undefined ? undefined : l.game)));
   const n = card.legs.length;
 
   const out: string[] = [];
@@ -51,7 +53,8 @@ export function formatBet(card: BetCard): FormattedBet {
   card.legs.forEach((leg, i) => {
     const where = [leg.game, leg.start].filter(Boolean).join(", ");
     const price = leg.bookOdds !== undefined ? ` ${formatAmerican(leg.bookOdds)}` : "";
-    out.push(`${i + 1}. ${leg.selection}${price}${where ? ` | ${where}` : ""}`);
+    const free = leg.freeWith !== undefined ? ` (free with leg ${leg.freeWith + 1}: add both, ${card.book} prices them as one line)` : "";
+    out.push(`${i + 1}. ${leg.selection}${price}${free}${where ? ` | ${where}` : ""}`);
   });
   const bookLine = `Book odds: ${formatAmerican(card.bookOdds)}`;
   out.push(boost ? `${bookLine}, boosted to ${formatAmerican(decimalToAmerican(ev.boostedDecimal))}` : bookLine);
@@ -66,7 +69,9 @@ export function formatBet(card: BetCard): FormattedBet {
       : leg.sharp
       ? leg.sharp.sides.map((s) => `${s.label} ${formatAmerican(s.odds)}`).join(" / ") + " -> "
       : "";
-    out.push(`Leg ${i + 1}: ${raw}${fair}`);
+    out.push(leg.freeWith !== undefined
+      ? `Leg ${i + 1}: rides with leg ${leg.freeWith + 1} (covering the spread means winning), so it adds no risk`
+      : `Leg ${i + 1}: ${raw}${fair}`);
   });
   const methods = DEVIG_METHODS.join(", ").replace("shin", "Shin");
   if (card.legs.some((l) => (l.quotes?.length ?? 0) > 1)) out.push(`Method: worst-case of ${methods} per source; Pinnacle is half on game lines, the rest weighted to the tighter holds (% = hold)`);

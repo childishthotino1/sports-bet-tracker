@@ -271,3 +271,35 @@ test("SGP suggestions with a scorer offer the legs it forces", () => {
   assert.match(ideas[1], /Derrick Henry 2\+ TDs: his team's total Over 11\.5 can't lose/);
   assert.match(ideas[2], /rebounds \(or points\) Over 9\.5/);
 });
+
+test("theScore: favorites' spread + moneyline pairs chain across games to fill a leg minimum", () => {
+  // Two games where each favorite's spread is +EV against the sharps.
+  const game = (id: string, fav: string, dog: string): OddsEvent => ({
+    id, sport_key: "americanfootball_nfl", commence_time: "2026-11-09T18:00:00Z", home_team: fav, away_team: dog,
+    bookmakers: [
+      { key: "espnbet", title: "theScore Bet", markets: [
+        { key: "h2h", outcomes: [{ name: fav, price: -250 }, { name: dog, price: 200 }] },
+        { key: "spreads", outcomes: [{ name: fav, point: -6.5, price: 110 }, { name: dog, point: 6.5, price: -135 }] },
+      ] },
+      { key: "pinnacle", title: "Pinnacle", markets: [
+        { key: "h2h", outcomes: [{ name: fav, price: -240 }, { name: dog, price: 215 }] },
+        { key: "spreads", outcomes: [{ name: fav, point: -6.5, price: -102 }, { name: dog, point: 6.5, price: -108 }] },
+      ] },
+    ],
+  });
+  const games = [game("g1", "Baltimore Ravens", "Cleveland Browns"), game("g2", "Detroit Lions", "Chicago Bears")];
+  const legs = priceLegs(games, "espnbet", { now: new Date("2026-11-08T12:00:00Z") });
+  const promo = normalizePromo({ book: "theScore Bet", title: "NFL 4+ Leg Parlay 30% Boost", type: "profit_boost", boost_pct: 30, max_stake: 50,
+    min_legs: 4, bet_kinds: ["parlay"], leagues: ["NFL"] });
+  const [top] = bestBets(legs, promo, { book: "theScore Bet" });
+  assert.ok(top, "two games make a 4-leg parlay");
+  assert.deepEqual(top.legs.map((l) => l.market), ["spreads", "h2h", "spreads", "h2h"]);
+  assert.deepEqual(top.free!.map((f) => [f.leg, f.with]), [[1, 0], [3, 2]]);
+  assert.equal(top.americanOdds, Math.round((2.1 * 2.1 - 1) * 100), "priced as the two spreads");
+  const text = formatBet({ book: "theScore Bet", bookOdds: top.americanOdds, boost: 0.3, legs: cardLegs(top) }).text;
+  assert.match(text, /Baltimore Ravens ML -250 \(free with leg 1: add both, theScore Bet prices them as one line\)/);
+  assert.match(text, /Leg 2: rides with leg 1/);
+  assert.doesNotMatch(text, /may be correlated/);
+  // Another book: the pairs aren't free, so two games can't make four legs.
+  assert.equal(bestBets(legs, { ...promo, book: "BetMGM" }, { book: "BetMGM" }).length, 0);
+});

@@ -95,7 +95,9 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
   return legs.sort((a, b) => b.edge - a.edge);
 }
 
-export type Pick = { kind: BetKind; legs: PricedLeg[]; americanOdds: number; eval: BetEval };
+// free: legs that ride along at no price with another leg of the same game
+// (theScore's spread + moneyline pair, sgp-rules.ts).
+export type Pick = { kind: BetKind; legs: PricedLeg[]; americanOdds: number; eval: BetEval; free?: { leg: number; with: number; rule: SgpRule }[] };
 
 // Which markets picks may use: everything (the default), or one of the two
 // toggles. Main lines are healthier for an account: books limit prop bettors
@@ -120,7 +122,7 @@ function* combos<T>(items: T[], size: number, start = 0, acc: T[] = []): Generat
   for (let i = start; i < items.length; i++) yield* combos(items, size, i + 1, [...acc, items[i]]);
 }
 
-export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange };
+export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange; book?: string };
 
 // Best qualifying bets for a promo. Parlays only combine legs from different
 // games, so independence holds; same-game parlays aren't auto-picked (the
@@ -141,28 +143,43 @@ export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions =
   const allows = (k: BetKind) => !promo.bet_kinds.length || promo.bet_kinds.includes(k);
   const candidates: Pick[] = [];
 
-  const consider = (kind: BetKind, chosen: PricedLeg[]) => {
-    const decimal = chosen.reduce((d, l) => d * americanToDecimal(l.bookOdds), 1);
+  // A unit is one game's part of a bet: one leg, or a pair whose second leg
+  // rides free (priced and won with the first).
+  type Unit = { legs: PricedLeg[]; rule?: SgpRule };
+  const consider = (kind: BetKind, units: Unit[]) => {
+    const priced = units.map((u) => u.legs[0]);
+    const chosen = units.flatMap((u) => u.legs);
+    const decimal = priced.reduce((d, l) => d * americanToDecimal(l.bookOdds), 1);
     const americanOdds = Math.round(decimalToAmerican(decimal));
     if (promoViolations(promo, { americanOdds, legs: chosen.length, kind, league }).length) return;
     if (target && !inRange(americanOdds, target)) return;
-    const e = evaluateBet(chosen.map((l) => l.fair), chosen.map((l) => l.bookOdds), boost);
-    if (e.ev > 0) candidates.push({ kind, legs: chosen, americanOdds, eval: e });
+    const e = evaluateBet(priced.map((l) => l.fair), priced.map((l) => l.bookOdds), boost);
+    const free = units.flatMap((u) => (u.rule ? [{ leg: chosen.indexOf(u.legs[1]), with: chosen.indexOf(u.legs[0]), rule: u.rule }] : []));
+    if (e.ev > 0) candidates.push({ kind, legs: chosen, americanOdds, eval: e, ...(free.length ? { free } : {}) });
   };
 
-  if (allows("single")) for (const l of legs) consider("single", [l]);
+  if (allows("single")) for (const l of legs) consider("single", [{ legs: [l] }]);
   // A cross-game parlay, or an SGPx of one leg per game.
   const multi: BetKind | null = allows("parlay") ? "parlay" : allows("sgp") && allowsSgpx(promo) ? "sgp" : null;
   if (multi) {
     // The pool takes the best leg per game first, so every game gets a look.
     const perGame = new Map<string, PricedLeg>();
     for (const l of legs) if (!perGame.has(l.eventId)) perGame.set(l.eventId, l);
-    const best = [...new Set([...perGame.values(), ...legs])].slice(0, pool);
+    const best: Unit[] = [...new Set([...perGame.values(), ...legs])].slice(0, pool).map((l) => ({ legs: [l] }));
+    // On a book that prices a favorite's spread + its moneyline as one line
+    // (theScore), each such pair is two legs for the price of the spread:
+    // chained across games, they fill a leg minimum with half the games.
+    const pairs = freePairs(legs, opts.book).slice(0, pool);
+    const units = [...best, ...pairs];
     const lo = Math.max(2, promo.min_legs ?? 2);
     const hi = Math.min(maxLegs, promo.max_legs ?? maxLegs);
-    for (let n = lo; n <= hi; n++) {
-      for (const c of combos(best, n)) {
-        if (new Set(c.map((l) => l.eventId)).size === c.length) consider(multi, c);
+    for (let n = 1; n <= hi; n++) {
+      for (const c of combos(units, n)) {
+        const size = c.reduce((a, u) => a + u.legs.length, 0);
+        if (size < lo || size > hi) continue;
+        // One game's pair on its own is a same-game parlay.
+        if (n === 1) { if (size > 1 && allows("sgp")) consider("sgp", c); continue; }
+        if (new Set(c.map((u) => u.legs[0].eventId)).size === c.length) consider(multi, c);
       }
     }
   }
@@ -206,7 +223,10 @@ export function formatStart(iso: string): string {
 
 // A pick's legs in the shape formatBet() prints.
 export function cardLegs(p: Pick): CardLeg[] {
-  return p.legs.map((l) => ({ selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes }));
+  return p.legs.map((l, i) => {
+    const f = p.free?.find((x) => x.leg === i);
+    return { selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes, ...(f ? { freeWith: f.with } : {}) };
+  });
 }
 
 // Why bestBets() came back empty, in words the bot can send.
@@ -276,6 +296,17 @@ export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: strin
     }
   }
   return best;
+}
+
+// Every favorite's spread with its moneyline, as a unit, on a book with the
+// spread + moneyline rule; none elsewhere. Best spread edge first.
+function freePairs(legs: PricedLeg[], book?: string): { legs: PricedLeg[]; rule: SgpRule }[] {
+  if (!book) return [];
+  return legs.filter((l) => l.market === "spreads" && (l.point ?? 0) < 0).flatMap((spread) => {
+    const ml = legs.find((l) => l.market === "h2h" && l.eventId === spread.eventId && l.side === spread.side);
+    const [block] = ml ? findRuleBlocks([ruleLeg(spread), ruleLeg(ml)], book) : [];
+    return block ? [{ legs: [spread, ml!], rule: block.rule }] : [];
+  }).sort((a, b) => b.legs[0].edge - a.legs[0].edge);
 }
 
 // A favorite's spread the book lets you pair with the same team's moneyline:

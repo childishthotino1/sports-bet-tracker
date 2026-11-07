@@ -190,7 +190,7 @@ async function sendPicks(chatId: number, s: FlowState) {
   }
 
   const legs = filterMode(priceLegs(events, bookKey), mode).filter((l) => marketAllowed(promo, l.market));
-  const picks = bestBets(legs, promo, { league: leagues.length === 1 ? leagues[0] : undefined, target: s.target });
+  const picks = bestBets(legs, promo, { league: leagues.length === 1 ? leagues[0] : undefined, target: s.target, book: promo.book ?? undefined });
   if (sgpx && !picks.length) {
     // No SGPx of one leg per game works: try single-game SGP legs instead.
     return sendSgpLegs(chatId, s, bookKey, leagues, events, remaining);
@@ -218,7 +218,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       const e = byId.get(l.eventId);
       const note = e && isPropOver(l.market, l.side) ? blowoutNote(e) : null;
       return note ? [note] : [];
-    }))];
+    })), ...new Set((p.free ?? []).map((f) => `🧩 ${f.rule.why}`))];
     await send(chatId, [formatBet({
       title: `${promo.book} ${promo.title}${s.target ? ` (target ${formatRange(s.target)})` : ""}`,
       book: promo.book!,
@@ -287,7 +287,7 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
     : [...MAIN_MARKETS, ...lines, ...props];
   const { data, remaining } = await eventOdds(game.sport_key, game.id, markets, bookKey);
   const legs = filterMode(priceLegs([data], bookKey), mode).filter((l) => marketAllowed(promo, l.market));
-  const picks = bestBets(legs, promo, { league, target: s.target });
+  const picks = bestBets(legs, promo, { league, target: s.target, book: promo.book ?? undefined });
   if (!picks.length) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
     const why = legs.length ? noPicksReason(legs, { ...promo, bet_kinds: promo.bet_kinds.filter((k) => k !== "sgp") }, s.target) : `Neither ${promo.book} nor the sharp sources have lines up for ${name} yet. Try closer to kickoff.`;
