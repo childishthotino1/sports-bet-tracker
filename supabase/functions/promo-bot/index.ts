@@ -32,11 +32,13 @@ const withSharps = (bookKey: string | null) => [...(bookKey ? [bookKey] : []), .
 
 // Props need one odds call per game, so picks with props check the next few
 // games only, and skip props when credits run low.
-const PROP_GAMES = 4;
+const PROP_GAMES = 8;
 const FOCUSED_GAMES = 10; // games searched for a market-limited promo (a TD boost: 2 credits a game)
-const PROP_CREDIT_FLOOR = 60;
+const PROP_CREDIT_FLOOR = 500;
 // SGP legs: games to try, best main lines first, before giving up.
-const SGP_GAMES = 3;
+const SGP_GAMES = 5;
+// Warn when the month's odds credits run this low.
+const CREDIT_WARNING = 1000;
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -153,9 +155,9 @@ function sendSettings(chatId: number, settings: Settings) {
 // One game's odds. Not every sport or plan offers every market (alternate
 // lines, soccer props), so a refused request is retried without alternates,
 // then with main lines only.
-// extra: more books in the same request (up to 10 in all bill as one region).
+// extra: more books in the same request (every 10 books bill as one region).
 async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string | null, extra: string[] = []) {
-  const bookmakers = [...new Set([...withSharps(bookKey), ...extra])].slice(0, 10);
+  const bookmakers = [...new Set([...withSharps(bookKey), ...extra])];
   const attempts = [
     markets,
     markets.filter((m) => !m.startsWith("alternate_")),
@@ -171,7 +173,7 @@ async function eventOdds(sportKey: string, eventId: string, markets: string[], b
 }
 
 async function creditsNote(chatId: number, remaining: number | null) {
-  if (remaining !== null && remaining < 50) await send(chatId, `⚠️ ${remaining} odds credits left this month.`);
+  if (remaining !== null && remaining < CREDIT_WARNING) await send(chatId, `⚠️ ${remaining} odds credits left this month.`);
 }
 
 // ── Picks ─────────────────────────────────────────────────
@@ -560,9 +562,9 @@ async function priceSlip(chatId: number, s: FlowState) {
 
 // ── Questions ─────────────────────────────────────────────
 
-// Books a question is priced at: the shared list's books on the free plan
-// (BetMGM, DraftKings, FanDuel, theScore). With the five sharp sources that's
-// nine, inside one region's credits.
+// Books a question is priced at: every retail book on our plan (BetMGM,
+// DraftKings, FanDuel, theScore, Caesars, Fanatics). With the five sharp
+// sources that's eleven books, billed as two regions.
 const QUESTION_BOOKS = SHOP_BOOKS;
 
 // "teasers?", "any Wong teasers this week": every NFL spread that fits a Wong

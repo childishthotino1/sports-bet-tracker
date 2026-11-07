@@ -32,9 +32,9 @@ export const BOOK_KEYS: Record<string, string> = {
   Pinnacle: "pinnacle",
 };
 
-// Retail books on the free plan, by feed key: where line shopping looks.
+// Retail books on our Odds API plan, by feed key: where line shopping looks.
 export const SHOP_BOOKS: Record<string, string> = Object.fromEntries(
-  SPORTSBOOKS.flatMap((b) => (b.oddsApi && b.freeFeed ? [[b.oddsApi, b.name]] : [])),
+  SPORTSBOOKS.flatMap((b) => (b.oddsApi && b.onPlan ? [[b.oddsApi, b.name]] : [])),
 );
 
 // link / sid come with includeLinks / includeSids: a link that opens the book

@@ -299,8 +299,7 @@ export function legLabel(leg: SlipLeg): string {
 // Each sharp source that has the leg's line gives a quote; their fair prices
 // are combined (see consensus in sharp.ts). With none, a Pinnacle line posted one way only gets an assumed
 // margin, and after that the book's own price is devigged.
-// bookKey is null for a book the feed doesn't carry (Caesars, Fanatics, bet365
-// on the free plan): then the slip's own leg prices are the book's prices.
+// bookKey is null for a book the feed doesn't carry (bet365): then the slip's own leg prices are the book's prices.
 export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string | null, sharpKeys = SHARP_KEYS): PricedSlipLeg[] {
   return slip.legs.map((leg, i) => {
     const event = legEvents[i];

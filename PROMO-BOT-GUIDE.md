@@ -44,7 +44,7 @@ The bot reads the rules, then asks for anything the screenshot didn't show (whic
 
 Each pick card shows the bet to build, the book's price against the fair price, the **EV**, your **stake**, and a **💡 Why** line explaining where the edge comes from.
 
-**🛒 Build in BetMGM** (or DraftKings, FanDuel or theScore): tap it and the bet opens in your app, already in the slip. Parlays get one button for all the legs. Always check the price in the slip matches the card before you place it.
+**🛒 Build in BetMGM** (or whichever book the promo is on): tap it and the bet opens in your app, already in the slip. Parlays get one button for all the legs. Always check the price in the slip matches the card before you place it.
 
 **Tip:** add a caption to the screenshot to narrow it down, like "Ravens game" or "props only". The bot then searches straight away without asking questions.
 
@@ -61,7 +61,7 @@ Build a bet (single, parlay or SGP) and screenshot the slip before you place it.
 
 Just type, for example:
 
-- *"good bets on the Ravens game?"* gives that game's best prices across BetMGM, DraftKings, FanDuel and theScore, against the fair price. Lines marked ✅ are worth betting even without a boost.
+- *"good bets on the Ravens game?"* gives that game's best prices across BetMGM, DraftKings, FanDuel, theScore, Caesars and Fanatics, against the fair price. Lines marked ✅ are worth betting even without a boost.
 - *"teasers"* gives this week's NFL Wong teaser legs.
 
 ## 4. Commands
@@ -85,7 +85,7 @@ Just type, for example:
 ## 6. What it can't do
 
 - **Live, in-game bets:** live prices change faster than the bot's odds feed.
-- **Odds for Caesars, Fanatics and bet365:** the bot can't pull these books' odds. It can still check a slip from them, using the prices printed on the slip.
+- **Odds for bet365:** the bot can't pull bet365's odds. It can still check a bet365 slip, using the prices printed on it.
 - **Every kind of bet:** some exotic markets have no sharp price to compare against. When that happens, the bot says so and gives a rough estimate.
 - **Guarantees:** +EV means profitable over many bets, not on any single one.
 
