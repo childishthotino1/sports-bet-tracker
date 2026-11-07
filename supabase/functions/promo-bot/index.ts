@@ -28,7 +28,7 @@ const MAIN_MARKETS = ["h2h", "spreads", "totals"];
 
 // The book plus every sharp source in one request: up to 10 bookmakers cost
 // the same credits as one.
-const withSharps = (bookKey: string) => [bookKey, ...SHARP_KEYS.filter((k) => k !== bookKey)];
+const withSharps = (bookKey: string | null) => [...(bookKey ? [bookKey] : []), ...SHARP_KEYS.filter((k) => k !== bookKey)];
 
 // Props need one odds call per game, so picks with props check the next few
 // games only, and skip props when credits run low.
@@ -117,7 +117,7 @@ function sendSettings(chatId: number, settings: Settings) {
 // lines, soccer props), so a refused request is retried without alternates,
 // then with main lines only.
 // extra: more books in the same request (up to 10 in all bill as one region).
-async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string, extra: string[] = []) {
+async function eventOdds(sportKey: string, eventId: string, markets: string[], bookKey: string | null, extra: string[] = []) {
   const bookmakers = [...new Set([...withSharps(bookKey), ...extra])].slice(0, 10);
   const attempts = [
     markets,
@@ -405,11 +405,15 @@ async function priceSlip(chatId: number, s: FlowState) {
   const done: FlowState = { ...s, slip: undefined, step: s.noPromo ? "end" : "action" };
   await saveState(chatId, done);
 
-  const bookKey = BOOK_KEYS[book];
+  // A book the feed doesn't carry (Caesars, Fanatics, bet365) is priced from
+  // the slip's own leg prices against the sharps.
+  const bookKey = BOOK_KEYS[book] && Object.keys(SHOP_BOOKS).includes(BOOK_KEYS[book]) ? BOOK_KEYS[book] : null;
   const league = slip.league ?? s.promo.leagues.find((l) => SPORT_KEYS[l]);
   const sportKey = league ? SPORT_KEYS[league] : undefined;
-  if (!bookKey) return send(chatId, `I can't pull odds for ${book} yet.`);
   if (!sportKey) return send(chatId, `I can only price ${Object.keys(SPORT_KEYS).join(", ")} slips so far.`);
+  if (!bookKey && slip.legs.length > 1 && slip.legs.some((l) => l.odds == null)) {
+    await send(chatId, `${book} isn't on my odds feed and the slip doesn't show every leg's price, so I'll judge the legs against the sharps and use the slip's total.`);
+  }
 
   await send(chatId, `🔎 Pricing the slip against Pinnacle and the exchanges…`);
   const events = await getEvents(ODDS_API_KEY, sportKey);

@@ -327,3 +327,30 @@ test("a caption sent with the screenshot goes to the read as instructions", () =
   assert.match(p, /The user sent this note with the screenshot: "Ravens game, 'props only'"/);
   assert.match(p, /a game it names goes in "game"/);
 });
+
+test("a Caesars slip off the feed: priced from the leg prices it prints, against the sharps", () => {
+  const slip = normalizeSlip({
+    book: "CZR", league: "NFL", bet_kind: "parlay", total_odds: 0, boosted_odds: 0, boost_pct: 30, game: "",
+    legs: [
+      { team_or_player: "Green Bay Packers", market: "h2h", line: null, side: "Green Bay Packers", team: "", game: "", odds: -160 },
+      { team_or_player: "Josh Jacobs", market: "player_anytime_td", line: null, side: "Yes", team: "", game: "", odds: -130 },
+      { team_or_player: "Jordan Love", market: "player_pass_yds", line: 249.5, side: "Over", team: "", game: "", odds: -115 },
+    ],
+  })!;
+  assert.equal(slip.book, "Caesars");
+  assert.deepEqual(slip.legs.map((l) => l.odds), [-160, -130, -115]);
+  const priced = priceSlipLegs(slip, [GAME, GAME, GAME], null);
+  assert.deepEqual(priced.map((l) => [l.bookOdds, l.source]), [[-160, "sharp"], [-130, "sharp"], [-115, "slip-1way"]]);
+  const c = checkSlip(slip, priced, null, "Caesars")!;
+  // No total printed: the legs multiplied.
+  assert.equal(c.totalOdds, Math.round((1 + 100 / 160) * (1 + 100 / 130) * (1 + 100 / 115) * 100 - 100));
+  assert.ok(Math.abs(c.boost - 0.3) < 1e-9);
+  assert.match(formatSlipCheck(slip, "Caesars", c, null), /the slip's price, assumed 6% margin/);
+});
+
+test("a single's printed price fills its leg price, and the other way round", () => {
+  const a = normalizeSlip({ ...SLIP_JSON, bet_kind: "single", total_odds: -125, legs: [SLIP_JSON.legs[0]] })!;
+  assert.equal(a.legs[0].odds, -125);
+  const b = normalizeSlip({ ...SLIP_JSON, bet_kind: "single", total_odds: 0, legs: [{ ...SLIP_JSON.legs[0], odds: -120 }] })!;
+  assert.equal(b.total_odds, -120);
+});

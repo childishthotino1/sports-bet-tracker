@@ -53,6 +53,7 @@ export type SlipLeg = {
   side: string; // "Over" / "Under" / "Yes" / a team name
   team: string | null; // the team the leg is on (a player's team for props), for the SGP rules
   game: string | null; // the leg's matchup as the slip shows it ("Brentford vs Nottingham Forest")
+  odds: number | null; // the leg's own price if the slip prints one (Caesars, Fanatics and bet365 do), else null
 };
 
 export type Slip = {
@@ -84,7 +85,7 @@ export const SLIP_JSON_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["team_or_player", "market", "line", "side", "team", "game"],
+        required: ["team_or_player", "market", "line", "side", "team", "game", "odds"],
         properties: {
           team_or_player: { type: "string" },
           team: { type: "string" },
@@ -92,6 +93,7 @@ export const SLIP_JSON_SCHEMA = {
           market: { type: "string", enum: [...SLIP_MARKETS] },
           line: { type: ["number", "null"] },
           side: { type: "string" },
+          odds: { type: "number" },
         },
       },
     },
@@ -114,6 +116,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
   - game: the matchup this leg is from, as the slip shows it above or beside the leg ("Brentford vs Nottingham Forest"); "" if none is shown.
   - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
   - side: "Over" or "Under" for totals and over/under props, "Yes" (or "No") for anytime scorer props and btts, the team name (or "Draw") for spreads and moneylines.
+  - odds: the leg's own price as American odds if the slip prints one next to the leg (-110 -> -110, +250 -> 250), else 0. On a single, the bet's price.
 
 ${ODDS_READING_RULES}
 
@@ -130,12 +133,16 @@ export function normalizeSlip(raw: unknown): Slip | null {
     const side = str(o.side);
     if (!side) return [];
     const market = (SLIP_MARKETS as readonly string[]).includes(String(o.market)) ? String(o.market) : "other";
-    return [{ team_or_player: str(o.team_or_player), market, line: num(o.line), side, team: str(o.team), game: str(o.game) }];
+    const odds = num(o.odds);
+    return [{ team_or_player: str(o.team_or_player), market, line: num(o.line), side, team: str(o.team), game: str(o.game), odds: odds !== null && Math.abs(odds) >= 100 ? Math.round(odds) : null }];
   });
   if (!legs.length) return null;
   const total = num(r.total_odds);
   const odds = (v: number | null) => (v !== null && Math.abs(v) >= 100 ? Math.round(v) : null);
-  const base = odds(total), boosted = odds(num(r.boosted_odds));
+  const boosted = odds(num(r.boosted_odds));
+  // A single's leg price and total are the same number: fill whichever is missing.
+  const base = odds(total) ?? (legs.length === 1 ? legs[0].odds : null);
+  if (legs.length === 1 && legs[0].odds === null) legs[0].odds = base;
   const printed = num(r.boost_pct);
   // A boost counts when the slip shows one: its printed %, or the % its two prices imply.
   const boost = boosted !== null && base !== null && boosted !== base
@@ -250,7 +257,7 @@ export type PricedSlipLeg = {
   label: string;
   bookOdds: number | null; // the book's own price for this leg, if the feed has it
   fair: number | null;
-  source: "sharp" | "sharp-1way" | "book" | "book-1way" | "book-field" | "none";
+  source: "sharp" | "sharp-1way" | "book" | "book-1way" | "book-field" | "slip-1way" | "none";
   quotes?: Quote[]; // each sharp source's line, when source is "sharp"
 };
 
@@ -282,13 +289,16 @@ export function legLabel(leg: SlipLeg): string {
 // Each sharp source that has the leg's line gives a quote; their fair prices
 // are combined (see consensus in sharp.ts). With none, a Pinnacle line posted one way only gets an assumed
 // margin, and after that the book's own price is devigged.
-export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string, sharpKeys = SHARP_KEYS): PricedSlipLeg[] {
+// bookKey is null for a book the feed doesn't carry (Caesars, Fanatics, bet365
+// on the free plan): then the slip's own leg prices are the book's prices.
+export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string | null, sharpKeys = SHARP_KEYS): PricedSlipLeg[] {
   return slip.legs.map((leg, i) => {
     const event = legEvents[i];
-    const markets = (key: string) => event?.bookmakers.find((b) => b.key === key)?.markets ?? [];
+    const markets = (key: string | null) => (key && event?.bookmakers.find((b) => b.key === key)?.markets) || [];
     const label = legLabel(leg);
     const b = locate(markets(bookKey), leg);
-    const bookOdds = b?.outcome.price ?? null;
+    // A price printed on the slip is what the book is offering now; the feed's can lag.
+    const bookOdds = leg.odds ?? b?.outcome.price ?? null;
     const quotes = sharpKeys.filter((k) => k !== bookKey).flatMap((k) => {
       const hit = locate(markets(k), leg);
       return hit ? sharpQuotes(event!.bookmakers, hit.key, hit.outcome, [k]) : [];
@@ -307,6 +317,7 @@ export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookK
       const { fair, oneWay } = fairFrom(b.sides, b.outcome);
       return { label, bookOdds, fair, source: oneWay ? "book-1way" : "book" };
     }
+    if (leg.odds != null) return { label, bookOdds, fair: impliedProb(leg.odds) / (1 + ONE_SIDED_MARGIN), source: "slip-1way" };
     return { label, bookOdds: null, fair: null, source: "none" };
   });
 }
@@ -331,7 +342,7 @@ export type SlipCheck = {
 // for each leg, a better price on the same line at another of your books, or null.
 // books: feed key -> name. Compares each book's price on the leg itself.
 export function betterPrices(
-  slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string, books: Record<string, string>,
+  slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string | null, books: Record<string, string>,
 ): ({ book: string; odds: number; mine: number } | null)[] {
   return slip.legs.map((leg, i) => {
     const event = legEvents[i];
@@ -339,7 +350,7 @@ export function betterPrices(
       const markets = event?.bookmakers.find((b) => b.key === key)?.markets ?? [];
       return locate(markets, leg)?.outcome.price ?? null;
     };
-    const mine = price(bookKey);
+    const mine = leg.odds ?? (bookKey ? price(bookKey) : null);
     if (mine === null) return null;
     let best: { book: string; odds: number; mine: number } | null = null;
     for (const [key, name] of Object.entries(books)) {
@@ -412,6 +423,7 @@ const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
   book: " (no sharp line; the book's own price, devigged)",
   "book-1way": ` (no sharp line; the book's price, assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
   "book-field": " (no sharp line; the book's whole scorer list devigged)",
+  "slip-1way": ` (no sharp line; the slip's price, assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
   none: "",
 };
 
