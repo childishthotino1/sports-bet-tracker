@@ -171,16 +171,36 @@ function mentions(text: string, team: string): number {
   const tw = norm(team).split(" ");
   let best = 0;
   for (const part of text.split(/ @ | vs\.? | at /i)) {
-    if (!sameTeam(part, team)) continue;
+    if (!wholeWords(part, team)) continue;
     const pw = norm(part).split(" ");
     let k = 0;
     while (k < pw.length && k < tw.length && pw[k] === tw[k]) k++;
     best = Math.max(best, 1 + 0.1 * k - 0.01 * (tw.length - k));
   }
   if (best) return best;
+  const padded = ` ${norm(text)} `;
   const nick = lastWord(team);
-  return nick.length > 2 && ` ${norm(text)} `.includes(` ${nick} `) ? 1 : 0;
+  if (nick.length > 2 && padded.includes(` ${nick} `)) return 1;
+  // A school or city named inside a sentence ("the Notre Dame game"): the
+  // longest run of the team's first words that the text holds, scored below a
+  // full match so "Florida State" beats "Florida". One generic word ("New",
+  // "San") isn't enough.
+  for (let k = tw.length - 1; k >= 1; k--) {
+    if (k === 1 && (tw[0].length < 4 || GENERIC_FIRST.has(tw[0]))) continue;
+    if (padded.includes(` ${tw.slice(0, k).join(" ")} `)) return 0.9 + 0.1 * k - 0.01 * (tw.length - k);
+  }
+  return 0;
 }
+
+// sameTeam, but on whole words: "hi" is in "Fighting", not a team.
+function wholeWords(a: string, b: string): boolean {
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return false;
+  return ` ${x} `.includes(` ${y} `) || ` ${y} `.includes(` ${x} `) || (lastWord(x).length > 2 && lastWord(x) === lastWord(y));
+}
+
+// First words of team names too common to identify a team alone.
+const GENERIC_FIRST = new Set(["new", "north", "south", "east", "west", "central", "northern", "southern", "eastern", "western", "green", "golden", "saint", "little", "good", "game"]);
 
 type EventRef = Pick<OddsEvent, "id" | "home_team" | "away_team" | "commence_time">;
 

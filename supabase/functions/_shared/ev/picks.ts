@@ -445,7 +445,9 @@ export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6): string {
   const plus = legs.filter((l) => l.edge > 0).length;
   return [
     head,
-    "Best prices across your books against the sharp price (Pinnacle + exchanges):",
+    new Set(legs.map((l) => l.book)).size === 1
+      ? `${legs[0].book}'s prices against the sharp price (Pinnacle + exchanges):`
+      : "Best prices across your books against the sharp price (Pinnacle + exchanges):",
     ...lines,
     "",
     plus

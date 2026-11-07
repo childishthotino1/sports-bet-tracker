@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, exposureNote, whyNote, parseBankroll, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -606,7 +606,10 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
     return true;
   }
   const now = Date.now();
-  const lists = await Promise.all(Object.values(SPORT_KEYS).map((k) => getEvents(ODDS_API_KEY, k).catch(() => [])));
+  // A league named in the question ("ncaaf") narrows the search; otherwise every league.
+  const named = questionLeagues(text).filter((l) => SPORT_KEYS[l]);
+  const keys = named.length ? named.map((l) => SPORT_KEYS[l]) : Object.values(SPORT_KEYS);
+  const lists = await Promise.all(keys.map((k) => getEvents(ODDS_API_KEY, k).catch(() => [])));
   const events = lists.flat()
     .filter((e) => new Date(e.commence_time).getTime() > now)
     .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
@@ -614,16 +617,21 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   if (!game) return false;
   const league = LEAGUE_OF[game.sport_key];
   const { markets: mode } = await loadSettings(chatId);
-  await send(chatId, `🔎 Pricing ${game.away_team} @ ${game.home_team} at ${Object.values(QUESTION_BOOKS).join(", ")} against the sharp price…`);
+  // A book named in the question ("on fanduel") is the only one priced, if it's on the feed.
+  const asked = questionBook(text);
+  const askedKey = asked ? Object.keys(QUESTION_BOOKS).find((k) => QUESTION_BOOKS[k] === asked) : undefined;
+  const books = askedKey ? { [askedKey]: asked! } : QUESTION_BOOKS;
+  const offFeed = asked && !askedKey ? ` (${asked} isn't on my odds feed, so here are your other books)` : "";
+  await send(chatId, `🔎 Pricing ${game.away_team} @ ${game.home_team} at ${Object.values(books).join(", ")} against the sharp price${offFeed}…`);
   // Team totals for every sport but soccer (+1 credit); soccer gets its own extra markets.
   const extra = EXTRA_MARKETS[league] ?? ["team_totals"];
   const props = mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])];
   const markets = [...MAIN_MARKETS, ...extra, ...(mode === "props" ? [] : HALF_MARKETS[league] ?? []), ...props];
-  const bookmakers = [...Object.keys(QUESTION_BOOKS), ...SHARP_KEYS];
+  const bookmakers = [...Object.keys(books), ...SHARP_KEYS];
   // If the feed rejects a market for this league, ask again for the main lines alone.
   const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets, bookmakers })
     .catch(() => getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets: MAIN_MARKETS, bookmakers }));
-  const shopped = filterMode(shopLegs(data, QUESTION_BOOKS), mode);
+  const shopped = filterMode(shopLegs(data, books), mode);
   // 🛒 for the top +EV lines (the ones the answer marks ✅), each at its own book.
   const plus = shopped.slice(0, 6).filter((l) => l.edge > 0);
   await sendWithButtons(chatId, formatShop(data, shopped), shopButtons(plus, { state: BOOK_STATE_ENV }));
@@ -645,6 +653,9 @@ const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best 
   "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions have done (/stats 7 for the last week).";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
+// Typed text that names no upcoming game.
+const NO_GAME = `I couldn't match that to an upcoming game. Name a team the way the book does ("Notre Dame", "Ravens"), and add the league if it could be more than one ("Miami ncaaf"). Or send a promo or bet slip screenshot. /help shows everything I do.`;
+
 const COMMANDS = [
   { command: "skip", description: "Drop the current promo and start over" },
   { command: "settings", description: "Main lines, props, or both" },
@@ -739,7 +750,7 @@ async function advance(chatId: number, input: string, typed = false) {
   // With a promo open, naming a game runs the promo on that game.
   if (typed && s && !s.noPromo && (s.step === "action" || s.step === "end") && await focusPromo(chatId, s, input)) return;
   if (typed && (!s || (s.noPromo && s.step !== "boost") || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
-  if (!s) return send(chatId, HELP);
+  if (!s) return send(chatId, typed ? NO_GAME : HELP);
   const { bankroll } = await loadSettings(chatId);
   let r = step({ ...s, bankroll }, input);
   // A promo sent with instructions runs its search once the bot's questions (book, max wager) are answered.
