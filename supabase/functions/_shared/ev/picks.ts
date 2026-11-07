@@ -2,7 +2,7 @@
 // devigged lines, then build the singles and parlays that qualify for the promo
 // and rank them by boosted EV.
 
-import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } from "./odds.ts";
+import { americanToDecimal, decimalToAmerican, formatAmerican, formatPct, probToAmerican } from "./odds.ts";
 import { evaluateBet, type BetEval } from "./bet.ts";
 import { marketAllowed, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
@@ -242,6 +242,32 @@ export function cardLegs(p: Pick): CardLeg[] {
   });
 }
 
+// One line on where a pick's value comes from: the book's price against the
+// sharps' (leg by leg for a parlay), and how much of it is the boost.
+export function whyNote(p: Pick, boost: number, book: string): string {
+  const free = new Set((p.free ?? []).map((f) => f.leg));
+  const priced = p.legs.filter((_, i) => !free.has(i));
+  const plain = evaluateBet(priced.map((l) => l.fair), priced.map((l) => l.bookOdds)).ev;
+  const pct = (x: number) => `${x >= 0 ? "+" : ""}${formatPct(x)}`;
+  const parts: string[] = [];
+  if (priced.length === 1) {
+    const l = priced[0];
+    parts.push(`${book} pays ${formatAmerican(l.bookOdds)} on a bet the sharps make ${formatAmerican(probToAmerican(l.fair))}.`);
+  } else {
+    const beat = priced.filter((l) => l.edge > 0).length;
+    const best = priced.reduce((a, l) => (l.edge > a.edge ? l : a));
+    parts.push(`${beat} of ${priced.length} priced legs beat the sharp price (best: ${best.selection}, ${pct(best.edge)}).`);
+  }
+  if (boost) {
+    parts.push(plain > 0
+      ? `It's ${pct(plain)} before the boost; the ${Math.round(boost * 100)}% boost adds the rest.`
+      : `Without the ${Math.round(boost * 100)}% boost it's ${pct(plain)}: the boost is the edge.`);
+  }
+  const derived = p.legs.flatMap((l, i) => (l.derived ? [i + 1] : []));
+  if (derived.length) parts.push(`Leg${derived.length > 1 ? "s" : ""} ${derived.join(", ")}: no sharp line at that number, so the fair price is derived; treat it as an estimate.`);
+  return `💡 Why: ${parts.join(" ")}`;
+}
+
 // Why bestBets() came back empty, in words the bot can send.
 export function noPicksReason(legs: PricedLeg[], promo: Promo, target?: OddsRange): string {
   if (!legs.length) return "No games on this book have sharp lines yet (Pinnacle or the exchanges). Try closer to game time.";
@@ -348,8 +374,7 @@ export function forcingIdeas(legs: { market: string; side: string; point?: numbe
     if (!who) return [];
     const k = tdCount({ market: l.market, side: l.side, line: l.point ?? null });
     if (k) {
-      const tds = k > 1 ? `${k}+ TDs` : "a TD";
-      return [`➕ With ${who} ${tds}: his team's total Over ${6 * k - 0.5} can't lose if he gets there (Over ${6 * k + 1.5} about ${pct(TEAM_TOTAL_GIVEN_TDS)}), and his own yards over a low line (10+ receiving, 25+ rushing) about ${pct(NEAR_IMPLIED)}.`];
+      return [`➕ If ${who} scores${k > 1 ? ` ${k}+ TDs` : ""}: his team's total Over ${6 * k - 0.5} can't lose (Over ${6 * k + 1.5}, about ${pct(TEAM_TOTAL_GIVEN_TDS)}), and his own yards over a low line (10+ receiving, 25+ rushing) come with it about ${pct(NEAR_IMPLIED)} of the time.`];
     }
     if (l.market === "player_double_double" && l.side === "Yes") {
       return [`➕ With ${who}'s double-double: his rebounds (or points) Over 9.5 come with it about ${pct(NEAR_IMPLIED)} of the time.`];

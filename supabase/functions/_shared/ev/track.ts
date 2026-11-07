@@ -58,6 +58,33 @@ export function trackedLeg(l: PricedLeg): TrackedLeg {
   };
 }
 
+// How much of a new bet is already riding on earlier ones: the bets this chat
+// was sent or checked for games that haven't been graded (past, from the
+// caller). The same leg again, the other side of a leg (it hedges), and many
+// bets on one game all move together, so they're worth knowing before
+// stacking another. Suggestions aren't placed bets, so it says "sent".
+export function exposureNote(legs: Pick<TrackedLeg, "event_id" | "game" | "market" | "selection" | "side" | "player">[], past: Pick<StoredPick, "dedup_key" | "legs">[], self?: string): string | null {
+  const earlier = past.filter((p) => p.dedup_key !== self);
+  const base = (m: string) => m.replace(/^alternate_/, "").replace(/_alternate$/, "");
+  const lines: string[] = [];
+  for (const l of legs) {
+    if (!l.event_id) continue;
+    const on = (p: (x: TrackedLeg) => boolean) => earlier.filter((e) => e.legs.some((x) => x.event_id === l.event_id && p(x))).length;
+    const same = on((x) => x.selection === l.selection);
+    const other = on((x) => x.selection !== l.selection && base(x.market) === base(l.market) && (x.player ?? "") === (l.player ?? "") &&
+      x.side !== l.side && !(base(x.market) === "spreads" && sameTeam(x.side, l.side)));
+    if (same) lines.push(`${l.selection} is already in ${same} bet${same > 1 ? "s" : ""} I sent you.`);
+    if (other) lines.push(`${l.selection} goes against ${other} earlier bet${other > 1 ? "s" : ""} on the other side: it hedges ${other > 1 ? "them" : "it"}.`);
+  }
+  const games = [...new Set(legs.flatMap((l) => (l.event_id ? [l.event_id] : [])))];
+  for (const id of games) {
+    const n = earlier.filter((e) => e.legs.some((x) => x.event_id === id)).length;
+    const name = legs.find((l) => l.event_id === id)?.game ?? "this game";
+    if (n >= 2) lines.push(`${n} earlier bets are on ${name}: they win and lose together.`);
+  }
+  return lines.length ? ["📊 Exposure:", ...lines].join("\n") : null;
+}
+
 // A row to log. The dedup key makes the same suggestion, made again the same
 // day (tapping Find the best bets twice), one row.
 export function pickRow(

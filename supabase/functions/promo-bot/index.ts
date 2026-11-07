@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, exposureNote, whyNote, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -213,12 +213,20 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
   const { promo } = s;
   const byId = new Map<string, OddsEvent>();
   for (const e of events) if (e.bookmakers.some((b) => b.markets.some((m) => m.key === "spreads"))) byId.set(e.id, e);
-  for (const p of picks) {
+  const rows = picks.map((p) => pickRow({
+    chat_id: String(chatId), source: "pick", book: promo.book!, league: LEAGUE_OF[p.legs[0].sportKey] ?? null, kind: p.kind,
+    promo_title: promo.title, boost_pct: promo.boost_pct ?? 0, book_odds: p.americanOdds, fair_prob: p.eval.fairProb,
+    ev: p.eval.ev, verdict: "plus_ev", legs: p.legs.map(trackedLeg),
+  }));
+  const past = await recentPicks(chatId);
+  for (const [k, p] of picks.entries()) {
     const cautions = [...new Set(p.legs.flatMap((l) => {
       const e = byId.get(l.eventId);
       const note = e && isPropOver(l.market, l.side) ? blowoutNote(e) : null;
       return note ? [note] : [];
-    })), ...new Set((p.free ?? []).map((f) => `🧩 ${f.rule.why}`))];
+    })), ...new Set((p.free ?? []).map((f) => `🧩 ${f.rule.why}`)),
+      whyNote(p, (promo.boost_pct ?? 0) / 100, promo.book!),
+      ...[exposureNote(rows[k].legs, past, rows[k].dedup_key)].filter((x): x is string => !!x)];
     await send(chatId, [formatBet({
       title: `${promo.book} ${promo.title}${s.target ? ` (target ${formatRange(s.target)})` : ""}`,
       book: promo.book!,
@@ -229,11 +237,17 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
     }).text, ...cautions].join("\n\n"));
   }
-  await logPicks(picks.map((p) => pickRow({
-    chat_id: String(chatId), source: "pick", book: promo.book!, league: LEAGUE_OF[p.legs[0].sportKey] ?? null, kind: p.kind,
-    promo_title: promo.title, boost_pct: promo.boost_pct ?? 0, book_odds: p.americanOdds, fair_prob: p.eval.fairProb,
-    ev: p.eval.ev, verdict: "plus_ev", legs: p.legs.map(trackedLeg),
-  })));
+  await logPicks(rows);
+}
+
+// This chat's bets still waiting on their games (sent or checked in the last
+// 3 days), for exposure notes. A failure only costs the note.
+async function recentPicks(chatId: number): Promise<StoredPick[]> {
+  const since = new Date(Date.now() - 3 * 86400e3).toISOString();
+  const { data, error } = await db.from("promo_bot_picks").select("dedup_key, legs")
+    .eq("chat_id", String(chatId)).eq("status", "pending").gte("created_at", since).limit(500);
+  if (error) console.error("recentPicks", error.message);
+  return (Array.isArray(data) ? data : []) as StoredPick[];
 }
 
 // ── Tracking (promo_bot_picks; graded by the grade-picks function) ──
@@ -472,9 +486,8 @@ async function priceSlip(chatId: number, s: FlowState) {
     await saveState(chatId, typing);
     return;
   }
-  await send(chatId, formatSlipCheck(slip, book, c, promo));
   const byId = new Map(events.map((e) => [e.id, e]));
-  await logPicks([pickRow({
+  const row = pickRow({
     chat_id: String(chatId), source: "slip", book, league: league ?? null, kind: slip.bet_kind, promo_title: promo?.title ?? null,
     boost_pct: Math.round(c.boost * 10000) / 100, book_odds: c.totalOdds, fair_prob: c.fairProb, ev: c.eval.ev,
     verdict: c.eval.ev > 0 ? "plus_ev" : "minus_ev",
@@ -486,7 +499,10 @@ async function priceSlip(chatId: number, s: FlowState) {
         player: l.market === "h2h" || l.market === "spreads" ? null : l.team_or_player, book_odds: priced[i].bookOdds, fair: priced[i].fair,
       };
     }),
-  })]);
+  });
+  const exposure = exposureNote(row.legs, await recentPicks(chatId), row.dedup_key);
+  await send(chatId, [formatSlipCheck(slip, book, c, promo), exposure].filter(Boolean).join("\n\n"));
+  await logPicks([row]);
   if (shopNote) await send(chatId, shopNote);
   await creditsNote(chatId, remaining);
   if (!s.noPromo) await sendPrompt(chatId, prompt(done));

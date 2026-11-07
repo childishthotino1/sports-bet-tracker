@@ -84,8 +84,9 @@ export const SGP_RULES: SgpRule[] = [
 // Chance the QB throws at least one TD given a teammate scores. Below 1 for
 // rushing TDs by the "receiver", trick plays and a backup QB.
 export const QB_TD_GIVEN_TEAMMATE_TD = 0.9;
-// Chance his team clears a team total above his TDs' points (2 TDs = 12, Over
-// 13.5) given he scores: they need a kick or another score. Conservative.
+// Chance his team clears a team total up to 2 points above his TDs' (2 TDs =
+// 12, Over 13.5) given he scores: the extra points or any other score.
+// Conservative; anything higher isn't forced.
 export const TEAM_TOTAL_GIVEN_TDS = 0.9;
 // Chance a scorer clears a low line on his own yards, or a double-double
 // includes the stat named. Conservative: the TD can be a 1-yard plunge, the
@@ -148,7 +149,7 @@ function implies(kind: SgpRuleKind, x: RuleLeg, y: RuleLeg): number | null {
     case "td_with_team_total": {
       const k = tdCount(x);
       if (!k || base(y.market) !== "team_totals" || !over(y) || y.line === null || !x.team || !y.team || !sameTeam(x.team, y.team)) return null;
-      return y.line < 6 * k ? 1 : y.line < 6 * k + 8 ? TEAM_TOTAL_GIVEN_TDS : null;
+      return y.line < 6 * k ? 1 : y.line < 6 * k + 2 ? TEAM_TOTAL_GIVEN_TDS : null;
     }
     case "td_with_own_yards": {
       const cap = LOW_YARDS[base(y.market)];
