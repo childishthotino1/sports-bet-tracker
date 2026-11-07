@@ -9,7 +9,7 @@ import { americanToDecimal, decimalToAmerican, formatAmerican, impliedProb, prob
 import { evaluateBet, wagerLine } from "./bet.ts";
 import { eligibleLeagues, legLimitsApply, marketsLabel, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
-import type { Slip } from "./slip.ts";
+import type { Slip, SlipOffer } from "./slip.ts";
 import type { OddsRange } from "./picks.ts";
 import { SPORTSBOOKS } from "../books/books.ts";
 
@@ -28,6 +28,7 @@ export type FlowState = {
   autoRun?: boolean; // the promo came with instructions: find the picks as soon as its questions are answered
   rangeAsked?: boolean; // the odds-range question was answered (or skipped) for this promo
   bankroll?: number; // the user's bankroll (/bankroll), for the stake on a typed-price verdict; set by the bot
+  slipOffers?: SlipOffer[]; // the last slip checked, at each book that posts it: a "which book?" tap gets that book's link
 };
 
 // Odds ranges offered before a search, as [min, max] American odds. The first

@@ -161,3 +161,23 @@ test("real pull: a BetMGM SGP suggestion is one Maryland link", () => {
   const [[b]] = slipButtons("BetMGM", sg.legs);
   assert.match(b.url, /^https:\/\/sports\.md\.betmgm\.com\/en\/sports\?options=6:44009-[\d-]+,6:44009-[\d-]+,6:44009-[\d-]+&type=Combo$/);
 });
+
+test("a shared slip: the same bet at each book that posts it, best price first", async () => {
+  const { slipOffers } = await import("./mod.ts");
+  const books = { betmgm: "BetMGM", draftkings: "DraftKings", fanduel: "FanDuel", espnbet: "theScore Bet" };
+  const read = (kind: string, legs: unknown[]) => normalizeSlip({ book: "", league: "NFL", bet_kind: kind, total_odds: 0, boosted_odds: 0, boost_pct: 0, game: "", legs })!;
+  const ml = { team_or_player: "Atlanta Falcons", market: "h2h", line: null, side: "Atlanta Falcons", team: "Atlanta Falcons", game: "", odds: 0 };
+  const td = { team_or_player: "Bijan Robinson", market: "player_anytime_td", line: null, side: "Yes", team: "Atlanta Falcons", game: "", odds: 0 };
+
+  const single = slipOffers(read("single", [ml]), [GAME], books);
+  assert.deepEqual(single.map((o) => [o.book, o.odds]), [["DraftKings", 150], ["BetMGM", 145], ["theScore Bet", 145], ["FanDuel", 140]]);
+  assert.match(slipButtons(single[1].book, single[1].legs)[0][0].url, /^https:\/\/sports\.md\.betmgm\.com\//);
+
+  // theScore has no TD market up, so it isn't offered for an SGP with the TD; an SGP shows no price.
+  const sgp = slipOffers(read("sgp", [ml, td]), [GAME, GAME], books);
+  assert.deepEqual(sgp.map((o) => o.book).sort(), ["BetMGM", "DraftKings", "FanDuel"]);
+  assert.ok(sgp.every((o) => o.odds === null && o.legs.length === 2));
+  assert.match(slipButtons("DraftKings", sgp.find((o) => o.book === "DraftKings")!.legs)[0][0].text, /Build all 2 legs/);
+
+  assert.deepEqual(slipOffers(read("single", [ml]), [null], books), [], "no game, no offers");
+});

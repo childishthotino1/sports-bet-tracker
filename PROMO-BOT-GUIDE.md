@@ -57,6 +57,8 @@ Build a bet (single, parlay or SGP) and screenshot the slip before you place it.
 - your stake,
 - if no boost is involved, any leg that's priced better at another one of your books.
 
+Then it asks **🛒 Want a link to build this bet? Which book?**, with each book that offers every leg (and its price, on a single or parlay). Tap one and you get a button that opens the bet in that book's slip. Handy when a friend shares a screenshot of their bet.
+
 ### C. A plain question
 
 Just type, for example:

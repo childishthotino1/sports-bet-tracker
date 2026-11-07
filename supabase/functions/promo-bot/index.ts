@@ -15,7 +15,7 @@ import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
   allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
-  priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
+  priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
   formatStats, parseStatsArgs, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
 } from "../_shared/ev/mod.ts";
@@ -460,6 +460,28 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
 
 // ── Bet slips ─────────────────────────────────────────────
 
+// After a slip check: "which book?" with a button per book that posts every leg
+// (its price on a straight bet or parlay), so a slip someone shared becomes a
+// link to build the same bet. The tap is answered by sendOfferLink.
+function sendOffers(chatId: number, offers: SlipOffer[]) {
+  if (!offers.length) return null;
+  const buttons = offers.map((o) => ({ text: `${o.book}${o.odds !== null ? ` ${formatAmerican(o.odds)}` : ""}`, callback_data: `pl:${o.key}` }));
+  const keyboard: { text: string; callback_data: string }[][] = [];
+  for (let i = 0; i < buttons.length; i += 2) keyboard.push(buttons.slice(i, i + 2));
+  return tg("sendMessage", { chat_id: chatId, text: "🛒 Want a link to build this bet? Which book?", reply_markup: { inline_keyboard: keyboard } });
+}
+async function sendOfferLink(chatId: number, key: string) {
+  const offer = (await loadState(chatId))?.slipOffers?.find((o) => o.key === key);
+  if (!offer) return send(chatId, "That slip is no longer the one in play. Send the screenshot again and I'll find the links.");
+  const rows = slipButtons(offer.book, offer.legs, { state: BOOK_STATE_ENV });
+  if (!rows.length) return send(chatId, `${offer.book} didn't send a link for this bet.`);
+  const all = offer.legs.length > 1 && rows.length === 1 && rows[0][0].text.startsWith("🛒 Build all");
+  const price = offer.odds !== null ? ` (${formatAmerican(offer.odds)} there)` : "";
+  const hint = offer.legs.length === 1 ? "Tap to put it in the slip." : all ? "One tap puts every leg in the slip." : "Tap each leg to add it to the slip.";
+  const sgp = offer.odds === null && offer.legs.length > 1 ? " If it shows as a regular parlay, switch it to SGP / Same Game Parlay." : "";
+  return sendWithButtons(chatId, `🛒 ${offer.book}${price}: ${hint}${sgp} Check the price in the slip before you place it.`, rows);
+}
+
 async function priceSlip(chatId: number, s: FlowState) {
   const slip = s.slip!;
   const book = slip.book ?? s.promo.book;
@@ -468,7 +490,7 @@ async function priceSlip(chatId: number, s: FlowState) {
     await saveState(chatId, asking);
     return sendPrompt(chatId, { ...prompt(asking), text: "Which sportsbook is this slip on?" });
   }
-  const done: FlowState = { ...s, slip: undefined, step: s.noPromo ? "end" : "action" };
+  const done: FlowState = { ...s, slip: undefined, slipOffers: undefined, step: s.noPromo ? "end" : "action" };
   await saveState(chatId, done);
 
   // A book the feed doesn't carry (Caesars, Fanatics, bet365) is priced from
@@ -511,6 +533,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   const boosted = !!slip.boost_pct || (!s.noPromo && !!s.promo.boost_pct);
   const better = boosted ? [] : betterPrices(slip, legEvents, bookKey, SHOP_BOOKS);
   const shopNote = boosted ? null : formatBetterPrices(slip, book, better);
+  const offers = slipOffers(slip, legEvents, SHOP_BOOKS);
   const shopRows = shopButtons(better.flatMap((b, i) => (b ? [{ selection: legLabel(slip.legs[i]), book: b.book, link: b.link }] : [])), { state: BOOK_STATE_ENV });
   if (!c) {
     // Market types the odds feed doesn't carry come back as "other": say so, rather than blaming the prices.
@@ -527,6 +550,10 @@ async function priceSlip(chatId: number, s: FlowState) {
       : slip.boost_pct;
     const typing: FlowState = { ...done, promo: { ...done.promo, book, ...(slipBoost ? { boost_pct: slipBoost } : {}) }, step: "slip", legs: slip.legs.length };
     if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
+    if (offers.length) {
+      typing.slipOffers = offers;
+      await sendOffers(chatId, offers);
+    }
     // The slip's total was read: go straight to the margin question, through the
     // same promo checks a typed price gets.
     const r = slip.total_odds !== null ? step(typing, formatAmerican(slip.total_odds)) : null;
@@ -560,6 +587,10 @@ async function priceSlip(chatId: number, s: FlowState) {
   await logPicks([row]);
   if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
   await creditsNote(chatId, remaining);
+  if (offers.length) {
+    await saveState(chatId, { ...done, slipOffers: offers });
+    await sendOffers(chatId, offers);
+  }
   if (!s.noPromo) await sendPrompt(chatId, prompt(done));
 }
 
@@ -711,6 +742,7 @@ async function handle(update: any) {
       await saveSettings(chatId, { ...(await loadSettings(chatId)), markets: mode });
       return send(chatId, `⚙️ Picks will use: ${MODE_LABELS[mode]}.`);
     }
+    if (data.startsWith("pl:")) return sendOfferLink(chatId, data.slice(3));
     if (!data.startsWith("pf:")) return;
     return advance(chatId, data.slice(3));
   }

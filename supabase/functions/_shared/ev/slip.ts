@@ -405,6 +405,31 @@ export function betterPrices(
   });
 }
 
+// A slip someone shared: the same bet at each of your books, so the bot can ask
+// "which book?" and hand back a link that puts it in that book's slip. A book
+// is offered only when it posts every leg. odds is the legs multiplied (null on
+// an SGP: the book's SGP price includes its correlation, which the feed lacks).
+export type SlipOffer = { key: string; book: string; odds: number | null; legs: { selection: string; link: string | null; eventLink: string | null }[] };
+
+export function slipOffers(slip: Slip, legEvents: (OddsEvent | null)[], books: Record<string, string>): SlipOffer[] {
+  const out: SlipOffer[] = [];
+  for (const [key, book] of Object.entries(books)) {
+    const legs: SlipOffer["legs"] = [];
+    let decimal = 1;
+    for (const [i, leg] of slip.legs.entries()) {
+      const bm = legEvents[i]?.bookmakers.find((b) => b.key === key);
+      const o = bm ? locate(bm.markets, leg)?.outcome : undefined;
+      if (!o) break;
+      decimal *= americanToDecimal(o.price);
+      legs.push({ selection: legLabel(leg), link: o.link ?? null, eventLink: bm?.link ?? null });
+    }
+    if (legs.length < slip.legs.length || !legs.some((l) => l.link || l.eventLink)) continue;
+    out.push({ key, book, odds: slip.bet_kind === "sgp" ? null : Math.round(decimalToAmerican(decimal)), legs });
+  }
+  // Best price first.
+  return out.sort((a, b) => (b.odds === null || a.odds === null ? 0 : americanToDecimal(b.odds) - americanToDecimal(a.odds)));
+}
+
 export function formatBetterPrices(slip: Slip, book: string, better: ({ book: string; odds: number; mine: number } | null)[]): string | null {
   const lines = better.flatMap((b, i) => (b ? [`${legLabel(slip.legs[i])}: ${b.book} ${formatAmerican(b.odds)} vs ${book} ${formatAmerican(b.mine)}`] : []));
   if (!lines.length) return null;
