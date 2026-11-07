@@ -322,7 +322,7 @@ export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookK
   });
 }
 
-export type RuleUse = { rule: SgpRule; legs: [number, number]; joint: number }; // fair chance both legs hit
+export type RuleUse = { rule: SgpRule; legs: [number, number]; cond: number; joint: number }; // fair chance both legs hit
 
 export type SlipCheck = {
   priced: PricedSlipLeg[];
@@ -368,11 +368,14 @@ export function formatBetterPrices(slip: Slip, book: string, better: ({ book: st
   return [`💲 Better price elsewhere${slip.legs.length > 1 ? " (leg by leg, before any boost)" : ""}:`, ...lines].join("\n");
 }
 
-const toRuleLeg = (l: SlipLeg): RuleLeg => ({
-  market: l.market, side: l.side, line: l.line,
-  team: l.team ?? (l.market === "h2h" || l.market === "spreads" ? l.side : null),
-  player: l.market === "h2h" || l.market === "spreads" ? null : l.team_or_player,
-});
+const toRuleLeg = (l: SlipLeg): RuleLeg => {
+  const teamLeg = l.market === "h2h" || l.market === "spreads" || l.market === "team_totals";
+  return {
+    market: l.market, side: l.side, line: l.line,
+    team: l.team ?? (l.market === "team_totals" ? l.team_or_player : teamLeg ? l.side : null),
+    player: teamLeg ? null : l.team_or_player,
+  };
+};
 
 // book: the slip's book, for its SGP rules.
 // otherGame: true when a leg isn't from the one game the promo is for.
@@ -387,14 +390,20 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
   if (!Number.isFinite(totalOdds)) return null;
 
   let fairProb = independent, method: SlipCheck["method"] = "independent", correlation: number | null = null;
-  const blocks = slip.bet_kind === "sgp" ? findRuleBlocks(slip.legs.map(toRuleLeg), book) : [];
+  // A rule's joint is a fact about the game, so it applies at every book.
+  const blocks = slip.bet_kind === "sgp" ? findRuleBlocks(slip.legs.map(toRuleLeg), "any") : [];
+  const covered = new Set(blocks.flatMap((b) => b.legs));
   const rules = blocks.map((b) => ({ ...b, joint: blockJoint(b, fairs[b.legs[0]], fairs[b.legs[1]]) }));
   // Each rule pair's exact joint over what independence would say.
   const ruleLift = (p: number[]) => blocks.reduce((m, b) => {
     const [i, j] = b.legs;
     return m * blockJoint(b, p[i], p[j]) / (p[i] * p[j]);
   }, 1);
-  if (slip.bet_kind === "sgp" && slip.legs.length > 1 && bookLegs.every((o) => o !== null)) {
+  // Every leg in a rule pair: the pairs' joints are the whole story, and the
+  // book's correlation (whatever it charges for them) doesn't come into it.
+  if (blocks.length && covered.size === slip.legs.length) {
+    fairProb = independent * ruleLift(fairs);
+  } else if (slip.bet_kind === "sgp" && slip.legs.length > 1 && bookLegs.every((o) => o !== null)) {
     correlation = impliedProb(totalOdds) / bookLegs.reduce((p, o) => p * impliedProb(o!), 1);
     // The book's correlation is kept for the legs no rule covers; each rule
     // pair swaps the book's view of it (the same rule on the book's own
@@ -448,7 +457,8 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   }
   for (const r of c.rules) {
     const [i, j] = r.legs;
-    out.push(`🧩 ${r.rule.title}: legs ${i + 1} + ${j + 1} together are worth ${formatPct(r.joint)} (FV ${formatAmerican(probToAmerican(r.joint))}), about leg ${i + 1} alone. ${r.rule.why}`);
+    const alone = r.cond === 1 ? `the same as leg ${i + 1} alone` : `about ${Math.round(r.cond * 100)}% of leg ${i + 1} alone`;
+    out.push(`🧩 ${r.rule.title}: legs ${i + 1} + ${j + 1} together are worth ${formatPct(r.joint)} (FV ${formatAmerican(probToAmerican(r.joint))}), ${alone}. ${r.rule.why}`);
   }
   out.push(`Fair${c.method === "correlation" ? " (est.)" : ""}: ${formatPct(c.fairProb)} -> FV ${formatAmerican(probToAmerican(c.fairProb))}`);
   out.push("");

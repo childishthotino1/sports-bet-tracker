@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
-  allowsSgpx, formatShop, shopLegs, americanToDecimal, bestBets, cardLegs, checkSlip, formatBet, filterMode, findRuleBlocks, formatRange, formatSgpSuggestion, formatSlipCheck,
+  allowsSgpx, forcingIdeas, NEAR_IMPLIED, TEAM_TOTAL_GIVEN_TDS, formatShop, shopLegs, americanToDecimal, bestBets, cardLegs, checkSlip, formatBet, filterMode, findRuleBlocks, formatRange, formatSgpSuggestion, formatSlipCheck,
   impliedProb, normalizePromo, normalizeSlip, parseTarget, priceLegs, priceSlipLegs, prompt, QB_TD_GIVEN_TEAMMATE_TD,
   startFlow, step, suggestSgpLegs, type OddsEvent, type RuleLeg,
 } from "./mod.ts";
@@ -87,7 +87,8 @@ test("spread + the same team's moneyline is a theScore rule", () => {
   // An underdog's moneyline implies its spread.
   const [dog] = findRuleBlocks([leg("spreads", "Carolina Panthers", 3.5), leg("h2h", "Panthers", null)], "theScore Bet");
   assert.deepEqual(dog.legs, [1, 0]);
-  assert.deepEqual(findRuleBlocks(legs, "BetMGM"), [], "rules are per book");
+  assert.deepEqual(findRuleBlocks(legs, "BetMGM"), [], "free-leg rules are per book");
+  assert.equal(findRuleBlocks(legs, "any")[0].rule.id, "thescore-spread-ml", "the joint holds at every book");
   assert.deepEqual(findRuleBlocks([leg("spreads", "Packers", -3.5), leg("h2h", "Panthers", null)], "theScore Bet"), [], "opposite teams");
 });
 
@@ -139,9 +140,8 @@ test("a slip with a rule pair prices the pair as the spread alone", () => {
   assert.ok(Math.abs(c.fairProb - spread * over) < 1e-3, `${c.fairProb} vs ${spread * over}`); // the slip's price is rounded
   const text = formatSlipCheck(SCORE_SLIP, "theScore Bet", c, null);
   assert.match(text, /^🧩 Spread \+ the same team's moneyline: legs 1 \+ 2 together are worth/m);
-  // Without the rule (another book), the moneyline's vig and the book's
-  // correlation still go into the estimate.
-  assert.equal(checkSlip(SCORE_SLIP, priced, null, "BetMGM")!.rules.length, 0);
+  // The pair's joint is a fact about the game: it applies on any book.
+  assert.equal(checkSlip(SCORE_SLIP, priced, null, "BetMGM")!.rules.length, 1);
 });
 
 test("the QB rule caps the pair at the teammate's TD x 90%", () => {
@@ -220,4 +220,54 @@ test("a question about a game shops each leg across the books", () => {
   const text = formatShop(CAR_GB, legs);
   assert.match(text, /^🔎 Carolina Panthers @ Green Bay Packers, /);
   assert.match(text, /^1\. .* at (BetMGM|DraftKings) \(fair /m);
+});
+
+test("forcing rules: TDs carry a low team total, a ladder, low yards, a double-double's stats", () => {
+  const henry = (market: string, side: string, line: number | null) => leg(market, side, line, "Baltimore Ravens", "Derrick Henry");
+  const blocks = (legs: ReturnType<typeof leg>[]) => findRuleBlocks(legs, "any").map((b) => [b.rule.id, b.legs, b.cond]);
+  // noliver's: Henry 2+ TDs + 25+ rush yards + BAL team total Over 13.5.
+  const legs = [henry("player_tds_over", "Over", 1.5), henry("player_rush_yds_alternate", "Over", 24.5), leg("team_totals", "Over", 13.5, "Baltimore Ravens", null)];
+  assert.deepEqual(blocks(legs), [["td-team-total", [0, 2], TEAM_TOTAL_GIVEN_TDS]], "each leg used once");
+  assert.deepEqual(blocks([legs[0], legs[1]]), [["td-own-yards", [0, 1], NEAR_IMPLIED]]);
+  assert.deepEqual(blocks([legs[0], { ...legs[2], line: 11.5 }]), [["td-team-total", [0, 1], 1]], "12 points clear 11.5");
+  assert.deepEqual(blocks([legs[0], { ...legs[2], line: 20.5 }]), [], "too high to be forced");
+  assert.deepEqual(blocks([legs[0], { ...legs[2], team: "Pittsburgh Steelers" }]), [], "the other team");
+  assert.deepEqual(blocks([henry("player_anytime_td", "Yes", null), legs[0]]), [["stat-ladder", [1, 0], 1]], "2+ TDs implies a TD");
+  assert.deepEqual(blocks([henry("player_rush_yds", "Over", 59.5), henry("player_rush_yds_alternate", "Over", 79.5)]), [["stat-ladder", [1, 0], 1]]);
+  assert.deepEqual(blocks([henry("player_anytime_td", "Yes", null), henry("player_reception_yds", "Over", 34.5)]), [], "not a low line");
+  const giannis = (market: string, side: string, line: number | null) => leg(market, side, line, "Milwaukee Bucks", "Giannis Antetokounmpo");
+  assert.deepEqual(blocks([giannis("player_rebounds", "Over", 9.5), giannis("player_double_double", "Yes", null)]), [["double-double-stat", [1, 0], NEAR_IMPLIED]]);
+  assert.deepEqual(blocks([giannis("player_triple_double", "Yes", null), giannis("player_assists", "Over", 7.5)]), [["double-double-stat", [0, 1], 1]]);
+});
+
+test("an SGP made only of rule pairs is priced from the joints, not the book's correlation", () => {
+  const slip = normalizeSlip({
+    book: "BetMGM", league: "NFL", bet_kind: "sgp", total_odds: 400, game: "",
+    legs: [
+      { team_or_player: "Derrick Henry", market: "player_tds_over", line: 1.5, side: "Over", team: "Baltimore Ravens" },
+      { team_or_player: "Baltimore Ravens", market: "team_totals", line: 13.5, side: "Over", team: "" },
+    ],
+  })!;
+  assert.equal(slip.legs[1].team, null);
+  const priced = [
+    { label: "Henry 2+ TDs", bookOdds: 300, fair: 0.24, source: "sharp" as const },
+    { label: "BAL Over 13.5", bookOdds: -1000, fair: 0.88, source: "sharp" as const },
+  ];
+  const c = checkSlip(slip, priced, null, "BetMGM")!;
+  assert.equal(c.rules.length, 1);
+  assert.ok(Math.abs(c.fairProb - 0.24 * TEAM_TOTAL_GIVEN_TDS) < 1e-12, String(c.fairProb));
+  assert.match(formatSlipCheck(slip, "BetMGM", c, null), /about 90% of leg 1 alone/);
+});
+
+test("SGP suggestions with a scorer offer the legs it forces", () => {
+  const ideas = forcingIdeas([
+    { market: "player_anytime_td", side: "Yes", description: "Zay Flowers" },
+    { market: "player_tds_over", side: "Over", point: 1.5, description: "Derrick Henry" },
+    { market: "player_double_double", side: "Yes", description: "Giannis Antetokounmpo" },
+    { market: "h2h", side: "Baltimore Ravens" },
+  ]);
+  assert.equal(ideas.length, 3);
+  assert.match(ideas[0], /Zay Flowers a TD: his team's total Over 5\.5 can't lose/);
+  assert.match(ideas[1], /Derrick Henry 2\+ TDs: his team's total Over 11\.5 can't lose/);
+  assert.match(ideas[2], /rebounds \(or points\) Over 9\.5/);
 });

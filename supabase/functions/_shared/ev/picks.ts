@@ -6,7 +6,7 @@ import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } 
 import { evaluateBet, type BetEval } from "./bet.ts";
 import { marketAllowed, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
-import { findRuleBlocks, type SgpRule } from "./sgp-rules.ts";
+import { findRuleBlocks, NEAR_IMPLIED, tdCount, TEAM_TOTAL_GIVEN_TDS, type SgpRule } from "./sgp-rules.ts";
 import type { Leg as CardLeg } from "./format.ts";
 import type { OddsEvent, Outcome } from "./odds-api.ts";
 import { blowoutNote, formatWongLeg, isPropOver, WONG_NOTE, wongLegs, type WongLeg } from "./guide.ts";
@@ -293,6 +293,30 @@ function freeLeg(picked: PricedLeg[], evLegs: PricedLeg[], book?: string) {
 
 const ruleLeg = (l: PricedLeg) => ({ market: l.market, side: l.side, line: l.point ?? null, team: null, player: null });
 
+// Forcing legs to fill a leg minimum (sgp-rules.ts): for a scorer or a
+// double-double in the suggestion, the legs it all but guarantees. The feed
+// can't price these (no player's team, no low alternate lines), so they're
+// ideas to add to the slip, which then gets priced with the rule's joint.
+export function forcingIdeas(legs: { market: string; side: string; point?: number; description?: string }[]): string[] {
+  const pct = (p: number) => `${Math.round(p * 100)}%`;
+  return legs.flatMap((l) => {
+    const who = l.description;
+    if (!who) return [];
+    const k = tdCount({ market: l.market, side: l.side, line: l.point ?? null });
+    if (k) {
+      const tds = k > 1 ? `${k}+ TDs` : "a TD";
+      return [`➕ With ${who} ${tds}: his team's total Over ${6 * k - 0.5} can't lose if he gets there (Over ${6 * k + 1.5} about ${pct(TEAM_TOTAL_GIVEN_TDS)}), and his own yards over a low line (10+ receiving, 25+ rushing) about ${pct(NEAR_IMPLIED)}.`];
+    }
+    if (l.market === "player_double_double" && l.side === "Yes") {
+      return [`➕ With ${who}'s double-double: his rebounds (or points) Over 9.5 come with it about ${pct(NEAR_IMPLIED)} of the time.`];
+    }
+    if (l.market === "player_triple_double" && l.side === "Yes") {
+      return [`➕ With ${who}'s triple-double: his double-double and points, rebounds and assists Over 9.5 all come with it.`];
+    }
+    return [];
+  });
+}
+
 export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
   const lines = sg.legs.map((l, i) => {
     const f = sg.free.find((x) => x.leg === i);
@@ -300,10 +324,12 @@ export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
     return `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}% vs sharp)`;
   });
   const why = sg.free.map((f) => `🧩 ${f.rule.why}`);
+  const ideas = forcingIdeas(sg.legs);
   return [
     `🧩 SGP legs to build on ${book}: ${sg.game}`,
     ...lines,
     ...(why.length ? ["", ...why] : []),
+    ...(ideas.length ? ["", "Need more legs? Add ones these legs all but force: the book often charges for them as if they weren't tied, which adds price for little risk.", ...ideas] : []),
     "",
     `These are the best-priced legs in this game against the sharp price (Pinnacle and the exchanges). ${book}'s SGP price depends on how the legs move together, which the odds feed doesn't show, so build the SGP (swap legs if you like) and send me a screenshot of the slip. I'll price the whole thing.`,
   ].join("\n");
