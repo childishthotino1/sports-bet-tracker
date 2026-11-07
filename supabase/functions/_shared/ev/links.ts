@@ -9,6 +9,7 @@
 //   DraftKings  https://sportsbook.draftkings.com/?outcomes=0ML84695561_1
 //   FanDuel     https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189645&selectionId=50199
 //   theScore    https://sportsbook.thescore.bet/?market_selection_id[0]=<uuid>&odds_numerator[0]=2&odds_denominator[0]=1
+//   Caesars     https://sportsbook.caesars.com/us/md/bet/betslip?selectionIds=<uuid>   (paid plan; seen 2026-11-07)
 // BetMGM's carry a literal {state}: the users are in Maryland. theScore's carry
 // a dummy 2/1 price, replaced by the live one when the slip loads.
 //
@@ -75,6 +76,14 @@ export const MULTI_LEG: { host: RegExp; join: (links: string[]) => string | null
       const legs = links.map((l) => [param(l, "market_selection_id[0]"), param(l, "odds_numerator[0]") ?? "2", param(l, "odds_denominator[0]") ?? "1"]);
       if (legs.some(([id]) => !id)) return null;
       return `https://sportsbook.thescore.bet/?${legs.map(([id, n, d], i) => `market_selection_id[${i}]=${id}&odds_numerator[${i}]=${n}&odds_denominator[${i}]=${d}`).join("&")}`;
+    },
+  },
+  { // Caesars: selectionIds=A,B,C (a phone loaded both legs with "," and with "%2C", 2026-11-07)
+    host: /^https:\/\/sportsbook\.caesars\.com\/us\/[^/]+\/bet\/betslip\?/,
+    join: (links) => {
+      const ids = links.map((l) => param(l, "selectionIds"));
+      if (ids.some((o) => !o)) return null;
+      return `${links[0].split("?")[0]}?selectionIds=${ids.join(",")}`;
     },
   },
 ];

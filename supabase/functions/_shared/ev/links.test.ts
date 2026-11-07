@@ -141,6 +141,20 @@ test("phase 2: one link for every leg, in the format each book took", () => {
     [[{ text: "🛒 Build all 2 legs in DraftKings", url: "https://sportsbook.draftkings.com/?outcomes=0ML84695561_1+0ML84695479_3" }]]);
 });
 
+test("Caesars: one link for a parlay, the IDs comma-joined (the format the phone took)", () => {
+  const a = "https://sportsbook.caesars.com/us/md/bet/betslip?selectionIds=a19587ac-336d-3561-9cfb-82d51164a0d7";
+  const b = "https://sportsbook.caesars.com/us/md/bet/betslip?selectionIds=38e1d24a-c6f0-359d-85a0-d465d6ee7c57";
+  assert.equal(
+    combinedLink([a, b]),
+    "https://sportsbook.caesars.com/us/md/bet/betslip?selectionIds=a19587ac-336d-3561-9cfb-82d51164a0d7,38e1d24a-c6f0-359d-85a0-d465d6ee7c57",
+  );
+  const [[btn], ...rest] = slipButtons("Caesars", [{ selection: "Temple Owls +7", link: a }, { selection: "Utah State Aggies ML", link: b }]);
+  assert.equal(btn.text, "🛒 Build all 2 legs in Caesars");
+  assert.equal(rest.length, 0);
+  // A {state} placeholder is filled first.
+  assert.match(combinedLink([a.replace("/md/", "/{state}/"), b])!, /\/us\/md\/bet\/betslip\?selectionIds=a19587ac[^,]+,38e1d24a/);
+});
+
 test("real pull: a BetMGM SGP suggestion is one Maryland link", () => {
   const legs = priceLegs([GAME], "betmgm", { now: BEFORE });
   const sg = suggestSgpLegs(legs, 3, GAME.id, "BetMGM")!;
