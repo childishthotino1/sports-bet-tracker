@@ -172,6 +172,8 @@ function mentions(text: string, team: string): number {
   let best = 0;
   for (const part of text.split(/ @ | vs\.? | at /i)) {
     if (!wholeWords(part, team)) continue;
+    // The whole name anywhere in the text ("best bets for manchester city") is the strongest match.
+    if (` ${norm(part)} `.includes(` ${tw.join(" ")} `)) { best = Math.max(best, 1 + 0.1 * tw.length); continue; }
     const pw = norm(part).split(" ");
     let k = 0;
     while (k < pw.length && k < tw.length && pw[k] === tw[k]) k++;
@@ -180,7 +182,7 @@ function mentions(text: string, team: string): number {
   if (best) return best;
   const padded = ` ${norm(text)} `;
   const nick = lastWord(team);
-  if (nick.length > 2 && padded.includes(` ${nick} `)) return 1;
+  if (nick.length > 2 && !GENERIC_NICK.has(nick) && padded.includes(` ${nick} `)) return 1;
   // A school or city named inside a sentence ("the Notre Dame game"): the
   // longest run of the team's first words that the text holds, scored below a
   // full match so "Florida State" beats "Florida". One generic word ("New",
@@ -196,8 +198,12 @@ function mentions(text: string, team: string): number {
 function wholeWords(a: string, b: string): boolean {
   const x = norm(a), y = norm(b);
   if (!x || !y) return false;
-  return ` ${x} `.includes(` ${y} `) || ` ${y} `.includes(` ${x} `) || (lastWord(x).length > 2 && lastWord(x) === lastWord(y));
+  const lx = lastWord(x);
+  return ` ${x} `.includes(` ${y} `) || ` ${y} `.includes(` ${x} `) || (lx.length > 2 && !GENERIC_NICK.has(lx) && lx === lastWord(y));
 }
+
+// Last words many clubs share ("Manchester City", "Coventry City"): not a team on their own.
+const GENERIC_NICK = new Set(["city", "united", "town", "county", "athletic", "rovers", "wanderers", "albion", "fc", "afc", "sc", "cf", "real", "sporting", "club"]);
 
 // First words of team names too common to identify a team alone.
 const GENERIC_FIRST = new Set(["new", "north", "south", "east", "west", "central", "northern", "southern", "eastern", "western", "green", "golden", "saint", "little", "good", "game"]);

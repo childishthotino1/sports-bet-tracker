@@ -48,3 +48,20 @@ test("group chats: the bot's mention, stripped; short answers spotted", async ()
     assert.equal(looksLikeAnswer(no), false, no);
   }
 });
+
+test("soccer: the club named, not one sharing its last word", async () => {
+  const { expandTeamAliases } = await import("./mod.ts");
+  const games = [
+    ev("cov", "Crystal Palace", "Coventry City"),
+    ev("mci", "Manchester City", "Brentford"),
+    ev("mun", "Manchester United", "Arsenal"),
+    ev("tot", "Tottenham Hotspur", "Leicester City"),
+  ];
+  const q = (text: string) => findEvent(games, [expandTeamAliases(text)], NOW)?.id ?? null;
+  assert.equal(q("Best bets for epl manchester city on draftkings"), "mci");
+  assert.equal(q("man city game"), "mci");
+  assert.equal(q("man utd"), "mun");
+  assert.equal(q("spurs on fanduel"), "tot");
+  assert.equal(q("coventry"), "cov");
+  assert.equal(q("any city game?"), null, "'city' alone names no club");
+});

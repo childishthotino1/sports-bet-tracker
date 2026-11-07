@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -588,7 +588,7 @@ async function focusPromo(chatId: number, s: FlowState, text: string): Promise<b
   const lists = await Promise.all(leagues.map((l) => getEvents(ODDS_API_KEY, SPORT_KEYS[l]).catch(() => [])));
   const events = lists.flat().filter((e) => new Date(e.commence_time).getTime() > now)
     .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
-  const game = findEvent(events, [text]);
+  const game = findEvent(events, [expandTeamAliases(text)]);
   if (!game) return false;
   const focused: FlowState = {
     ...s, step: "action", autoRun: false, sport: LEAGUE_OF[game.sport_key],
@@ -613,7 +613,7 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   const events = lists.flat()
     .filter((e) => new Date(e.commence_time).getTime() > now)
     .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
-  const game = findEvent(events, [text]);
+  const game = findEvent(events, [expandTeamAliases(text)]);
   if (!game) return false;
   const league = LEAGUE_OF[game.sport_key];
   const { markets: mode } = await loadSettings(chatId);

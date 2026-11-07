@@ -65,3 +65,24 @@ export function stripMention(text: string, username: string): string {
 export function looksLikeAnswer(text: string): boolean {
   return /^\s*([+-]?\$?\d[\d.,]*\s*[%k]?(\s*(-|–|to)\s*[+-]?\d[\d.,]*)?|any|any odds|none|no|no boost|no max)\s*$/i.test(text);
 }
+
+// Short names people type for teams whose feed names are longer: "man city" for
+// Manchester City. Expanded before the game is matched.
+const TEAM_ALIASES: [RegExp, string][] = [
+  [/\bman(chester)? ?city\b/gi, "Manchester City"],
+  [/\bman(chester)? ?(utd|united|u)\b/gi, "Manchester United"],
+  [/\bspurs\b/gi, "Tottenham Hotspur"],
+  [/\bwolves\b/gi, "Wolverhampton Wanderers"],
+  [/\bnott(ingham|'?m)? ?forest\b/gi, "Nottingham Forest"],
+  [/\b(newcastle|toon)\b(?! united)/gi, "Newcastle United"],
+  [/\bwest ham\b(?! united)/gi, "West Ham United"],
+  [/\bbrighton\b(?! and hove albion)/gi, "Brighton and Hove Albion"],
+  [/\bpalace\b/gi, "Crystal Palace"],
+  [/\bvilla\b/gi, "Aston Villa"],
+  [/\bbarca\b/gi, "Barcelona"],
+  [/\b(psg|paris sg)\b/gi, "Paris Saint Germain"],
+  [/\binter miami\b/gi, "Inter Miami CF"],
+];
+export function expandTeamAliases(text: string): string {
+  return TEAM_ALIASES.reduce((t, [re, name]) => t.replace(re, name), text);
+}
