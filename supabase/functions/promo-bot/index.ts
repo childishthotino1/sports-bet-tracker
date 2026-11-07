@@ -718,7 +718,8 @@ async function advance(chatId: number, input: string, typed = false) {
   let r = step(s, input);
   // A promo sent with instructions runs its search once the bot's questions (book, max wager) are answered.
   if (r.state.autoRun && r.state.step === "action" && !r.action) {
-    const run = step({ ...r.state, autoRun: false }, "picks");
+    // A promo sent with instructions runs at once, without the odds-range question.
+    const run = step({ ...r.state, autoRun: false, rangeAsked: true }, "picks");
     r = { ...run, reply: r.reply ?? run.reply };
   }
   await saveState(chatId, r.state);

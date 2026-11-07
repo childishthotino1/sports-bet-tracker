@@ -84,10 +84,37 @@ test("button values fit Telegram's 64-byte callback_data", () => {
 test("Find the best bets hands the odds lookup to the bot", () => {
   const s = startFlow({ ...promo(), book: "BetMGM" });
   assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["picks", "check", "target", "done"]);
-  const r = step(s, "picks");
+  const asked = step(s, "picks");
+  assert.equal(asked.state.step, "range", "the odds range first");
+  assert.equal(asked.state.sport, "MLB"); // the promo's one league, no question
+  const r = step(asked.state, "any");
   assert.equal(r.action, "picks");
   assert.equal(r.state.step, "action");
-  assert.equal(r.state.sport, "MLB"); // the promo's one league, no question
+  assert.equal(r.state.target, undefined);
+});
+
+test("Find the best bets asks for an odds range, from the promo's minimum up", () => {
+  const any = normalizePromo({ book: "FanDuel", title: "50% Profit Boost", type: "profit_boost", boost_pct: 50, max_stake: 10,
+    min_total_odds: -200, bet_kinds: [], leagues: ["NFL"] });
+  const asked = step(startFlow(any), "picks").state;
+  assert.equal(asked.step, "range");
+  const p = prompt(asked);
+  assert.deepEqual(p.buttons.flat().map((b) => b.label), ["-200 to +100", "+100 to +250", "+250 to +500", "+500 to +1000", "+1000 and up", "Any odds"]);
+  let r = step(asked, "250..500");
+  assert.equal(r.action, "picks");
+  assert.deepEqual(r.state.target, { min: 250, max: 500 });
+  r = step(asked, "+300-450");
+  assert.deepEqual(r.state.target, { min: 300, max: 450 }, "a typed range");
+  assert.match(step(asked, "soon").reply!, /Tap a range/);
+  // Answered once: the next search goes straight to the picks.
+  const again = step({ ...r.state, target: undefined }, "picks");
+  assert.equal(again.action, "picks");
+  // A set target skips the question; so does a promo sent with instructions.
+  assert.equal(step({ ...startFlow(any), target: { min: 200, max: 300 } }, "picks").action, "picks");
+  assert.equal(step({ ...startFlow(any), autoRun: true }, "picks").action, "picks");
+  // A +400 minimum starts the ranges at +400.
+  const high = step(startFlow({ ...any, min_total_odds: 400 }), "picks").state;
+  assert.deepEqual(prompt(high).buttons.flat().map((b) => b.label), ["+400 to +500", "+500 to +1000", "+1000 and up", "Any odds"]);
 });
 
 
@@ -102,6 +129,9 @@ test("picks ask for the sport when the promo names none", () => {
   assert.ok(values.includes("EPL"));
   assert.equal(step(r.state, "Soccer").reply, "Pick a sport above.");
   r = step(r.state, "NBA");
+  assert.equal(r.state.step, "range");
+  assert.equal(r.state.sport, "NBA");
+  r = step(r.state, "any");
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "NBA");
   assert.equal(r.state.step, "action");
@@ -125,11 +155,11 @@ test("a Soccer promo asks which league, with readable names", () => {
   const p = prompt(r.state);
   assert.equal(p.text, "Which league should I search?");
   assert.deepEqual(p.buttons.flat().map((b) => b.label), ["Premier League", "Champions League", "MLS", "La Liga", "Serie A", "Bundesliga", "🌐 All of them"]);
-  const all = step(r.state, "ALL");
+  const all = step(step(r.state, "ALL").state, "any");
   assert.equal(all.action, "picks");
   assert.deepEqual(leaguesToSearch(all.state), ["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"]);
   assert.equal(step(r.state, "NBA").reply, "Pick a sport above.", "a soccer promo can't search the NBA");
-  r = step(r.state, "EPL");
+  r = step(step(r.state, "EPL").state, "any");
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "EPL");
   assert.deepEqual(leaguesToSearch(r.state), ["EPL"]);
@@ -147,7 +177,7 @@ test("a league the feed doesn't cover says so instead of offering other sports",
 test("WNBA promos search the WNBA", () => {
   const wnba = normalizePromo({ book: "DraftKings", title: "WNBA 20% SGP Boost", type: "profit_boost", boost_pct: 20, max_stake: 50,
     min_total_odds: 400, min_legs: 4, bet_kinds: ["sgp"], leagues: ["WNBA"] });
-  const r = step(startFlow(wnba), "picks");
+  const r = step(step(startFlow(wnba), "picks").state, "any");
   assert.equal(r.action, "picks");
   assert.equal(r.state.sport, "WNBA");
 });

@@ -18,7 +18,7 @@ export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; 
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "sport" | "target" | "slip" | "fair" | "boost" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "range" | "target" | "slip" | "fair" | "boost" | "end";
   sport?: string; // league to search for picks, e.g. "NBA", or "ALL" for every one the promo covers
   target?: OddsRange; // odds the picks should land in; unset = any price that qualifies
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
@@ -26,7 +26,19 @@ export type FlowState = {
   noPromo?: boolean; // a slip sent with no promo in play: priced without a boost
   legs?: number; // legs on the slip whose price is being typed: a single gets single-bet margins
   autoRun?: boolean; // the promo came with instructions: find the picks as soon as its questions are answered
+  rangeAsked?: boolean; // the odds-range question was answered (or skipped) for this promo
 };
+
+// Odds ranges offered before a search, as [min, max] American odds. The first
+// starts at the promo's minimum.
+const RANGES: [number, number][] = [[100, 250], [250, 500], [500, 1000], [1000, 50000]];
+
+// Before picks: the odds range to search, unless one is set, it was already
+// answered, or the promo came with instructions (it runs straight away).
+function toPicks(s: FlowState): StepResult {
+  if (!s.target && !s.rangeAsked && !s.autoRun) return { state: { ...s, step: "range" } };
+  return { state: { ...s, step: "action" }, action: "picks" };
+}
 
 // BetMGM first: nearly all shared bets are there.
 export const BOOKS = SPORTSBOOKS.map((b) => b.name); // shared with the tracker bot (_shared/books)
@@ -94,6 +106,21 @@ export function prompt(s: FlowState): Prompt {
       for (let i = 0; i < list.length; i += 3) rows.push(list.slice(i, i + 3).map((l) => ({ label: LEAGUE_LABELS[l] ?? l, value: l })));
       rows.push([{ label: options.length ? "🌐 All of them" : "🌐 All sports", value: "ALL" }]);
       return { text: options.length > 1 ? "Which league should I search?" : "Which sport should I search?", buttons: rows };
+    }
+    case "range": {
+      // The promo's minimum (or -200) up to +100, then the fixed ranges above it.
+      const floor = s.promo.min_total_odds ?? -200;
+      const ranges: [number, number][] = [
+        ...(americanToDecimal(floor) < 2 ? [[floor, 100] as [number, number]] : []),
+        ...RANGES.filter(([, hi]) => americanToDecimal(hi) > americanToDecimal(floor)).map(([lo, hi]): [number, number] =>
+          [americanToDecimal(lo) < americanToDecimal(floor) ? floor : lo, hi]),
+      ];
+      const label = ([lo, hi]: [number, number]) => (hi >= 50000 ? `${formatAmerican(lo)} and up` : `${formatAmerican(lo)} to ${formatAmerican(hi)}`);
+      const buttons = ranges.map((r) => ({ label: label(r), value: `${r[0]}..${r[1]}` }));
+      const rows: Button[][] = [];
+      for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+      rows.push([{ label: "Any odds", value: "any" }]);
+      return { text: "What odds range should the bets land in? Tap one, or type a range (e.g. +300-500).", buttons: rows };
     }
     case "target":
       return {
@@ -216,7 +243,7 @@ export function step(s: FlowState, input: string): StepResult {
           // A league the odds feed isn't wired up for: say so rather than offer other sports.
           return { state: s, reply: `I don't have odds for ${s.promo.leagues.join(", ")} yet, so I can't search for picks. Build a bet and send me the slip screenshot instead.` };
         }
-        if (leagues.length === 1) return { state: { ...s, sport: leagues[0] }, action: "picks" };
+        if (leagues.length === 1) return toPicks({ ...s, sport: leagues[0] });
         return { state: { ...s, step: "sport" } };
       }
       if (v === "target") return { state: { ...s, step: "target" } };
@@ -230,10 +257,19 @@ export function step(s: FlowState, input: string): StepResult {
     }
     case "sport": {
       const sport = v.toUpperCase();
-      if (sport === "ALL" || sport === "ANY") return { state: { ...s, step: "action", sport: "ALL" }, action: "picks" };
+      if (sport === "ALL" || sport === "ANY") return toPicks({ ...s, sport: "ALL" });
       const options = searchable(s.promo);
       if (!SPORT_KEYS[sport] || (options.length && !options.includes(sport))) return { state: s, reply: "Pick a sport above." };
-      return { state: { ...s, step: "action", sport }, action: "picks" };
+      return toPicks({ ...s, sport });
+    }
+    case "range": {
+      const done = (target: OddsRange | undefined): StepResult =>
+        ({ state: { ...s, step: "action", target, rangeAsked: true }, action: "picks" });
+      if (v.toLowerCase() === "any") return done(undefined);
+      const tapped = v.match(/^(-?\d+)\.\.(-?\d+)$/);
+      const target = tapped ? { min: Number(tapped[1]), max: Number(tapped[2]) } : parseTarget(v);
+      if (!target) return { state: s, reply: "Tap a range, type one like +300-500, or tap Any odds." };
+      return done(target);
     }
     case "slip": {
       const odds = parseAmerican(v);
