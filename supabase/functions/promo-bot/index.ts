@@ -17,7 +17,7 @@ import {
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
-  formatStats, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
+  formatStats, parseStatsArgs, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
@@ -318,10 +318,13 @@ function sendSgpSuggestion(chatId: number, sg: NonNullable<ReturnType<typeof sug
 }
 
 // Every suggestion so far, paged past Supabase's 1000-row cap.
-async function loadPicks(): Promise<StoredPick[]> {
+// One chat's logged suggestions, or everyone's (chatId null), paged past the 1000-row cap.
+async function loadPicks(chatId: number | null): Promise<StoredPick[]> {
   const out: StoredPick[] = [];
   for (let from = 0; ; from += 1000) {
-    const { data, error } = await db.from("promo_bot_picks").select("*").order("id").range(from, from + 999);
+    let q = db.from("promo_bot_picks").select("*");
+    if (chatId !== null) q = q.eq("chat_id", String(chatId));
+    const { data, error } = await q.order("id").range(from, from + 999);
     if (error) throw new Error(error.message);
     out.push(...(data as StoredPick[]));
     if (!data || data.length < 1000) return out;
@@ -650,7 +653,7 @@ const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best 
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
   "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books, or ask for \"teasers\" and I'll list this week's Wong teaser legs.\n\n" +
   "Stakes are ¼ Kelly, never more than 3% of your bankroll on one bet; keep a day's total under 7%. Set /bankroll 4000 and every card suggests one stake for you.\n\n" +
-  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions have done (/stats 7 for the last week).";
+  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions to you have done (/stats 7 for the last week, /stats all for everyone's).";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
 // Typed text that names no upcoming game.
@@ -660,7 +663,7 @@ const COMMANDS = [
   { command: "skip", description: "Drop the current promo and start over" },
   { command: "settings", description: "Main lines, props, or both" },
   { command: "bankroll", description: "Your bankroll, for one suggested stake" },
-  { command: "stats", description: "How the bot's suggestions have done" },
+  { command: "stats", description: "How the bot's picks for you have done (/stats all: everyone)" },
   { command: "help", description: "What this bot does" },
 ];
 const RESET_COMMANDS = ["skip", "cancel", "new", "reset"];
@@ -720,8 +723,9 @@ async function handle(update: any) {
   if (command === "settings") return sendSettings(chatId, await loadSettings(chatId));
   if (command === "bankroll") return bankrollCommand(chatId, text.replace(/^\/\w+(@\w+)?/, "").trim());
   if (command === "stats") {
-    const days = Number(text.split(/\s+/)[1]);
-    return send(chatId, formatStats(await loadPicks(), days > 0 ? days : null));
+    // This chat's suggestions; "/stats all" for everyone's combined.
+    const { all, days } = parseStatsArgs(text);
+    return send(chatId, formatStats(await loadPicks(all ? null : chatId), days, new Date(), all ? "all" : "mine"));
   }
   if (command && RESET_COMMANDS.includes(command)) {
     await clearState(chatId);

@@ -93,3 +93,16 @@ test("the report: record, units, ROI vs the bot's EV, and leg hit rates vs fair"
   assert.match(text, /^• DraftKings: 1-1/m);
   assert.match(formatStats(rows, 1, new Date("2026-12-01T00:00:00Z")), /No suggestions logged \(last 1 day\)/);
 });
+
+test("/stats is this chat's by default; /stats all is everyone's", async () => {
+  const { parseStatsArgs } = await import("./mod.ts");
+  assert.deepEqual(parseStatsArgs("/stats"), { all: false, days: null });
+  assert.deepEqual(parseStatsArgs("/stats 7"), { all: false, days: 7 });
+  assert.deepEqual(parseStatsArgs("/stats all"), { all: true, days: null });
+  assert.deepEqual(parseStatsArgs("/stats@Bmorepromobot all 7"), { all: true, days: 7 });
+  assert.deepEqual(parseStatsArgs("/stats 7 all"), { all: true, days: 7 });
+  const empty = formatStats([], 7, new Date("2026-11-07T00:00:00Z"), "mine");
+  assert.match(empty, /No suggestions logged \(this chat, last 7 days\)/);
+  assert.match(empty, /\/stats all 7 shows everyone's combined\.$/);
+  assert.match(formatStats([], null, new Date(), "all"), /\(everyone, all time\)[\s\S]*\/stats shows just this chat's\.$/);
+});

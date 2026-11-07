@@ -326,18 +326,28 @@ function legLines(rows: StoredPick[]): string[] {
     `${k}: hit ${t.won}/${t.n} (${((t.won / t.n) * 100).toFixed(0)}%) vs fair ${((t.fair / t.n) * 100).toFixed(0)}%`);
 }
 
-export function formatStats(all: StoredPick[], days: number | null = null, now = new Date()): string {
+// "/stats", "/stats 7", "/stats all", "/stats all 7": everyone's picks or this chat's, and how many days back.
+export function parseStatsArgs(text: string): { all: boolean; days: number | null } {
+  const words = text.trim().split(/\s+/).slice(1).map((w) => w.toLowerCase());
+  const days = Number(words.find((w) => /^\d+$/.test(w)));
+  return { all: words.includes("all"), days: days > 0 ? days : null };
+}
+
+// scope: "mine" for one chat's picks (the footer points to /stats all), "all" for everyone's, null for no label.
+export function formatStats(all: StoredPick[], days: number | null = null, now = new Date(), scope: "mine" | "all" | null = null): string {
   const since = days ? new Date(now.getTime() - days * 86400e3).toISOString() : null;
   const rows = since ? all.filter((r) => r.created_at >= since) : all;
   const period = days ? `last ${days} day${days === 1 ? "" : "s"}` : "all time";
-  if (!rows.length) return `📊 No suggestions logged (${period}) yet. Every pick card, SGP leg idea, +EV game line and slip check gets logged from now on, and graded after the game.`;
+  const whose = scope === "mine" ? "this chat, " : scope === "all" ? "everyone, " : "";
+  const other = scope === "mine" ? `\n\n/stats all${days ? ` ${days}` : ""} shows everyone's combined.` : scope === "all" ? `\n\n/stats${days ? ` ${days}` : ""} shows just this chat's.` : "";
+  if (!rows.length) return `📊 No suggestions logged (${whose}${period}) yet. Every pick card, SGP leg idea, +EV game line and slip check gets logged from now on, and graded after the game.${other}`;
   const settled = rows.filter((r) => r.status === "won" || r.status === "lost" || r.status === "push");
   const pending = rows.filter((r) => r.status === "pending").length;
   const ungraded = rows.filter((r) => r.status === "ungraded").length;
   const total = tally();
   for (const r of settled) if (r.source !== "slip") add(total, r);
   const out = [
-    `📊 Bot performance, ${period}: ${rows.length} suggestion${rows.length === 1 ? "" : "s"} logged, ${settled.length} settled, ${pending} waiting on games${ungraded ? `, ${ungraded} couldn't be graded` : ""}.`,
+    `📊 Bot performance (${whose}${period}): ${rows.length} suggestion${rows.length === 1 ? "" : "s"} logged, ${settled.length} settled, ${pending} waiting on games${ungraded ? `, ${ungraded} couldn't be graded` : ""}.`,
     "Flat 1 unit per bet, at the price and boost the bot showed.",
     "",
     line("Bot's suggestions", total),
@@ -353,5 +363,5 @@ export function formatStats(all: StoredPick[], days: number | null = null, now =
   section("Slips checked, by the bot's verdict", grouped(settled.filter((r) => r.source === "slip"), (r) => r.verdict === "plus_ev" ? "Called +EV" : r.verdict === "minus_ev" ? "Called -EV" : null));
   section("Every leg, hit rate vs the bot's fair price", legLines(settled.concat(rows.filter((r) => r.status === "pending"))));
   if (settled.length < 30) out.push("", `Small sample: ${settled.length} settled. Results swing a lot until there are a few hundred; the leg hit rates vs fair are the earliest honest signal.`);
-  return out.join("\n");
+  return out.join("\n") + other;
 }
