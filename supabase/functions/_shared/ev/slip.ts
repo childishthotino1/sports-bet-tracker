@@ -357,20 +357,24 @@ export type SlipCheck = {
 // books: feed key -> name. Compares each book's price on the leg itself.
 export function betterPrices(
   slip: Slip, legEvents: (OddsEvent | null)[], bookKey: string | null, books: Record<string, string>,
-): ({ book: string; odds: number; mine: number } | null)[] {
+): ({ book: string; odds: number; mine: number; link?: string } | null)[] {
   return slip.legs.map((leg, i) => {
     const event = legEvents[i];
-    const price = (key: string) => {
+    const outcome = (key: string) => {
       const markets = event?.bookmakers.find((b) => b.key === key)?.markets ?? [];
-      return locate(markets, leg)?.outcome.price ?? null;
+      return locate(markets, leg)?.outcome ?? null;
     };
-    const mine = leg.odds ?? (bookKey ? price(bookKey) : null);
+    const mine = leg.odds ?? (bookKey ? outcome(bookKey)?.price ?? null : null);
     if (mine === null) return null;
-    let best: { book: string; odds: number; mine: number } | null = null;
+    let best: { book: string; odds: number; mine: number; link?: string } | null = null;
     for (const [key, name] of Object.entries(books)) {
       if (key === bookKey) continue;
-      const odds = price(key);
-      if (odds !== null && americanToDecimal(odds) > americanToDecimal(best?.odds ?? mine)) best = { book: name, odds, mine };
+      const o = outcome(key);
+      if (o && americanToDecimal(o.price) > americanToDecimal(best?.odds ?? mine)) {
+        // That book's own slip link (or its game link) for the 🛒 button.
+        const link = o.link ?? event?.bookmakers.find((b) => b.key === key)?.link ?? undefined;
+        best = { book: name, odds: o.price, mine, ...(link ? { link } : {}) };
+      }
     }
     return best;
   });

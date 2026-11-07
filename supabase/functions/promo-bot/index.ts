@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, exposureNote, whyNote, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, exposureNote, whyNote, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -55,6 +55,24 @@ async function tg(method: string, body: Record<string, unknown>) {
 function send(chatId: number, text: string) {
   return tg("sendMessage", { chat_id: chatId, text });
 }
+
+// The book's state for BetMGM's {state} links (links.ts); Maryland unless set.
+const BOOK_STATE_ENV = Deno.env.get("PROMO_BOOK_STATE")?.trim().toLowerCase() || BOOK_STATE;
+
+// A message with 🛒 URL buttons (links.ts). No buttons: sent exactly as before.
+// If Telegram turns the buttons down (a URL it won't take), the message still
+// goes out without them.
+async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][]) {
+  if (!rows.length) return send(chatId, text);
+  const r = await tg("sendMessage", { chat_id: chatId, text, reply_markup: { inline_keyboard: rows } });
+  if (r?.ok === false) {
+    console.error("buttons refused", r.description);
+    return send(chatId, text);
+  }
+  return r;
+}
+
+const SGP_BUTTON_HINT = "🛒 Tap each leg to add it to the slip; you may have to switch the slip to SGP / Same Game Parlay.";
 
 function sendPrompt(chatId: number, p: Prompt) {
   const keyboard = p.buttons.map((row) => row.map((b) => ({ text: b.label, callback_data: `pf:${b.value}` })));
@@ -227,7 +245,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
     })), ...new Set((p.free ?? []).map((f) => `🧩 ${f.rule.why}`)),
       whyNote(p, (promo.boost_pct ?? 0) / 100, promo.book!),
       ...[exposureNote(rows[k].legs, past, rows[k].dedup_key)].filter((x): x is string => !!x)];
-    await send(chatId, [formatBet({
+    await sendWithButtons(chatId, [formatBet({
       title: `${promo.book} ${promo.title}${s.target ? ` (target ${formatRange(s.target)})` : ""}`,
       book: promo.book!,
       bookOdds: p.americanOdds,
@@ -235,7 +253,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       legs: cardLegs(p),
       maxStake: promo.max_stake,
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
-    }).text, ...cautions].join("\n\n"));
+    }).text, ...cautions].join("\n\n"), slipButtons(promo.book!, p.legs, { state: BOOK_STATE_ENV }));
   }
   await logPicks(rows);
 }
@@ -266,6 +284,13 @@ function sgpRow(chatId: number, promo: Promo, sg: NonNullable<ReturnType<typeof 
     promo_title: promo.title, boost_pct: promo.boost_pct ?? 0, book_odds: null,
     fair_prob: sg.legs.reduce((p, l) => p * l.fair, 1), ev: null, verdict: null, legs: sg.legs.map(trackedLeg),
   });
+}
+
+// SGP legs to build, with a 🛒 button per leg (each opens that leg in the slip).
+function sendSgpSuggestion(chatId: number, sg: NonNullable<ReturnType<typeof suggestSgpLegs>>, book: string) {
+  const rows = slipButtons(book, sg.legs, { state: BOOK_STATE_ENV });
+  const text = formatSgpSuggestion(sg, book);
+  return sendWithButtons(chatId, rows.length ? `${text}\n\n${SGP_BUTTON_HINT}` : text, rows);
 }
 
 // Every suggestion so far, paged past Supabase's 1000-row cap.
@@ -311,7 +336,7 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
   if (!promo.bet_kinds.length || promo.bet_kinds.includes("sgp")) {
     const sg = suggestSgpLegs(legs, Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
     if (sg) {
-      await send(chatId, formatSgpSuggestion(sg, promo.book!));
+      await sendSgpSuggestion(chatId, sg, promo.book!);
       await logPicks([sgpRow(chatId, promo, sg)]);
     }
   }
@@ -397,7 +422,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     const setting = mode === "all" ? "" : ` (picks are set to ${MODE_LABELS[mode]}; /settings to change)`;
     await send(chatId, `The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to kickoff, or build an SGP and send me the slip; I'll price it.`);
   } else {
-    await send(chatId, formatSgpSuggestion(sg, promo.book!));
+      await sendSgpSuggestion(chatId, sg, promo.book!);
     await logPicks([sgpRow(chatId, promo, sg)]);
   }
   await creditsNote(chatId, remaining);
@@ -457,7 +482,9 @@ async function priceSlip(chatId: number, s: FlowState) {
   const c = checkSlip(slip, priced, promo, book, otherGame);
   // A boost is tied to its book, so line shopping only helps an unboosted slip.
   const boosted = !!slip.boost_pct || (!s.noPromo && !!s.promo.boost_pct);
-  const shopNote = boosted ? null : formatBetterPrices(slip, book, betterPrices(slip, legEvents, bookKey, SHOP_BOOKS));
+  const better = boosted ? [] : betterPrices(slip, legEvents, bookKey, SHOP_BOOKS);
+  const shopNote = boosted ? null : formatBetterPrices(slip, book, better);
+  const shopRows = shopButtons(better.flatMap((b, i) => (b ? [{ selection: legLabel(slip.legs[i]), book: b.book, link: b.link }] : [])), { state: BOOK_STATE_ENV });
   if (!c) {
     // Market types the odds feed doesn't carry come back as "other": say so, rather than blaming the prices.
     const unknown = slip.legs.flatMap((l, i) => l.market === "other" && priced[i].fair === null ? [priced[i].label.replace(/ Other$/, "")] : []);
@@ -472,7 +499,7 @@ async function priceSlip(chatId: number, s: FlowState) {
       ? ((americanToDecimal(slip.boosted_odds) - 1) / (americanToDecimal(slip.total_odds) - 1) - 1) * 100
       : slip.boost_pct;
     const typing: FlowState = { ...done, promo: { ...done.promo, book, ...(slipBoost ? { boost_pct: slipBoost } : {}) }, step: "slip", legs: slip.legs.length };
-    if (shopNote) await send(chatId, shopNote);
+    if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
     // The slip's total was read: go straight to the margin question, through the
     // same promo checks a typed price gets.
     const r = slip.total_odds !== null ? step(typing, formatAmerican(slip.total_odds)) : null;
@@ -503,7 +530,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   const exposure = exposureNote(row.legs, await recentPicks(chatId), row.dedup_key);
   await send(chatId, [formatSlipCheck(slip, book, c, promo), exposure].filter(Boolean).join("\n\n"));
   await logPicks([row]);
-  if (shopNote) await send(chatId, shopNote);
+  if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
   await creditsNote(chatId, remaining);
   if (!s.noPromo) await sendPrompt(chatId, prompt(done));
 }
@@ -572,7 +599,9 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets, bookmakers })
     .catch(() => getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets: MAIN_MARKETS, bookmakers }));
   const shopped = filterMode(shopLegs(data, QUESTION_BOOKS), mode);
-  await send(chatId, formatShop(data, shopped));
+  // 🛒 for the top +EV lines (the ones the answer marks ✅), each at its own book.
+  const plus = shopped.slice(0, 6).filter((l) => l.edge > 0);
+  await sendWithButtons(chatId, formatShop(data, shopped), shopButtons(plus, { state: BOOK_STATE_ENV }));
   // The ✅ lines (better than fair as is) are the suggestions; log each as a single.
   await logPicks(shopped.slice(0, 6).filter((l) => l.edge > 0).map((l) => pickRow({
     chat_id: String(chatId), source: "question", book: l.book, league, kind: "single", promo_title: null, boost_pct: 0,

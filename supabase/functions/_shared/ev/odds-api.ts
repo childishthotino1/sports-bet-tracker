@@ -37,9 +37,14 @@ export const SHOP_BOOKS: Record<string, string> = Object.fromEntries(
   SPORTSBOOKS.flatMap((b) => (b.oddsApi && b.freeFeed ? [[b.oddsApi, b.name]] : [])),
 );
 
-export type Outcome = { name: string; price: number; point?: number; description?: string; bet_limit?: number | null };
-export type Market = { key: string; last_update?: string; outcomes: Outcome[] };
-export type Bookmaker = { key: string; title: string; last_update?: string; markets: Market[] };
+// link / sid come with includeLinks / includeSids: a link that opens the book
+// with this bet in the slip (outcome), or on the game (bookmaker). See links.ts.
+export type Outcome = {
+  name: string; price: number; point?: number; description?: string; bet_limit?: number | null;
+  link?: string | null; sid?: string | null;
+};
+export type Market = { key: string; last_update?: string; outcomes: Outcome[]; link?: string | null };
+export type Bookmaker = { key: string; title: string; last_update?: string; markets: Market[]; link?: string | null; sid?: string | null };
 export type OddsEvent = {
   id: string;
   sport_key: string;
@@ -60,6 +65,8 @@ async function get<T>(path: string, apiKey: string, q: Query): Promise<OddsResul
     bookmakers: q.bookmakers.join(","), // takes priority over regions, and is billed like one region per 10 books
     oddsFormat: "american",
     includeBetLimits: "true", // exchanges: how much each offer takes, to skip stale few-dollar offers
+    includeLinks: "true", // bet-slip links for the 🛒 buttons (links.ts); no extra credits
+    includeSids: "true",
   });
   const res = await fetch(`${BASE}${path}?${params}`);
   if (!res.ok) throw new Error(`The Odds API ${res.status}: ${await res.text()}`);

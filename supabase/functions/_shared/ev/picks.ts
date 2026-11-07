@@ -27,6 +27,8 @@ export type PricedLeg = {
   quotes: Quote[]; // each sharp source's line
   edge: number; // fair × book decimal − 1, before any promo
   derived?: string; // how the fair price was worked out when no sharp posts this number (alt-lines.ts)
+  link?: string; // the book's own bet-slip link for this outcome (links.ts)
+  eventLink?: string; // the book's link to the game
 };
 
 function statLabel(market: string): string {
@@ -98,6 +100,9 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
           quotes,
           edge: fair * americanToDecimal(o.price) - 1,
           ...(derived ? { derived } : {}),
+          // The book's links, never a sharp source's.
+          ...(o.link ? { link: o.link } : {}),
+          ...(book.link ? { eventLink: book.link } : {}),
         });
       }
     }
