@@ -2,7 +2,7 @@ import { test } from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import {
-  betterPrices, BOOK_STATE, fillState, legLink, normalizeSlip, priceLegs, shopButtons, shopLegs, slipButtons, suggestSgpLegs,
+  betterPrices, BOOK_STATE, combinedLink, fillState, legLink, normalizeSlip, priceLegs, shopButtons, shopLegs, slipButtons, suggestSgpLegs,
   type OddsEvent,
 } from "./mod.ts";
 
@@ -60,8 +60,9 @@ test("several legs: a button per leg, then the games of legs without one", () =>
     ["📍 Open game 2", "https://sportsbook.thescore.bet/game/2"],
   ]);
   assert.deepEqual(slipButtons("BetMGM", [{ selection: "a" }, { selection: "b" }]), []);
-  const many = Array.from({ length: 8 }, (_, i) => ({ selection: `Leg ${i}`, link: DK }));
-  assert.equal(slipButtons("DraftKings", many).length, 5, "at most five leg buttons");
+  const many = Array.from({ length: 8 }, (_, i) => ({ selection: `Leg ${i}`, link: `${FD}${i}` }));
+  many[0] = { selection: "Leg 0", link: DK }; // two books: no combined link
+  assert.equal(slipButtons("FanDuel", many).length, 5, "at most five leg buttons");
 });
 
 test("real pull: every book leg carries its own book's link, never a sharp's", () => {
@@ -97,8 +98,11 @@ test("SGP suggestions carry a button per leg", () => {
   const legs = priceLegs([GAME], "fanduel", { now: BEFORE });
   const sg = suggestSgpLegs(legs, 3, GAME.id, "FanDuel")!;
   const rows = slipButtons("FanDuel", sg.legs);
-  assert.equal(rows.length, 3);
-  rows.forEach((r, i) => assert.equal(r[0].url, sg.legs[i].link));
+  assert.deepEqual(rows.map((r) => r[0].text), ["🛒 Build all 3 legs in FanDuel"]);
+  sg.legs.forEach((l) => {
+    const q = new URL(l.link!).searchParams;
+    assert.ok(rows[0][0].url.includes(`=${q.get("marketId")}&`) && rows[0][0].url.includes(`=${q.get("selectionId")}`), l.selection);
+  });
 });
 
 test("a better price elsewhere keeps that book's link", () => {
@@ -108,4 +112,38 @@ test("a better price elsewhere keeps that book's link", () => {
   assert.ok(b, "the slip's +100 is beaten somewhere");
   const host: Record<string, string> = { DraftKings: "draftkings.com", FanDuel: "fanduel.com", "theScore Bet": "thescore.bet" };
   assert.ok(b!.link?.includes(host[b!.book]), `${b!.book}: ${b!.link}`);
+});
+
+// The links tapped on a phone (2026-11-07): Falcons ML + Broncos ML, two games,
+// and Falcons ML + Over 52.5, one game. Each loaded both legs.
+test("phase 2: one link for every leg, in the format each book took", () => {
+  const mgm = (o: string) => `https://sports.{state}.betmgm.com/en/sports?options=${o}&type=Single`;
+  assert.equal(combinedLink([mgm("6:44009-3451275-5411235"), mgm("6:44012-3451278-5411240")]),
+    "https://sports.md.betmgm.com/en/sports?options=6:44009-3451275-5411235,6:44012-3451278-5411240&type=Combo");
+  assert.equal(combinedLink([mgm("6:44009-3451275-5411235"), mgm("6:44009-4354778-7073291")]),
+    "https://sports.md.betmgm.com/en/sports?options=6:44009-3451275-5411235,6:44009-4354778-7073291&type=Combo");
+  assert.equal(combinedLink(["https://sportsbook.draftkings.com/?outcomes=0ML84695561_1", "https://sportsbook.draftkings.com/?outcomes=0ML84695479_3"]),
+    "https://sportsbook.draftkings.com/?outcomes=0ML84695561_1+0ML84695479_3");
+  assert.equal(combinedLink([FD, "https://sportsbook.fanduel.com/addToBetslip?marketId=42.619967591&selectionId=50211"]),
+    "https://sportsbook.fanduel.com/addToBetslip?marketId[0]=42.578189645&selectionId[0]=50199&marketId[1]=42.619967591&selectionId[1]=50211");
+  assert.equal(combinedLink([SCORE, "https://sportsbook.thescore.bet/?market_selection_id[0]=2b3c71bf-0eed-4805-aabf-bde4621e9b38&odds_numerator[0]=2&odds_denominator[0]=1"]),
+    "https://sportsbook.thescore.bet/?market_selection_id[0]=3575ef93-588d-407f-9ae2-c7d6dcd021c3&odds_numerator[0]=2&odds_denominator[0]=1&market_selection_id[1]=2b3c71bf-0eed-4805-aabf-bde4621e9b38&odds_numerator[1]=2&odds_denominator[1]=1");
+  // A DraftKings prop sid keeps its escaped #.
+  const prop = "https://sportsbook.draftkings.com/?outcomes=0QA385025617%232346198679_13L88808Q1-1195523501Q20";
+  assert.equal(combinedLink([DK, prop]), `https://sportsbook.draftkings.com/?outcomes=0ML84695561_1+0QA385025617%232346198679_13L88808Q1-1195523501Q20`);
+  // No combined link: one leg, two books, a missing link, or the same leg twice.
+  assert.equal(combinedLink([DK]), null);
+  assert.equal(combinedLink([DK, FD]), null);
+  assert.equal(combinedLink([DK, null]), null);
+  assert.equal(combinedLink([DK, DK]), null);
+  // The button: one tap for the whole parlay.
+  assert.deepEqual(slipButtons("DraftKings", [{ selection: "Falcons ML", link: DK }, { selection: "Broncos ML", link: "https://sportsbook.draftkings.com/?outcomes=0ML84695479_3" }]),
+    [[{ text: "🛒 Build all 2 legs in DraftKings", url: "https://sportsbook.draftkings.com/?outcomes=0ML84695561_1+0ML84695479_3" }]]);
+});
+
+test("real pull: a BetMGM SGP suggestion is one Maryland link", () => {
+  const legs = priceLegs([GAME], "betmgm", { now: BEFORE });
+  const sg = suggestSgpLegs(legs, 3, GAME.id, "BetMGM")!;
+  const [[b]] = slipButtons("BetMGM", sg.legs);
+  assert.match(b.url, /^https:\/\/sports\.md\.betmgm\.com\/en\/sports\?options=6:44009-[\d-]+,6:44009-[\d-]+,6:44009-[\d-]+&type=Combo$/);
 });

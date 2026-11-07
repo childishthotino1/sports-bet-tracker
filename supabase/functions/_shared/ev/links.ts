@@ -15,7 +15,8 @@
 // Links always come from the book's own outcome, never a sharp source's. A leg
 // with no outcome link falls back to the game's link; no links at all, no
 // buttons, and the message goes out as it always did. Phase 1: one link per
-// leg; one link for a whole parlay is phase 2 (unverified formats).
+// leg; one link for a whole parlay (phase 2) where the book has a combined
+// format that worked on a phone (MULTI_LEG).
 
 export const BOOK_STATE = "md";
 
@@ -37,14 +38,65 @@ export function legLink(leg: Pick<LinkedLeg, "link" | "eventLink">, state = BOOK
   return url ? fillState(url, state) : null;
 }
 
+// One link with every leg in it, per book, built from the legs' own links.
+// Each format loaded both legs of a two-game parlay and of a same-game parlay
+// on a phone in Maryland (2026-11-07). Keyed by the links' host.
+const param = (url: string, name: string): string | null => {
+  const m = url.match(new RegExp(`[?&]${name.replace(/[[\]]/g, "\\$&")}=([^&#]*)`));
+  return m ? m[1] : null;
+};
+export const MULTI_LEG: { host: RegExp; join: (links: string[]) => string | null }[] = [
+  { // BetMGM: options=A,B,C&type=Combo
+    host: /^https:\/\/sports\.[^/]+\.betmgm\.com\//,
+    join: (links) => {
+      const opts = links.map((l) => param(l, "options"));
+      if (opts.some((o) => !o)) return null;
+      return `${links[0].split("?")[0]}?options=${opts.join(",")}&type=Combo`;
+    },
+  },
+  { // DraftKings: outcomes=A+B+C
+    host: /^https:\/\/sportsbook\.draftkings\.com\//,
+    join: (links) => {
+      const ids = links.map((l) => param(l, "outcomes"));
+      return ids.some((o) => !o) ? null : `https://sportsbook.draftkings.com/?outcomes=${ids.join("+")}`;
+    },
+  },
+  { // FanDuel: marketId[i]=…&selectionId[i]=…
+    host: /^https:\/\/sportsbook\.fanduel\.com\/addToBetslip\?/,
+    join: (links) => {
+      const pairs = links.map((l) => [param(l, "marketId"), param(l, "selectionId")]);
+      if (pairs.some(([m, s]) => !m || !s)) return null;
+      return `https://sportsbook.fanduel.com/addToBetslip?${pairs.map(([m, s], i) => `marketId[${i}]=${m}&selectionId[${i}]=${s}`).join("&")}`;
+    },
+  },
+  { // theScore: market_selection_id[i]=…&odds_numerator[i]=…&odds_denominator[i]=…
+    host: /^https:\/\/sportsbook\.thescore\.bet\//,
+    join: (links) => {
+      const legs = links.map((l) => [param(l, "market_selection_id[0]"), param(l, "odds_numerator[0]") ?? "2", param(l, "odds_denominator[0]") ?? "1"]);
+      if (legs.some(([id]) => !id)) return null;
+      return `https://sportsbook.thescore.bet/?${legs.map(([id, n, d], i) => `market_selection_id[${i}]=${id}&odds_numerator[${i}]=${n}&odds_denominator[${i}]=${d}`).join("&")}`;
+    },
+  },
+];
+
+// One link for all the legs, or null: every leg needs its own link, all on one
+// book with a combined format, and no leg twice.
+export function combinedLink(links: (string | null | undefined)[], state = BOOK_STATE): string | null {
+  if (links.length < 2 || links.some((l) => !usable(l)) || new Set(links).size < links.length) return null;
+  const book = MULTI_LEG.find((b) => links.every((l) => b.host.test(fillState(l!, state))));
+  const url = book?.join(links.map((l) => fillState(l!, state))) ?? null;
+  return url && usable(url) ? url : null;
+}
+
 const MAX_TEXT = 40; // Telegram cuts button text off around 40-60 characters
 export const clip = (s: string, n = MAX_TEXT) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 export type ButtonOptions = { state?: string; max?: number };
 
-// One row per button. One leg: "🛒 Build in BetMGM". Several: one button per
-// leg that has its own link, then "📍 Open game" for each game whose legs
-// don't. Nothing when there are no links.
+// One row per button. One leg: "🛒 Build in BetMGM". Several: one "Build all"
+// button when every leg has its own link on a book with a combined format;
+// else one button per leg that has its own link, then "📍 Open game" for each
+// game whose legs don't. Nothing when there are no links.
 export function slipButtons(book: string, legs: LinkedLeg[], opts: ButtonOptions = {}): LinkButton[][] {
   const { state = BOOK_STATE, max = 5 } = opts;
   if (legs.length === 1) {
@@ -53,6 +105,9 @@ export function slipButtons(book: string, legs: LinkedLeg[], opts: ButtonOptions
     if (usable(leg.eventLink)) return [[{ text: `📍 Open the game in ${book}`, url: fillState(leg.eventLink, state) }]];
     return [];
   }
+  // Phase 2: one button with every leg, where the book takes a combined link.
+  const all = combinedLink(legs.map((l) => l.link), state);
+  if (all) return [[{ text: `🛒 Build all ${legs.length} legs in ${book}`, url: all }]];
   const rows: LinkButton[][] = [];
   legs.forEach((leg, i) => {
     if (usable(leg.link) && rows.length < max) rows.push([{ text: clip(`🛒 ${i + 1}. ${leg.selection}`), url: fillState(leg.link, state) }]);

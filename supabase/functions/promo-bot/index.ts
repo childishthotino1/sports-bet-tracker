@@ -73,6 +73,7 @@ async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][
 }
 
 const SGP_BUTTON_HINT = "🛒 Tap each leg to add it to the slip; you may have to switch the slip to SGP / Same Game Parlay.";
+const SGP_ALL_HINT = "🛒 One tap puts every leg in the slip; if it shows as a regular parlay, switch it to SGP / Same Game Parlay.";
 
 function sendPrompt(chatId: number, p: Prompt) {
   const keyboard = p.buttons.map((row) => row.map((b) => ({ text: b.label, callback_data: `pf:${b.value}` })));
@@ -290,7 +291,8 @@ function sgpRow(chatId: number, promo: Promo, sg: NonNullable<ReturnType<typeof 
 function sendSgpSuggestion(chatId: number, sg: NonNullable<ReturnType<typeof suggestSgpLegs>>, book: string) {
   const rows = slipButtons(book, sg.legs, { state: BOOK_STATE_ENV });
   const text = formatSgpSuggestion(sg, book);
-  return sendWithButtons(chatId, rows.length ? `${text}\n\n${SGP_BUTTON_HINT}` : text, rows);
+  const hint = rows.length === 1 && rows[0][0].text.startsWith("🛒 Build all") ? SGP_ALL_HINT : SGP_BUTTON_HINT;
+  return sendWithButtons(chatId, rows.length ? `${text}\n\n${hint}` : text, rows);
 }
 
 // Every suggestion so far, paged past Supabase's 1000-row cap.
