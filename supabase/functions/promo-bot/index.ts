@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, exposureNote, whyNote, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, exposureNote, whyNote, parseBankroll, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -105,7 +105,8 @@ async function clearState(chatId: number) {
 }
 
 // Per-chat settings, kept through /skip.
-type Settings = { markets: MarketMode };
+// bankroll: dollars, for one suggested stake on every card (/bankroll); unset = a stake for four bankrolls.
+type Settings = { markets: MarketMode; bankroll?: number };
 const DEFAULT_SETTINGS: Settings = { markets: "all" };
 
 async function loadSettings(chatId: number): Promise<Settings> {
@@ -115,6 +116,23 @@ async function loadSettings(chatId: number): Promise<Settings> {
 
 async function saveSettings(chatId: number, settings: Settings) {
   await db.from("promo_bot_settings").upsert({ chat_id: String(chatId), settings, updated_at: new Date().toISOString() });
+}
+
+async function bankrollCommand(chatId: number, arg: string) {
+  const settings = await loadSettings(chatId);
+  const money = (n: number) => `$${n.toLocaleString("en-US")}`;
+  if (!arg) {
+    return send(chatId, settings.bankroll
+      ? `💵 Your bankroll is ${money(settings.bankroll)}. Every card suggests one stake: ¼ Kelly, never more than 3% (${money(Math.round(settings.bankroll * 0.03))}). Change it with /bankroll 5000, or /bankroll off.`
+      : "💵 No bankroll set, so cards show stakes for four bankrolls. Set yours with /bankroll 4000.");
+  }
+  const bankroll = parseBankroll(arg);
+  if (bankroll === undefined) return send(chatId, "Type your bankroll in dollars, like /bankroll 4000 (or /bankroll off).");
+  const { bankroll: _old, ...rest } = settings;
+  await saveSettings(chatId, bankroll === null ? rest : { ...rest, bankroll });
+  return send(chatId, bankroll === null
+    ? "💵 Bankroll cleared. Cards show stakes for four bankrolls again."
+    : `💵 Bankroll set to ${money(bankroll)}. Every card now suggests one stake for you: ¼ Kelly, capped at 3% (${money(Math.round(bankroll * 0.03))}) and at the promo's max wager.`);
 }
 
 const MODE_LABELS: Record<MarketMode, string> = { all: "Main lines + props", main: "Main lines only", props: "Props only" };
@@ -230,6 +248,7 @@ async function sendPicks(chatId: number, s: FlowState) {
 // may sit, which hurts player Overs.
 async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof bestBets>, events: OddsEvent[]) {
   const { promo } = s;
+  const { bankroll } = await loadSettings(chatId);
   const byId = new Map<string, OddsEvent>();
   for (const e of events) if (e.bookmakers.some((b) => b.markets.some((m) => m.key === "spreads"))) byId.set(e.id, e);
   const rows = picks.map((p) => pickRow({
@@ -253,6 +272,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       boost: (promo.boost_pct ?? 0) / 100,
       legs: cardLegs(p),
       maxStake: promo.max_stake,
+      bankroll,
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
     }).text, ...cautions].join("\n\n"), slipButtons(promo.book!, p.legs, { state: BOOK_STATE_ENV }));
   }
@@ -530,7 +550,8 @@ async function priceSlip(chatId: number, s: FlowState) {
     }),
   });
   const exposure = exposureNote(row.legs, await recentPicks(chatId), row.dedup_key);
-  await send(chatId, [formatSlipCheck(slip, book, c, promo), exposure].filter(Boolean).join("\n\n"));
+  const { bankroll } = await loadSettings(chatId);
+  await send(chatId, [formatSlipCheck(slip, book, c, promo, bankroll ?? null), exposure].filter(Boolean).join("\n\n"));
   await logPicks([row]);
   if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
   await creditsNote(chatId, remaining);
@@ -618,13 +639,14 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
 const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best bets to use it on. " +
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
   "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books, or ask for \"teasers\" and I'll list this week's Wong teaser legs.\n\n" +
-  "Stakes are ¼ Kelly, never more than 3% of your bankroll on one bet; keep a day's total under 7%.\n\n" +
+  "Stakes are ¼ Kelly, never more than 3% of your bankroll on one bet; keep a day's total under 7%. Set /bankroll 4000 and every card suggests one stake for you.\n\n" +
   "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions have done (/stats 7 for the last week).";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
 const COMMANDS = [
   { command: "skip", description: "Drop the current promo and start over" },
   { command: "settings", description: "Main lines, props, or both" },
+  { command: "bankroll", description: "Your bankroll, for one suggested stake" },
   { command: "stats", description: "How the bot's suggestions have done" },
   { command: "help", description: "What this bot does" },
 ];
@@ -665,6 +687,7 @@ async function handle(update: any) {
   if (command) await tg("setMyCommands", { commands: COMMANDS }); // keeps the menu current; cheap and idempotent
   if (command === "start" || command === "help") return send(chatId, HELP);
   if (command === "settings") return sendSettings(chatId, await loadSettings(chatId));
+  if (command === "bankroll") return bankrollCommand(chatId, text.replace(/^\/\w+(@\w+)?/, "").trim());
   if (command === "stats") {
     const days = Number(text.split(/\s+/)[1]);
     return send(chatId, formatStats(await loadPicks(), days > 0 ? days : null));
@@ -715,7 +738,8 @@ async function advance(chatId: number, input: string, typed = false) {
   if (typed && s && !s.noPromo && (s.step === "action" || s.step === "end") && await focusPromo(chatId, s, input)) return;
   if (typed && (!s || (s.noPromo && s.step !== "boost") || s.step === "action" || s.step === "end") && await answerQuestion(chatId, input)) return;
   if (!s) return send(chatId, HELP);
-  let r = step(s, input);
+  const { bankroll } = await loadSettings(chatId);
+  let r = step({ ...s, bankroll }, input);
   // A promo sent with instructions runs its search once the bot's questions (book, max wager) are answered.
   if (r.state.autoRun && r.state.step === "action" && !r.action) {
     // A promo sent with instructions runs at once, without the odds-range question.

@@ -29,6 +29,7 @@ export type BetCard = {
   sharpSource?: string; // defaults to the sources in the legs' quotes
   maxStake?: number | null; // the promo's max wager, to cap the suggested stakes
   kindLabel?: string; // "SGPx (one leg per game)"; default "Single" / "n-leg parlay"
+  bankroll?: number | null; // the user's bankroll (/bankroll): one stake instead of four
 };
 
 export type FormattedBet = { text: string; eval: BetEval; correlated: number[] };
@@ -89,7 +90,7 @@ export function formatBet(card: BetCard): FormattedBet {
   out.push(`EV: ${ev.ev >= 0 ? "+" : ""}${formatPct(ev.ev)}`);
   out.push(`Kelly: Full ${units(ev.kelly)} | 1/2 ${units(ev.kelly / 2)} | 1/4 ${units(ev.kelly / 4)} (1u = 1% bankroll)`);
   out.push(`FB: ${formatPct(ev.freeBet)}`);
-  const wager = wagerLine(ev.kelly, card.maxStake ?? null);
+  const wager = wagerLine(ev.kelly, card.maxStake ?? null, card.bankroll ?? null);
   if (wager) out.push(wager);
 
   return { text: out.join("\n"), eval: ev, correlated };

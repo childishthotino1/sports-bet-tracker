@@ -455,7 +455,7 @@ const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
   none: "",
 };
 
-export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: Promo | null): string {
+export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: Promo | null, bankroll: number | null = null): string {
   const kind = slip.bet_kind === "sgp" ? "SGP" : slip.bet_kind === "parlay" ? `${slip.legs.length}-leg parlay` : "Single";
   const out = [`🧾 ${kind} on ${book}${slip.game ? `: ${slip.game}` : ""}`];
   c.priced.forEach((l, i) => {
@@ -487,7 +487,7 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   if (e.kelly > 0) {
     const u = (f: number) => `${(f * 100).toFixed(2)}u`;
     out.push(`Kelly: Full ${u(e.kelly)} | 1/2 ${u(e.kelly / 2)} | 1/4 ${u(e.kelly / 4)} (1u = 1% bankroll)`);
-    out.push(wagerLine(e.kelly, c.boost ? promo?.max_stake ?? null : null)!);
+    out.push(wagerLine(e.kelly, c.boost ? promo?.max_stake ?? null : null, bankroll)!);
   }
   if (c.method === "correlation") {
     out.push(e.ev > 0

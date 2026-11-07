@@ -27,6 +27,7 @@ export type FlowState = {
   legs?: number; // legs on the slip whose price is being typed: a single gets single-bet margins
   autoRun?: boolean; // the promo came with instructions: find the picks as soon as its questions are answered
   rangeAsked?: boolean; // the odds-range question was answered (or skipped) for this promo
+  bankroll?: number; // the user's bankroll (/bankroll), for the stake on a typed-price verdict; set by the bot
 };
 
 // Odds ranges offered before a search, as [min, max] American odds. The first
@@ -60,6 +61,16 @@ export function askBoost(slip: Slip): FlowState {
 }
 
 // "25", "25%", "none", "0" → the boost %, null for none, undefined if unreadable.
+// "/bankroll 4000", "/bankroll $4,000", "/bankroll 4k" -> 4000; "/bankroll off" clears it.
+export function parseBankroll(text: string): number | null | undefined {
+  const v = text.trim().toLowerCase().replace(/[$,\s]/g, "");
+  if (["off", "none", "clear", "0"].includes(v)) return null;
+  const m = v.match(/^(\d+(?:\.\d+)?)(k?)$/);
+  if (!m) return undefined;
+  const n = Number(m[1]) * (m[2] ? 1000 : 1);
+  return n >= 50 && n <= 10_000_000 ? Math.round(n) : undefined;
+}
+
 export function parseBoost(text: string): number | null | undefined {
   const v = text.trim().toLowerCase().replace(/%$/, "").trim();
   if (["none", "no", "no boost", "0"].includes(v)) return null;
@@ -289,7 +300,7 @@ export function step(s: FlowState, input: string): StepResult {
       const basis = margin !== null ? `assumes a ${margin}% book margin` : "your price";
       // No promo menu to return to: stay on this price, so a typed fair price re-checks it.
       const next: FlowState = s.noPromo ? s : { ...s, step: "action", bookOdds: undefined, legs: undefined };
-      return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis) };
+      return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis, s.bankroll ?? null) };
     }
     case "boost": {
       const boost = parseBoost(v);
@@ -301,7 +312,7 @@ export function step(s: FlowState, input: string): StepResult {
   }
 }
 
-export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string): string {
+export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string, bankroll: number | null = null): string {
   const e = evaluateBet([fairP], [bookOdds], (p.boost_pct ?? 0) / 100);
   const units = (f: number) => `${(f * 100).toFixed(2)}u`;
   const boosted = p.boost_pct ? `, boosted to ${formatAmerican(decimalToAmerican(e.boostedDecimal))}` : "";
@@ -312,7 +323,7 @@ export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string
   ];
   if (e.kelly > 0) {
     lines.push(`Kelly: Full ${units(e.kelly)} | 1/2 ${units(e.kelly / 2)} | 1/4 ${units(e.kelly / 4)} (1u = 1% bankroll)`);
-    lines.push(wagerLine(e.kelly, p.max_stake)!);
+    lines.push(wagerLine(e.kelly, p.max_stake, bankroll)!);
   }
   lines.push(e.ev > 0 ? "✅ +EV — worth it at this price." : "❌ -EV — skip it, or find a better price.");
   // With no boost, an assumed margin makes any bet -EV by that margin; the useful number is the break-even.
