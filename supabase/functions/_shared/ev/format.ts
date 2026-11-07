@@ -17,6 +17,7 @@ export type Leg = {
   fairProb?: number; // or a fair probability supplied directly
   quotes?: Quote[]; // the sharp sources behind fairProb, shown on the card
   freeWith?: number; // index of the leg this one rides free with (won and priced together)
+  derived?: string; // "derived from the sharp -3, ..." when no sharp posts this number
 };
 
 export type BetCard = {
@@ -71,7 +72,7 @@ export function formatBet(card: BetCard): FormattedBet {
       : "";
     out.push(leg.freeWith !== undefined
       ? `Leg ${i + 1}: rides with leg ${leg.freeWith + 1} (covering the spread means winning), so it adds no risk`
-      : `Leg ${i + 1}: ${raw}${fair}`);
+      : `Leg ${i + 1}: ${raw}${fair}${leg.derived ? ` (${leg.derived})` : ""}`);
   });
   const methods = DEVIG_METHODS.join(", ").replace("shin", "Shin");
   if (card.legs.some((l) => (l.quotes?.length ?? 0) > 1)) out.push(`Method: worst-case of ${methods} per source; Pinnacle is half on game lines, the rest weighted to the tighter holds (% = hold)`);

@@ -92,9 +92,10 @@ export const EXTRA_MARKETS: Record<string, string[]> = {
 // 1st-half moneyline, spread and total: every book you use posts them for
 // football and basketball, and Pinnacle prices all three. Per-game calls only
 // (the sport-wide feed is main lines). Hockey uses periods and baseball the
-// first five innings, so they're left out.
+// first five innings, so they're left out. The books' 1st-half alternate
+// totals (FanDuel's ladder) are priced from Pinnacle's half total (alt-lines.ts).
 export const HALF_MARKETS: Record<string, string[]> = Object.fromEntries(
-  ["NFL", "NCAAF", "NBA", "WNBA", "NCAAB"].map((l) => [l, ["h2h_h1", "spreads_h1", "totals_h1"]]),
+  ["NFL", "NCAAF", "NBA", "WNBA", "NCAAB"].map((l) => [l, ["h2h_h1", "spreads_h1", "totals_h1", "alternate_totals_h1"]]),
 );
 
 // More props for a question about one game, where one call covers them all.

@@ -17,6 +17,7 @@ import { consensus, formatQuote, marketFamily, sameLine, sharpQuotes, SHARP_KEYS
 import type { Market, OddsEvent, Outcome } from "./odds-api.ts";
 import { lastWord, norm, samePerson, sameTeam } from "./names.ts";
 import { blockJoint, findRuleBlocks, type RuleLeg, type SgpRule } from "./sgp-rules.ts";
+import { deriveAlt, derivedNote } from "./alt-lines.ts";
 import { BOOK_ID_RULES, MARKET_READING_RULES, ODDS_READING_RULES, boostFromPrices, canonicalBook } from "../books/books.ts";
 
 export { samePerson, sameTeam };
@@ -212,6 +213,8 @@ export function marketsFor(slip: Slip): string[] {
     if (l.market === "spreads") out.add("alternate_spreads");
     if (l.market === "totals") out.add("alternate_totals");
     if (l.market === "team_totals") out.add("alternate_team_totals");
+    if (l.market === "spreads_h1") out.add("alternate_spreads_h1");
+    if (l.market === "totals_h1") out.add("alternate_totals_h1");
   }
   return [...out];
 }
@@ -236,6 +239,12 @@ function matches(marketKey: string, o: Outcome, leg: SlipLeg): boolean {
     sideMatches(o, leg) && (leg.line === null || o.point === leg.line);
 }
 
+// The leg's side as the feed names it: the team's feed name for a spread, else as read.
+function feedSide(event: OddsEvent, leg: SlipLeg): string {
+  if (!leg.market.includes("spreads")) return leg.side[0].toUpperCase() + leg.side.slice(1).toLowerCase();
+  return [event.home_team, event.away_team].find((t) => sameTeam(t, leg.side)) ?? leg.side;
+}
+
 // The outcome for a leg in one bookmaker's markets, and the other side(s) of that line.
 function locate(markets: Market[], leg: SlipLeg): { key: string; outcome: Outcome; sides: Outcome[] } | null {
   for (const key of marketFamily(leg.market)) {
@@ -257,8 +266,9 @@ export type PricedSlipLeg = {
   label: string;
   bookOdds: number | null; // the book's own price for this leg, if the feed has it
   fair: number | null;
-  source: "sharp" | "sharp-1way" | "book" | "book-1way" | "book-field" | "slip-1way" | "none";
-  quotes?: Quote[]; // each sharp source's line, when source is "sharp"
+  source: "sharp" | "sharp-1way" | "derived" | "book" | "book-1way" | "book-field" | "slip-1way" | "none";
+  quotes?: Quote[]; // each sharp source's line, when source is "sharp" (or "derived": at the sharp number)
+  derived?: string; // how, when source is "derived"
 };
 
 function fairFrom(sides: Outcome[], outcome: Outcome): { fair: number; oneWay: boolean } {
@@ -304,6 +314,10 @@ export function priceSlipLegs(slip: Slip, legEvents: (OddsEvent | null)[], bookK
       return hit ? sharpQuotes(event!.bookmakers, hit.key, hit.outcome, [k]) : [];
     });
     if (quotes.length) return { label, bookOdds, fair: consensus(quotes), source: "sharp", quotes };
+    // An alternate number no sharp posts: carried over from the nearest sharp number.
+    const alt = event && leg.line !== null ? deriveAlt(event.bookmakers, event.sport_key, b?.key ?? leg.market,
+      b?.outcome ?? { name: feedSide(event, leg), point: leg.line }, b ? bookKey : null, sharpKeys.filter((k) => k !== bookKey)) : null;
+    if (alt) return { label, bookOdds, fair: alt.fair, source: "derived", quotes: alt.quotes, derived: derivedNote(alt, b?.key ?? leg.market, null) };
     const p = locate(markets("pinnacle"), leg);
     if (p && p.sides.length === 1) return { label, bookOdds, fair: fairFrom(p.sides, p.outcome).fair, source: "sharp-1way" };
     // First/last TD scorer is one market with a price on every player: with no
@@ -429,6 +443,7 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
 const SOURCE_NOTE: Record<PricedSlipLeg["source"], string> = {
   sharp: "",
   "sharp-1way": ` (Pinnacle posts only this side; assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
+  derived: "",
   book: " (no sharp line; the book's own price, devigged)",
   "book-1way": ` (no sharp line; the book's price, assumed ${ONE_SIDED_MARGIN * 100}% margin)`,
   "book-field": " (no sharp line; the book's whole scorer list devigged)",
@@ -442,7 +457,8 @@ export function formatSlipCheck(slip: Slip, book: string, c: SlipCheck, promo: P
   c.priced.forEach((l, i) => {
     const bookPart = l.bookOdds !== null ? ` ${formatAmerican(l.bookOdds)}` : "";
     const sharp = l.quotes ? ` | ${l.quotes.map(formatQuote).join(", ")}` : "";
-    out.push(`${i + 1}. ${l.label}${bookPart}${sharp} -> fair ${formatAmerican(probToAmerican(l.fair!))} (${formatPct(l.fair!)})${SOURCE_NOTE[l.source]}`);
+    const how = l.derived ? ` (${l.derived})` : SOURCE_NOTE[l.source];
+    out.push(`${i + 1}. ${l.label}${bookPart}${sharp} -> fair ${formatAmerican(probToAmerican(l.fair!))} (${formatPct(l.fair!)})${how}`);
   });
   out.push("");
   const shown = c.boostSource === "slip" && slip.boosted_odds !== null ? formatAmerican(slip.boosted_odds) : formatAmerican(decimalToAmerican(c.eval.boostedDecimal));

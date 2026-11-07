@@ -88,11 +88,11 @@ test("finds the slip's game and the markets to request", () => {
   assert.equal(findEvent([OTHER, GAME], [fdSgpBoost().game], NOW)?.id, "cargb");
 });
 
-test("prices each leg: Pinnacle where it has the line, the book's own price where not", () => {
+test("prices each leg: Pinnacle where it has the line, carried over from it where not", () => {
   const slip = normalizeSlip(SLIP_JSON)!;
   const priced = priceSlipLegs(slip, [GAME, GAME, GAME], "fanduel");
   assert.deepEqual(priced.map((l) => [l.label, l.bookOdds, l.source]), [
-    ["Carolina Panthers +3.5", -125, "book"], // Pinnacle has only +3
+    ["Carolina Panthers +3.5", -125, "derived"], // Pinnacle has only +3: moved to +3.5 along FanDuel's ladder
     ["Green Bay Packers ML", -175, "sharp"],
     ["Josh Jacobs Anytime TD", -145, "sharp"],
   ]);
@@ -114,7 +114,7 @@ test("SGP: keeps FanDuel's correlation, swaps in fair leg prices, applies the 30
 
   const text = formatSlipCheck(slip, "FanDuel", c, fdSgpBoost());
   assert.match(text, /^🧾 SGP on FanDuel: Carolina Panthers @ Green Bay Packers$/m);
-  assert.match(text, /^1\. Carolina Panthers \+3\.5 -125 -> fair .* \(no sharp line; the book's own price, devigged\)$/m);
+  assert.match(text, /^1\. Carolina Panthers \+3\.5 -125 \| Pinnacle -105\/-105 \(\d\.\d%\) -> fair .* \(derived from the sharp \+3, moved along the book's own ladder\)$/m);
   assert.match(text, /^2\. Green Bay Packers ML -175 \| Pinnacle -165\/\+150 \(\d\.\d%\) -> fair/m);
   assert.match(text, /^Slip: \+990, boosted 30% to \+1287$/m);
   assert.match(text, /work against each other \(×0\.4\d\)/);

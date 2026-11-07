@@ -191,11 +191,17 @@ test("real pull: legs match only where BetMGM and Pinnacle share the line", () =
     "Memphis Grizzlies @ Portland Trail Blazers | Portland Trail Blazers -7.5",
     "Memphis Grizzlies @ Portland Trail Blazers | Portland Trail Blazers ML",
     "Memphis Grizzlies @ Portland Trail Blazers | Under 234.5",
+    "Oklahoma City Thunder @ Dallas Mavericks | Dallas Mavericks +5.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Dallas Mavericks ML",
+    "Oklahoma City Thunder @ Dallas Mavericks | Oklahoma City Thunder -5.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Oklahoma City Thunder ML",
     "Oklahoma City Thunder @ Dallas Mavericks | Over 228.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Under 228.5",
-  ]); // DAL/OKC spreads differ (BetMGM 5.5, Pinnacle 5.0), so they're skipped
+  ]);
+  // DAL/OKC spreads differ (BetMGM 5.5, Pinnacle 5.0): BetMGM's 5.5 is priced
+  // from Pinnacle's 5 (alt-lines.ts), and says so.
+  const dal = priceLegs(REAL, "betmgm", { now: PULLED }).find((l) => l.selection === "Dallas Mavericks +5.5")!;
+  assert.equal(dal.derived, "derived from the sharp +5, normal model");
 });
 
 test("explains an empty pick list", () => {

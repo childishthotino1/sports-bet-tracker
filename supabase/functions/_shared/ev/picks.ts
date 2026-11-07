@@ -6,6 +6,7 @@ import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } 
 import { evaluateBet, type BetEval } from "./bet.ts";
 import { marketAllowed, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
+import { deriveAlt, derivedNote } from "./alt-lines.ts";
 import { findRuleBlocks, NEAR_IMPLIED, tdCount, TEAM_TOTAL_GIVEN_TDS, type SgpRule } from "./sgp-rules.ts";
 import type { Leg as CardLeg } from "./format.ts";
 import type { OddsEvent, Outcome } from "./odds-api.ts";
@@ -25,6 +26,7 @@ export type PricedLeg = {
   fair: number; // average of the sharp sources' worst-case devigged probabilities
   quotes: Quote[]; // each sharp source's line
   edge: number; // fair × book decimal − 1, before any promo
+  derived?: string; // how the fair price was worked out when no sharp posts this number (alt-lines.ts)
 };
 
 function statLabel(market: string): string {
@@ -70,10 +72,17 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
       for (const o of m.outcomes) {
         const selection = selectionLabel(m.key, o);
         if (seen.has(`${ev.id}|${selection}`)) continue; // the same line in a main and an alternate market
-        const quotes = sharpQuotes(ev.bookmakers, m.key, o, sharps);
-        if (!quotes.length) continue;
+        let quotes = sharpQuotes(ev.bookmakers, m.key, o, sharps);
+        let fair: number, derived: string | undefined;
+        if (quotes.length) fair = consensus(quotes);
+        else {
+          // An alternate number no sharp posts: carried over from the nearest sharp number.
+          const d = deriveAlt(ev.bookmakers, ev.sport_key, m.key, o, bookKey, sharps);
+          if (!d) continue;
+          ({ fair, quotes } = d);
+          derived = derivedNote(d, m.key, book.title);
+        }
         seen.add(`${ev.id}|${selection}`);
-        const fair = consensus(quotes);
         legs.push({
           eventId: ev.id,
           sportKey: ev.sport_key,
@@ -88,6 +97,7 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
           fair,
           quotes,
           edge: fair * americanToDecimal(o.price) - 1,
+          ...(derived ? { derived } : {}),
         });
       }
     }
@@ -225,7 +235,10 @@ export function formatStart(iso: string): string {
 export function cardLegs(p: Pick): CardLeg[] {
   return p.legs.map((l, i) => {
     const f = p.free?.find((x) => x.leg === i);
-    return { selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes, ...(f ? { freeWith: f.with } : {}) };
+    return {
+      selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes,
+      ...(f ? { freeWith: f.with } : {}), ...(l.derived ? { derived: l.derived } : {}),
+    };
   });
 }
 
