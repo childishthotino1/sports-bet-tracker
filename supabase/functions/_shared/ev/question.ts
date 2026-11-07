@@ -43,3 +43,25 @@ export function questionBook(text: string): string | null {
   }
   return null;
 }
+
+// ── Group chats ───────────────────────────────────────────
+// With Telegram's privacy mode off, a group's every message reaches the bot,
+// so there it answers only what's meant for it: commands, messages that name
+// it or reply to it, screenshots it can read, and short typed answers to the
+// question it just asked.
+
+// "@Bmorepromobot" anywhere in the text (Telegram usernames ignore case).
+export function mentionsBot(text: string, username: string): boolean {
+  return !!username && new RegExp(`@${username}\\b`, "i").test(text);
+}
+
+// The text without the bot's @mention, so it isn't read as part of the question.
+export function stripMention(text: string, username: string): string {
+  return username ? text.replace(new RegExp(`@${username}\\b`, "gi"), " ").replace(/\s+/g, " ").trim() : text.trim();
+}
+
+// A short typed answer to one of the bot's questions: a price or range (+350,
+// +300-500), a dollar or % amount, or a word answer like "any" or "no boost".
+export function looksLikeAnswer(text: string): boolean {
+  return /^\s*([+-]?\$?\d[\d.,]*\s*[%k]?(\s*(-|–|to)\s*[+-]?\d[\d.,]*)?|any|any odds|none|no|no boost|no max)\s*$/i.test(text);
+}

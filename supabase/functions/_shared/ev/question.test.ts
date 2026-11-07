@@ -33,3 +33,18 @@ test("a question's league and book", () => {
   assert.equal(questionBook("what's the score of the Ravens game"), null);
   assert.equal(questionBook("Ravens game"), null);
 });
+
+test("group chats: the bot's mention, stripped; short answers spotted", async () => {
+  const { mentionsBot, stripMention, looksLikeAnswer } = await import("./mod.ts");
+  assert.equal(mentionsBot("@Bmorepromobot good bets on the Ravens game?", "BmorePromoBot"), true);
+  assert.equal(mentionsBot("good bets on the Ravens game?", "BmorePromoBot"), false);
+  assert.equal(mentionsBot("@Bmorepromobotfan hi", "BmorePromoBot"), false, "a longer name isn't the bot");
+  assert.equal(stripMention("@BmorePromoBot good bets on the Ravens game?", "BmorePromoBot"), "good bets on the Ravens game?");
+  assert.equal(stripMention("Ravens game @bmorepromobot", "BmorePromoBot"), "Ravens game");
+  for (const yes of ["+350", "-110", "+300-500", "+300 to 500", "25", "33%", "$25", "4k", "any", "No boost", "none"]) {
+    assert.equal(looksLikeAnswer(yes), true, yes);
+  }
+  for (const no of ["lol", "ravens by 10", "who's watching tonight", "I'm in for 25 on that"]) {
+    assert.equal(looksLikeAnswer(no), false, no);
+  }
+});

@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -665,6 +665,13 @@ const COMMANDS = [
 ];
 const RESET_COMMANDS = ["skip", "cancel", "new", "reset"];
 
+// The bot's own @username, for spotting mentions in group chats (looked up once).
+let botUsername: Promise<string> | null = null;
+function myUsername(): Promise<string> {
+  botUsername ??= tg("getMe", {}).then((r) => String(r?.result?.username ?? "")).catch(() => "");
+  return botUsername;
+}
+
 function allowed(chatId: number, username?: string): boolean {
   return ALLOWED.includes(String(chatId)) || (!!username && ALLOWED.includes(`@${username.toLowerCase()}`));
 }
@@ -675,8 +682,19 @@ async function handle(update: any) {
   const chatId = msg.chat.id as number;
   const from = update.message?.from ?? update.callback_query?.from;
 
+  // In a group the bot sees every message (privacy mode off), so it answers
+  // only what's meant for it: a command to it, a message naming it or replying
+  // to it. Screenshots and short answers to its question are handled below.
+  const group = msg.chat.type === "group" || msg.chat.type === "supergroup";
+  const me = group ? await myUsername() : "";
+  const rawText = String(update.message?.text ?? "").trim();
+  const toOtherBot = /^\/\w+@(\w+)/.exec(rawText)?.[1];
+  if (group && toOtherBot && toOtherBot.toLowerCase() !== me.toLowerCase()) return;
+  const addressed = !group || rawText.startsWith("/") || mentionsBot(rawText, me) ||
+    (!!update.message?.reply_to_message?.from?.is_bot && update.message.reply_to_message.from.username?.toLowerCase() === me.toLowerCase());
+
   if (!allowed(chatId, from?.username)) {
-    if (update.message) await send(chatId, `This bot is private. Your chat ID is ${chatId}.`);
+    if (update.message && addressed) await send(chatId, `This bot is private. Your chat ID is ${chatId}.`);
     return;
   }
 
@@ -694,7 +712,7 @@ async function handle(update: any) {
     return advance(chatId, data.slice(3));
   }
 
-  const text = (update.message.text ?? "").trim();
+  const text = group ? stripMention(rawText, me) : rawText;
   // "/skip" or "/skip@Bmorepromobot"
   const command = text.match(/^\/([a-z]+)(@\w+)?\b/i)?.[1].toLowerCase();
   if (command) await tg("setMyCommands", { commands: COMMANDS }); // keeps the menu current; cheap and idempotent
@@ -713,10 +731,11 @@ async function handle(update: any) {
 
   // Screenshot: a promo starts a new promo; a slip is priced with the promo in play, if any.
   if (update.message.photo) {
-    await send(chatId, "📖 Reading the screenshot…");
+    // In a group, any photo reaches the bot; it reads them all but speaks only for promos and slips.
+    if (!group) await send(chatId, "📖 Reading the screenshot…");
     const fileId = (update.message.photo as { file_id: string }[]).at(-1)!.file_id;
     // A caption is instructions ("Ravens game", "props only"): the read applies it to the promo.
-    const caption = String(update.message.caption ?? "").trim() || null;
+    const caption = stripMention(String(update.message.caption ?? ""), me) || null;
     const read = await readImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD, "image/jpeg", caption);
     if (read.kind === "promo") {
       const s: FlowState = { ...startFlow(read.promo), ...(caption ? { autoRun: true } : {}) };
@@ -737,10 +756,19 @@ async function handle(update: any) {
       await saveState(chatId, asking);
       return sendPrompt(chatId, prompt(asking));
     }
+    if (group) return; // a meme, not a bet
     return send(chatId, "That doesn't look like a promo or a bet slip. Send a screenshot of a promo's details or of your bet slip.");
   }
 
-  if (text) return advance(chatId, text, true);
+  if (!text) return;
+  // Group chatter: only a message naming the bot or replying to it, or a short
+  // answer ("+350", "25", "any") while the bot is waiting on one of its questions.
+  if (group && !addressed) {
+    const s = await loadState(chatId);
+    const waiting = !!s && !["action", "end"].includes(s.step);
+    if (!waiting || !looksLikeAnswer(text)) return;
+  }
+  return advance(chatId, text, true);
 }
 
 async function advance(chatId: number, input: string, typed = false) {

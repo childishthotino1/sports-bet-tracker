@@ -64,6 +64,16 @@ Just type, for example:
 - *"good bets on the Ravens game?"* gives that game's best prices across BetMGM, DraftKings, FanDuel, theScore, Caesars and Fanatics, against the fair price. Lines marked ✅ are worth betting even without a boost.
 - *"teasers"* gives this week's NFL Wong teaser legs.
 
+### Using it in a group chat
+
+The bot also works in a Telegram group. There, it stays out of the conversation:
+
+- **Screenshots:** drop a promo or slip in the group as usual; it answers those and ignores everything else (memes, photos of your dog).
+- **Questions:** start with **@Bmorepromobot** (*"@Bmorepromobot good bets on the Ravens game?"*), or reply to one of its messages.
+- **Its questions:** tap the buttons, or type a short answer like *+350* or *25*.
+
+Everything is shared by the group: one bankroll, one set of /settings, one promo at a time. For your own bankroll, use the bot one-on-one.
+
 ## 4. Commands
 
 | Command | What it does |
