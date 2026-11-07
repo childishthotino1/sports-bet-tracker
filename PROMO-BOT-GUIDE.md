@@ -44,7 +44,7 @@ The bot reads the rules, then asks for anything the screenshot didn't show (whic
 
 Each pick card shows the bet to build, the book's price against the fair price, the **EV**, your **stake**, and a **💡 Why** line explaining where the edge comes from.
 
-**🛒 Build in BetMGM** (or whichever book the promo is on): tap it and the bet opens in your app, already in the slip. Parlays get one button for all the legs. Always check the price in the slip matches the card before you place it.
+**🛒 Build in BetMGM** (or whichever book the promo is on): tap it and the bet opens in your app, already in the slip. Parlays get one button for all the legs (on Fanatics, one per leg for now). Always check the price in the slip matches the card before you place it.
 
 **Tip:** add a caption to the screenshot to narrow it down, like "Ravens game" or "props only". The bot then searches straight away without asking questions.
 
