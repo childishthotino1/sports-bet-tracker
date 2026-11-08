@@ -66,7 +66,7 @@ async function research(prompt: string): Promise<GradeReply | null> {
 const boards = new Map<string, Promise<EspnGame[]>>();
 async function espnJson(url: string): Promise<unknown | null> {
   try {
-    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (promo-bot grader)" } });
+    const res = await fetch(url); // no custom User-Agent: ESPN answers 403 to a made-up browser string
     if (!res.ok) { console.error("ESPN", res.status, url); return null; }
     return await res.json();
   } catch (e) {
