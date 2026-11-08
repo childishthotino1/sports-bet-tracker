@@ -265,7 +265,7 @@ export function step(s: FlowState, input: string): StepResult {
       if (v === "different") {
         // The same search, leaving out the legs already shown (the bot keeps the list).
         if (s.sport) return { state: { ...s, step: "action", rangeAsked: true }, action: "picks" };
-        return step({ ...s }, "picks");
+        return { state: { ...s, step: "sport" } }; // keeps the shown list, unlike a fresh "picks"
       }
       if (v === "specific") return { state: { ...s, step: "specific" } };
       if (v === "picks") {
