@@ -255,10 +255,6 @@ export function settle(p: Pick<PickRow, "legs" | "book_odds" | "boost_pct">): { 
 
 // ── The report ──────────────────────────────────────────────
 
-const SOURCE_LABELS: Record<PickSource, string> = {
-  pick: "Pick cards", sgp_legs: "SGP leg ideas", question: "Game answers (+EV lines)", slip: "Slips checked",
-};
-
 const MARKET_LABELS: Record<string, string> = {
   h2h: "Moneyline", spreads: "Spread", totals: "Game total", team_totals: "Team total",
   h2h_h1: "1H moneyline", spreads_h1: "1H spread", totals_h1: "1H total", draw_no_bet: "Draw no bet",
@@ -329,42 +325,99 @@ function legLines(rows: StoredPick[]): string[] {
     `${k}: hit ${t.won}/${t.n} (${((t.won / t.n) * 100).toFixed(0)}%) vs fair ${((t.fair / t.n) * 100).toFixed(0)}%`);
 }
 
-// "/stats", "/stats 7", "/stats all", "/stats all 7": everyone's picks or this chat's, and how many days back.
-export function parseStatsArgs(text: string): { all: boolean; days: number | null } {
+// "/stats", "/stats 7", "/stats all 7", "/stats full": everyone's picks or this
+// chat's, how many days back, and the short report or the full breakdown.
+export function parseStatsArgs(text: string): { all: boolean; days: number | null; full: boolean } {
   const words = text.trim().split(/\s+/).slice(1).map((w) => w.toLowerCase());
   const days = Number(words.find((w) => /^\d+$/.test(w)));
-  return { all: words.includes("all"), days: days > 0 ? days : null };
+  return { all: words.includes("all"), days: days > 0 ? days : null, full: words.includes("full") };
 }
 
-// scope: "mine" for one chat's picks (the footer points to /stats all), "all" for everyone's, null for no label.
-export function formatStats(all: StoredPick[], days: number | null = null, now = new Date(), scope: "mine" | "all" | null = null): string {
+// One promo request sends up to 3 pick cards that share legs, so they win and
+// lose together. The record that matches what you'd bet is the best card of
+// each request: the first one logged (cards are logged best EV first, in one
+// insert, so they share chat, promo and created_at).
+export function topCards(rows: StoredPick[]): StoredPick[] {
+  const best = new Map<string, StoredPick>();
+  for (const r of rows) {
+    if (r.source !== "pick") continue;
+    const k = `${r.chat_id}|${r.promo_title ?? ""}|${r.created_at}`;
+    const seen = best.get(k);
+    if (!seen || r.id < seen.id) best.set(k, r);
+  }
+  return [...best.values()];
+}
+
+// Every graded leg once, all markets together.
+function legTotal(rows: StoredPick[]): string | null {
+  const seen = new Set<string>();
+  let won = 0, n = 0, fair = 0;
+  for (const r of rows) for (const l of r.legs) {
+    if (l.result !== "won" && l.result !== "lost") continue;
+    const key = `${l.event_id}|${l.market}|${l.selection}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    n++;
+    if (l.result === "won") won++;
+    fair += l.fair ?? 0;
+  }
+  return n ? `hit ${won}/${n} (${((won / n) * 100).toFixed(0)}%) vs the bot's fair ${((fair / n) * 100).toFixed(0)}%` : null;
+}
+
+const count = (rows: StoredPick[]) => { const t = tally(); for (const r of rows) add(t, r); return t; };
+
+// scope: "mine" for one chat's picks, "all" for everyone's, null for no label.
+// The short report (default) is one line per kind of suggestion; full adds the
+// breakdowns. Records are per bet at 1u flat; SGP leg ideas have no total price
+// (the book prices the SGP), so they count only in the leg hit rates.
+export function formatStats(all: StoredPick[], days: number | null = null, now = new Date(), scope: "mine" | "all" | null = null, full = false): string {
   const since = days ? new Date(now.getTime() - days * 86400e3).toISOString() : null;
   const rows = since ? all.filter((r) => r.created_at >= since) : all;
   const period = days ? `last ${days} day${days === 1 ? "" : "s"}` : "all time";
   const whose = scope === "mine" ? "this chat, " : scope === "all" ? "everyone, " : "";
-  const other = scope === "mine" ? `\n\n/stats all${days ? ` ${days}` : ""} shows everyone's combined.` : scope === "all" ? `\n\n/stats${days ? ` ${days}` : ""} shows just this chat's.` : "";
+  const d = days ? ` ${days}` : "";
+  const footer = [
+    full ? null : `/stats${scope === "all" ? " all" : ""}${d} full for the breakdown`,
+    scope === "mine" ? `/stats all${d} for everyone's` : scope === "all" ? `/stats${d} for just this chat's` : null,
+  ].filter(Boolean).join(" · ");
+  const other = footer ? `\n\n${footer}` : "";
   if (!rows.length) return `📊 No suggestions logged (${whose}${period}) yet. Every pick card, SGP leg idea, +EV game line and slip check gets logged from now on, and graded after the game.${other}`;
-  const settled = rows.filter((r) => r.status === "won" || r.status === "lost" || r.status === "push");
+  const isSettled = (r: StoredPick) => r.status === "won" || r.status === "lost" || r.status === "push";
+  const settled = rows.filter(isSettled);
   const pending = rows.filter((r) => r.status === "pending").length;
   const ungraded = rows.filter((r) => r.status === "ungraded").length;
-  const total = tally();
-  for (const r of settled) if (r.source !== "slip") add(total, r);
-  const out = [
-    `📊 Bot performance (${whose}${period}): ${rows.length} suggestion${rows.length === 1 ? "" : "s"} logged, ${settled.length} settled, ${pending} waiting on games${ungraded ? `, ${ungraded} couldn't be graded` : ""}.`,
-    "Flat 1 unit per bet, at the price and boost the bot showed.",
-    "",
-    line("Bot's suggestions", total),
-  ];
-  const section = (title: string, lines: string[]) => { if (lines.length) out.push("", title, ...lines.map((l) => `• ${l}`)); };
-  section("By source", grouped(settled, (r) => SOURCE_LABELS[r.source]));
-  const sugg = settled.filter((r) => r.source !== "slip");
-  section("By book", grouped(sugg, (r) => r.book));
-  section("By league", grouped(sugg, (r) => r.league));
-  section("By bet type", grouped(sugg, (r) => r.kind === "single" ? "Singles" : r.kind === "sgp" ? "SGPs" : "Parlays"));
-  section("By market (singles)", grouped(sugg.filter((r) => r.legs.length === 1), (r) => marketLabel(r.legs[0].market)));
-  section("By promo boost", grouped(sugg, (r) => r.boost_pct ? `${r.boost_pct}% boost` : "No boost"));
-  section("Slips checked, by the bot's verdict", grouped(settled.filter((r) => r.source === "slip"), (r) => r.verdict === "plus_ev" ? "Called +EV" : r.verdict === "minus_ev" ? "Called -EV" : null));
-  section("Every leg, hit rate vs the bot's fair price", legLines(settled.concat(rows.filter((r) => r.status === "pending"))));
-  if (settled.length < 30) out.push("", `Small sample: ${settled.length} settled. Results swing a lot until there are a few hundred; the leg hit rates vs fair are the earliest honest signal.`);
+  const cards = settled.filter((r) => r.source === "pick");
+  const tops = topCards(settled);
+  const answers = settled.filter((r) => r.source === "question");
+  const slips = settled.filter((r) => r.source === "slip");
+
+  const out = [`📊 Bot record (${whose}${period}). Each line is per bet: 1 unit flat, at the price and boost the bot showed.`];
+  if (tops.length) {
+    out.push("", line(`🎯 Promo picks, the best card per promo (${tops.length} promo${tops.length === 1 ? "" : "s"})`, count(tops)));
+    if (cards.length > tops.length) out.push(`   Every card sent (${cards.length}): ${line("", count(cards)).slice(2)}. Cards from one promo share legs, so they win and lose together.`);
+  }
+  if (answers.length) out.push("", line("💬 Game answers (each ✅ line as a single)", count(answers)));
+  if (slips.length) {
+    const v = (x: StoredPick["verdict"]) => slips.filter((r) => r.verdict === x);
+    const parts = [["called +EV", v("plus_ev")], ["called -EV", v("minus_ev")]].filter(([, xs]) => (xs as StoredPick[]).length)
+      .map(([k, xs]) => line(k as string, count(xs as StoredPick[])));
+    out.push("", `🧾 Slips checked: ${parts.join("; ")}`);
+  }
+  const legs = legTotal(settled.concat(rows.filter((r) => r.status === "pending")));
+  if (legs) out.push("", `🦵 Every leg suggested, once each: ${legs}`);
+  out.push("", `⏳ ${pending} waiting on games${ungraded ? `, ${ungraded} couldn't be graded` : ""}.`);
+  if (settled.length < 30) out.push(`Small sample (${settled.length} settled): results swing a lot until there are a few hundred. The leg hit rate is the earliest honest signal.`);
+
+  if (full) {
+    const section = (title: string, lines: string[]) => { if (lines.length) out.push("", title, ...lines.map((l) => `• ${l}`)); };
+    const sugg = settled.filter((r) => r.source === "pick" || r.source === "question"); // every card, overlapping
+    out.push("", "Breakdowns below count every card and game answer (overlapping), per bet.");
+    section("By book", grouped(sugg, (r) => r.book));
+    section("By league", grouped(sugg, (r) => r.league));
+    section("By bet type", grouped(sugg, (r) => r.kind === "single" ? "Singles" : r.kind === "sgp" ? "SGPs" : "Parlays"));
+    section("By market (singles)", grouped(sugg.filter((r) => r.legs.length === 1), (r) => marketLabel(r.legs[0].market)));
+    section("By promo boost", grouped(sugg, (r) => r.boost_pct ? `${r.boost_pct}% boost` : "No boost"));
+    section("Legs by market, hit rate vs the bot's fair price (per leg)", legLines(settled.concat(rows.filter((r) => r.status === "pending"))));
+  }
   return out.join("\n") + other;
 }

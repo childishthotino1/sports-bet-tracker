@@ -721,7 +721,7 @@ const HELP = "Send me a screenshot of a sportsbook promo and I'll find the best 
   "Or send a screenshot of a bet slip you've built, and I'll devig it against Pinnacle and the exchanges (Novig, ProphetX, Kalshi, Polymarket): fair value, EV and Kelly.\n\n" +
   "Or ask about a game (\"good bets on the Ravens game?\") and I'll find its best prices across your books, or ask for \"teasers\" and I'll list this week's Wong teaser legs.\n\n" +
   "Stakes are ¼ Kelly, never more than 3% of your bankroll on one bet; keep a day's total under 7%. Set /bankroll 4000 and every card suggests one stake for you.\n\n" +
-  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions to you have done (/stats 7 for the last week, /stats all for everyone's).";
+  "/skip drops the promo in progress so you can start over. /settings picks main lines, props, or both. /stats shows how the bot's suggestions to you have done (/stats 7 for the last week, /stats all for everyone's, /stats full for the breakdown).";
 
 // The commands Telegram shows in its menu. /cancel, /new and /reset also work.
 // Typed text that names no upcoming game.
@@ -793,8 +793,8 @@ async function handle(update: any) {
   if (command === "bankroll") return bankrollCommand(chatId, text.replace(/^\/\w+(@\w+)?/, "").trim());
   if (command === "stats") {
     // This chat's suggestions; "/stats all" for everyone's combined.
-    const { all, days } = parseStatsArgs(text);
-    return send(chatId, formatStats(await loadPicks(all ? null : chatId), days, new Date(), all ? "all" : "mine"));
+    const { all, days, full } = parseStatsArgs(text);
+    return send(chatId, formatStats(await loadPicks(all ? null : chatId), days, new Date(), all ? "all" : "mine", full));
   }
   if (command && RESET_COMMANDS.includes(command)) {
     await clearState(chatId);

@@ -83,7 +83,7 @@ Everything is shared by the group: one bankroll, one set of /settings, one promo
 | `/bankroll 1000` | Set your bankroll, so you get one stake per bet (`/bankroll off` to clear it) |
 | `/settings` | Pick main lines, player props, or both. Main lines are easier on your accounts: books limit prop bettors sooner. |
 | `/skip` | Drop the promo you're working on and start fresh |
-| `/stats` | How the bot's suggestions to you have done (`/stats 7` for the last week). `/stats all` shows every tester's combined. |
+| `/stats` | How the bot's suggestions to you have done, per bet at 1 unit (`/stats 7` for the last week). A promo can get up to 3 cards that share legs, so the main record counts only the best card of each promo. `/stats all` shows every tester's combined; `/stats full` adds the breakdown by book, league, market and boost. |
 | `/help` | A short reminder of all this |
 
 ## 5. Good habits

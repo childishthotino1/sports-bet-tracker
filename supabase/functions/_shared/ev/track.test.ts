@@ -81,28 +81,50 @@ test("the report: record, units, ROI vs the bot's EV, and leg hit rates vs fair"
   });
   const rows = [
     row({}),
-    row({ id: 2, status: "lost", profit: -1, legs: [leg({ market: "player_anytime_td", selection: "B Anytime TD", fair: 0.4, result: "lost" })] }),
+    row({ id: 2, created_at: "2026-11-01T13:00:00Z", status: "lost", profit: -1, legs: [leg({ market: "player_anytime_td", selection: "B Anytime TD", fair: 0.4, result: "lost" })] }),
     row({ id: 3, source: "slip", verdict: "minus_ev", ev: -0.05, status: "lost", profit: -1, book: "BetMGM", legs: [leg({ market: "player_anytime_td", selection: "A Anytime TD", fair: 0.46, result: "won" })] }),
     row({ id: 4, status: "pending", profit: null, legs: [leg({ result: null })] }),
   ];
   const text = formatStats(rows, null, new Date("2026-11-02T00:00:00Z"));
-  assert.match(text, /4 suggestions logged, 3 settled, 1 waiting/);
-  assert.match(text, /^Bot's suggestions: 1-1, \+0\.56u, ROI \+28\.0% \(bot expected \+18\.0%\)$/m);
-  assert.match(text, /^• Called -EV: 0-1, -1\.00u/m);
-  assert.match(text, /^• Anytime TD: hit 1\/2 \(50%\) vs fair 43%$/m);
-  assert.match(text, /^• DraftKings: 1-1/m);
+  assert.match(text, /per bet: 1 unit flat/);
+  assert.match(text, /^🎯 Promo picks, the best card per promo \(2 promos\): 1-1, \+0\.56u, ROI \+28\.0% \(bot expected \+18\.0%\)$/m);
+  assert.match(text, /^🧾 Slips checked: called -EV: 0-1, -1\.00u/m);
+  assert.match(text, /^🦵 Every leg suggested, once each: hit 1\/2 \(50%\) vs the bot's fair 43%$/m);
+  assert.match(text, /^⏳ 1 waiting on games\.$/m);
+  assert.doesNotMatch(text, /By book/, "the breakdowns are /stats full");
+  const full = formatStats(rows, null, new Date("2026-11-02T00:00:00Z"), null, true);
+  assert.match(full, /^• DraftKings: 1-1/m);
+  assert.match(full, /^• Anytime TD: hit 1\/2 \(50%\) vs fair 43%$/m);
   assert.match(formatStats(rows, 1, new Date("2026-12-01T00:00:00Z")), /No suggestions logged \(last 1 day\)/);
 });
 
 test("/stats is this chat's by default; /stats all is everyone's", async () => {
   const { parseStatsArgs } = await import("./mod.ts");
-  assert.deepEqual(parseStatsArgs("/stats"), { all: false, days: null });
-  assert.deepEqual(parseStatsArgs("/stats 7"), { all: false, days: 7 });
-  assert.deepEqual(parseStatsArgs("/stats all"), { all: true, days: null });
-  assert.deepEqual(parseStatsArgs("/stats@Bmorepromobot all 7"), { all: true, days: 7 });
-  assert.deepEqual(parseStatsArgs("/stats 7 all"), { all: true, days: 7 });
+  assert.deepEqual(parseStatsArgs("/stats"), { all: false, days: null, full: false });
+  assert.deepEqual(parseStatsArgs("/stats 7"), { all: false, days: 7, full: false });
+  assert.deepEqual(parseStatsArgs("/stats all"), { all: true, days: null, full: false });
+  assert.deepEqual(parseStatsArgs("/stats@Bmorepromobot all 7"), { all: true, days: 7, full: false });
+  assert.deepEqual(parseStatsArgs("/stats 7 all full"), { all: true, days: 7, full: true });
   const empty = formatStats([], 7, new Date("2026-11-07T00:00:00Z"), "mine");
   assert.match(empty, /No suggestions logged \(this chat, last 7 days\)/);
-  assert.match(empty, /\/stats all 7 shows everyone's combined\.$/);
-  assert.match(formatStats([], null, new Date(), "all"), /\(everyone, all time\)[\s\S]*\/stats shows just this chat's\.$/);
+  assert.match(empty, /\/stats 7 full for the breakdown · \/stats all 7 for everyone's$/);
+  assert.match(formatStats([], null, new Date(), "all"), /\(everyone, all time\)[\s\S]*\/stats all full for the breakdown · \/stats for just this chat's$/);
+});
+
+// One promo request sent 3 cards sharing 2 legs: the record counts the best one.
+test("/stats counts the best card per promo, and SGP leg ideas only as legs", () => {
+  const at = "2026-11-08T03:11:35Z";
+  const row = (o: Partial<StoredPick>): StoredPick => ({
+    id: 149, created_at: at, chat_id: "1", source: "pick", dedup_key: "k", book: "BetMGM", league: "NBA", kind: "parlay",
+    promo_title: "25% Parlay Boost Token", boost_pct: 25, book_odds: 462, fair_prob: 0.15, ev: 0.06, verdict: "plus_ev", first_start: null, last_start: null,
+    legs: [leg({ selection: "Camara Under 2.5 Threes", fair: 0.6, result: "lost" })], status: "lost", profit: -1, ...o,
+  });
+  const rows = [
+    row({}), row({ id: 150, book_odds: 486 }), row({ id: 151, book_odds: 481, status: "won", profit: 5, legs: [leg({ selection: "Other", fair: 0.5, result: "won" })] }),
+    row({ id: 152, created_at: "2026-11-08T05:00:00Z", source: "sgp_legs", book_odds: null, profit: null, ev: null, verdict: null }),
+  ];
+  const text = formatStats(rows, null, new Date("2026-11-09T00:00:00Z"));
+  assert.match(text, /best card per promo \(1 promo\): 0-1, -1\.00u/);
+  assert.match(text, /Every card sent \(3\): 1-2, \+3\.00u/);
+  assert.doesNotMatch(text, /0-2|1-3/, "the SGP idea isn't in any record");
 });
