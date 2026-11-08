@@ -66,7 +66,8 @@ async function research(prompt: string): Promise<GradeReply | null> {
 const boards = new Map<string, Promise<EspnGame[]>>();
 async function espnJson(url: string): Promise<unknown | null> {
   try {
-    const res = await fetch(url); // no custom User-Agent: ESPN answers 403 to a made-up browser string
+    // ESPN answers 403 to Deno's default User-Agent and to a browser-style one; a plain name gets through.
+    const res = await fetch(url, { headers: { "User-Agent": "baltimore-bets-grader/1.0" } });
     if (!res.ok) { console.error("ESPN", res.status, url); return null; }
     return await res.json();
   } catch (e) {
