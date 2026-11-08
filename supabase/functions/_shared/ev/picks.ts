@@ -146,7 +146,9 @@ function* combos<T>(items: T[], size: number, start = 0, acc: T[] = []): Generat
   for (let i = start; i < items.length; i++) yield* combos(items, size, i + 1, [...acc, items[i]]);
 }
 
-export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange; book?: string };
+// must: every pick includes a leg it accepts ("Be specific"); with one set, the
+// best such picks are returned even when none is +EV, so the card can say so.
+export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange; book?: string; must?: (l: PricedLeg) => boolean };
 
 // Best qualifying bets for a promo. Parlays only combine legs from different
 // games, so independence holds; same-game parlays aren't auto-picked (the
@@ -161,7 +163,7 @@ export function allowsSgpx(promo: Promo): boolean {
 
 export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
   const legs = allLegs.filter((l) => marketAllowed(promo, l.market)); // a TD boost takes TD scorer legs only
-  const { league, top = 3, pool = 15, target } = opts;
+  const { league, top = 3, pool = 15, target, must } = opts;
   const maxLegs = Math.max(opts.maxLegs ?? 4, promo.min_legs ?? 0);
   const boost = (promo.boost_pct ?? 0) / 100;
   const allows = (k: BetKind) => !promo.bet_kinds.length || promo.bet_kinds.includes(k);
@@ -177,9 +179,10 @@ export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions =
     const americanOdds = Math.round(decimalToAmerican(decimal));
     if (promoViolations(promo, { americanOdds, legs: chosen.length, kind, league }).length) return;
     if (target && !inRange(americanOdds, target)) return;
+    if (must && !chosen.some(must)) return;
     const e = evaluateBet(priced.map((l) => l.fair), priced.map((l) => l.bookOdds), boost);
     const free = units.flatMap((u) => (u.rule ? [{ leg: chosen.indexOf(u.legs[1]), with: chosen.indexOf(u.legs[0]), rule: u.rule }] : []));
-    if (e.ev > 0) candidates.push({ kind, legs: chosen, americanOdds, eval: e, ...(free.length ? { free } : {}) });
+    if (e.ev > 0 || must) candidates.push({ kind, legs: chosen, americanOdds, eval: e, ...(free.length ? { free } : {}) });
   };
 
   if (allows("single")) for (const l of legs) consider("single", [{ legs: [l] }]);
@@ -189,7 +192,9 @@ export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions =
     // The pool takes the best leg per game first, so every game gets a look.
     const perGame = new Map<string, PricedLeg>();
     for (const l of legs) if (!perGame.has(l.eventId)) perGame.set(l.eventId, l);
-    const best: Unit[] = [...new Set([...perGame.values(), ...legs])].slice(0, pool).map((l) => ({ legs: [l] }));
+    // The legs that must be in every pick go in first, whatever their edge.
+    const required = must ? legs.filter(must).slice(0, 5) : [];
+    const best: Unit[] = [...new Set([...required, ...perGame.values(), ...legs])].slice(0, pool + required.length).map((l) => ({ legs: [l] }));
     // On a book that prices a favorite's spread + its moneyline as one line
     // (theScore), each such pair is two legs for the price of the spread:
     // chained across games, they fill a leg minimum with half the games.
@@ -275,9 +280,12 @@ export function whyNote(p: Pick, boost: number, book: string): string {
     parts.push(`${beat} of ${priced.length} priced legs beat the sharp price (best: ${best.selection}, ${pct(best.edge)}).`);
   }
   if (boost) {
+    const b = Math.round(boost * 100);
     parts.push(plain > 0
-      ? `It's ${pct(plain)} before the boost; the ${Math.round(boost * 100)}% boost adds the rest.`
-      : `Without the ${Math.round(boost * 100)}% boost it's ${pct(plain)}: the boost is the edge.`);
+      ? `It's ${pct(plain)} before the boost; the ${b}% boost adds the rest.`
+      : p.eval.ev > 0
+      ? `Without the ${b}% boost it's ${pct(plain)}: the boost is the edge.`
+      : `Even with the ${b}% boost it's ${pct(p.eval.ev)}.`);
   }
   const derived = p.legs.flatMap((l, i) => (l.derived ? [i + 1] : []));
   if (derived.length) parts.push(`Leg${derived.length > 1 ? "s" : ""} ${derived.join(", ")}: no sharp line at that number, so the fair price is derived; treat it as an estimate.`);

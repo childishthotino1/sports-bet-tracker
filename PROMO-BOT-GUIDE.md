@@ -39,12 +39,14 @@ Screenshot the promo's details in your sportsbook app (the screen with the % boo
 The bot reads the rules, then asks for anything the screenshot didn't show (which book, the max wager, which sport). Then tap:
 
 - **🎯 Find the best bets.** It asks what odds range you want (say +250 to +500, or Any odds), then sends the best qualifying bets.
+- **🔄 Try something different.** After the picks: another set, leaving out every leg it already showed you. When nothing new is left, it says so.
+- **✍️ Be specific.** Tell it what every pick has to include: a player ("Lamar Jackson anytime TD"), a line ("Ravens -3.5", "over 220.5") or a game ("Ravens game"). If nothing with that leg is +EV, you still get the closest bet, marked ⚠️, so you can decide. If the leg's price can't meet the promo's rules (a -310 single under a -200 minimum), it tells you. Tap it again to change or clear it.
 - **🔍 Check a bet I'm building.** Build the bet in your app, screenshot the slip, and send it. You'll get a yes or no.
 - **🎚 Set target odds.** Only show picks around a certain price.
 
 Each pick card shows the bet to build, the book's price against the fair price, the **EV**, your **stake**, and a **💡 Why** line explaining where the edge comes from.
 
-**🛒 Build in BetMGM** (or whichever book the promo is on): tap it and the bet opens in your app, already in the slip. Parlays get one button for all the legs (on Fanatics, one per leg for now). Always check the price in the slip matches the card before you place it.
+**🛒 Build in BetMGM** (or whichever book the promo is on): tap it and the bet opens in your app, already in the slip. Parlays get one button for all the legs (on Fanatics, one per leg for now). Always check the price in the slip matches the card before you place it. Once the bet's first game starts, the button changes to ⏱ Game started, so an old card can't open a live bet.
 
 **Tip:** add a caption to the screenshot to narrow it down, like "Ravens game" or "props only". The bot then searches straight away without asking questions.
 

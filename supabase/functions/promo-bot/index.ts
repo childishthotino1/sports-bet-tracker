@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, trackButtons, LINK_ID, earliestStart, startsTooSoon, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, LINK_ID, earliestStart, startsTooSoon, legKey, matchMust, type MustMatch, type PricedLeg, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -61,21 +61,11 @@ function send(chatId: number, text: string) {
 // The book's state for BetMGM's {state} links (links.ts); Maryland unless set.
 const BOOK_STATE_ENV = Deno.env.get("PROMO_BOOK_STATE")?.trim().toLowerCase() || BOOK_STATE;
 
-// Each 🛒 button points at this function (?go=<id>), which logs the tap and
-// redirects to the book's link (trackButtons in links.ts, promo_bot_links).
-const FUNCTION_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/promo-bot`;
 type LinkSource = "pick" | "sgp_legs" | "slip_offer" | "better_price" | "question";
-async function tracked(chatId: number, rows: LinkButton[][], source: LinkSource, startsAt: string | null): Promise<LinkButton[][]> {
-  const t = trackButtons(rows, FUNCTION_URL);
-  if (!t.links.length) return rows;
-  const { error } = await db.from("promo_bot_links").insert(t.links.map((l) => ({ ...l, chat_id: String(chatId), source, starts_at: startsAt })));
-  if (error) {
-    console.error("promo_bot_links", error.message);
-    return rows; // untracked beats broken: the book's own links
-  }
-  return t.rows;
-}
 
+// Buttons sent 2026-11-08 pointed here (?go=<id>) to count taps; they're direct
+// links again (the redirect brought up Telegram's "Open link?" and kept the
+// phone out of the book's app), but the old buttons still work.
 // A tap on a 🛒 button: log it and send the phone on to the book's link. Once
 // the bet's first game has started the link stops: the bet would be live, and
 // the bot never suggests live bets.
@@ -93,19 +83,75 @@ async function followLink(id: string): Promise<Response> {
   return new Response(null, { status: 302, headers: { Location: data.url, "Cache-Control": "no-store" } });
 }
 
-// A message with 🛒 URL buttons (links.ts). No buttons: sent exactly as before.
-// If Telegram turns the buttons down (a URL it won't take), the message still
-// goes out without them.
+// A message with 🛒 URL buttons (links.ts): the book's own links, so one tap
+// opens the book's app. No buttons: sent exactly as before. If Telegram turns
+// the buttons down (a URL it won't take), the message still goes out without
+// them. The message is remembered with its first game's start, so the sweep
+// (sweepButtons) can take the buttons off once that game is live.
 async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][], source: LinkSource, starts: (string | null | undefined)[] = []) {
   if (!rows.length) return send(chatId, text);
-  rows = await tracked(chatId, rows, source, earliestStart(starts));
   const r = await tg("sendMessage", { chat_id: chatId, text, reply_markup: { inline_keyboard: rows } });
   if (r?.ok === false) {
     console.error("buttons refused", r.description);
     return send(chatId, text);
   }
+  const startsAt = earliestStart(starts);
+  const messageId = r?.result?.message_id;
+  if (startsAt && messageId) {
+    const { error } = await db.from("promo_bot_messages").insert({ chat_id: String(chatId), message_id: messageId, source, starts_at: startsAt });
+    if (error) console.error("promo_bot_messages", error.message);
+  }
   return r;
 }
+
+// Takes the 🛒 buttons off every card whose first game has started (pg_cron
+// every 5 minutes calls promo-bot?sweep=1). Harmless to call any time: it only
+// touches games already under way.
+async function sweepButtons(): Promise<Response> {
+  const { data, error } = await db.from("promo_bot_messages").select("id, chat_id, message_id")
+    .is("cleared_at", null).lte("starts_at", new Date().toISOString()).order("starts_at").limit(100);
+  if (error) return new Response(error.message, { status: 500 });
+  for (const m of data ?? []) {
+    const r = await tg("editMessageReplyMarkup", {
+      chat_id: m.chat_id, message_id: m.message_id,
+      reply_markup: { inline_keyboard: [[{ text: "⏱ Game started: no longer a pregame bet", callback_data: "started" }]] },
+    });
+    if (r?.ok === false) console.error("sweep", m.message_id, r.description); // deleted or too old: nothing to clear
+    await db.from("promo_bot_messages").update({ cleared_at: new Date().toISOString() }).eq("id", m.id);
+  }
+  return new Response(`cleared ${data?.length ?? 0}`);
+}
+
+// "Be specific" and "Try something different" on the priced legs: the legs a
+// pick must include, and the legs already shown left out (unless they're the
+// ones it must include). "nomatch" when the must text names no priced leg.
+function narrowLegs(s: FlowState, legs: PricedLeg[]): { legs: PricedLeg[]; must: MustMatch | null } | "nomatch" {
+  const must = s.must ? matchMust(legs, s.must) : null;
+  if (s.must && !must) return "nomatch";
+  const shown = new Set(s.shown ?? []);
+  return { legs: legs.filter((l) => !shown.has(legKey(l)) || !!must?.match(l)), must };
+}
+const possessive = (name: string) => name.endsWith("s") ? `${name}'` : `${name}'s`;
+function noMatchText(s: FlowState): string {
+  return `I couldn't find "${s.must}" among ${possessive(s.promo.book ?? "the book")} lines that the sharps price. Try a last name, a team nickname, or a line as the book shows it ("Ravens -3.5", "over 220.5"), or tap Be specific again to change or clear it.`;
+}
+// The leg was found, but no bet with it qualifies (a -310 single under a -200 minimum).
+function mustNoPicksText(s: FlowState, legs: PricedLeg[], must: MustMatch): string {
+  const found = legs.filter(must.match).slice(0, 3).map((l) => `${l.selection} ${formatAmerican(l.bookOdds)}`).join(", ");
+  const { min_total_odds: min, bet_kinds: kinds } = s.promo;
+  const rule = min !== null ? ` This promo needs total odds of ${formatAmerican(min)} or longer${kinds.length ? ` on a ${kinds.join(" or ")}` : ""}.` : "";
+  return `No bet that qualifies for this promo includes ${must.game ? must.label : `${found}`}.${rule} Tap ✍️ Change what to include to pick something else, or clear it.`;
+}
+// Remembers the legs just suggested, so "Try something different" skips them.
+async function remember(chatId: number, s: FlowState, legs: PricedLeg[]): Promise<FlowState> {
+  if (!legs.length) return s;
+  const shown = [...new Set([...(s.shown ?? []), ...legs.map(legKey)])];
+  const next = { ...s, shown };
+  await saveState(chatId, { ...(await loadState(chatId) ?? s), shown });
+  return next;
+}
+// Put the must legs first, so the SGP suggestion (which takes legs in order) uses them.
+const mustFirst = (legs: PricedLeg[], must: MustMatch | null) => must ? [...legs.filter(must.match), ...legs.filter((l) => !must.match(l))] : legs;
 
 const SGP_BUTTON_HINT = "🛒 Tap each leg to add it to the slip; you may have to switch the slip to SGP / Same Game Parlay.";
 const SGP_ALL_HINT = "🛒 One tap puts every leg in the slip; if it shows as a regular parlay, switch it to SGP / Same Game Parlay.";
@@ -234,7 +280,8 @@ async function sendPicks(chatId: number, s: FlowState) {
 
   // A promo limited to some markets (a TD boost) searches those only, whatever /settings says.
   const only = promo.markets ?? [];
-  const mode: MarketMode = only.length ? "all" : (await loadSettings(chatId)).markets;
+  // "Be specific" can name a prop or a main line, so it searches both, whatever /settings says.
+  const mode: MarketMode = only.length || s.must ? "all" : (await loadSettings(chatId)).markets;
   if (named && !sgpOnly) return sendGamePicks(chatId, s, bookKey, named, mode);
   const what = only.length ? `${marketsLabel(promo)} prices` : mode === "main" ? "main lines" : mode === "props" ? "player props" : "lines and props";
   const where = leagues.length === 1 ? leagues[0] : `${leagues.length} leagues`;
@@ -254,7 +301,10 @@ async function sendPicks(chatId: number, s: FlowState) {
       await send(chatId, `⚠️ Only ${remaining} odds credits left, so I'm skipping props and 1st-half lines this time.`);
     } else {
       // A market-limited promo has fewer markets per game, so it can afford more games.
-      const games = covered.slice(0, only.length ? FOCUSED_GAMES : PROP_GAMES);
+      // A game named by "Be specific" goes first, so its props are in the search.
+      const mustGame = s.must ? findEvent(covered, [expandTeamAliases(s.must)]) : null;
+      const ordered = mustGame ? [mustGame, ...covered.filter((g) => g.id !== mustGame.id)] : covered;
+      const games = ordered.slice(0, only.length ? FOCUSED_GAMES : PROP_GAMES);
       for (const g of games) {
         const markets = gameMarkets(LEAGUE_OF[g.sport_key], promo, mode);
         if (!markets.length) continue;
@@ -265,17 +315,25 @@ async function sendPicks(chatId: number, s: FlowState) {
     }
   }
 
-  const legs = filterMode(priceLegs(events, bookKey), mode).filter((l) => marketAllowed(promo, l.market));
-  const picks = bestBets(legs, promo, { league: leagues.length === 1 ? leagues[0] : undefined, target: s.target, book: promo.book ?? undefined });
+  const priced = filterMode(priceLegs(events, bookKey), mode).filter((l) => marketAllowed(promo, l.market));
+  const narrowed = narrowLegs(s, priced);
+  if (narrowed === "nomatch") {
+    await send(chatId, noMatchText(s));
+    return sendPrompt(chatId, prompt(s));
+  }
+  const { legs, must } = narrowed;
+  const picks = bestBets(legs, promo, { league: leagues.length === 1 ? leagues[0] : undefined, target: s.target, book: promo.book ?? undefined, must: must?.match });
   if (sgpx && !picks.length) {
     // No SGPx of one leg per game works: try single-game SGP legs instead.
     return sendSgpLegs(chatId, s, bookKey, leagues, events, remaining);
   }
   if (!picks.length) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
-    await send(chatId, noPicksReason(legs, promo, s.target) + setting);
+    const again = s.shown?.length ? "That's every different bet I can find right now. " : "";
+    await send(chatId, must ? mustNoPicksText(s, legs, must) : again + noPicksReason(legs, promo, s.target) + setting);
   }
   await sendCards(chatId, s, picks, events);
+  s = await remember(chatId, s, picks.flatMap((p) => p.legs));
   if (sgpx && picks.length) {
     await send(chatId, `Each leg is from a different game, so ${promo.book} should price the ${SGPX_NAME[promo.book!] ?? "SGPx"} as the legs multiplied, the price shown. If the slip shows a different total, send me the screenshot and I'll reprice it.`);
   }
@@ -293,7 +351,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
   const rows = picks.map((p) => pickRow({
     chat_id: String(chatId), source: "pick", book: promo.book!, league: LEAGUE_OF[p.legs[0].sportKey] ?? null, kind: p.kind,
     promo_title: promo.title, boost_pct: promo.boost_pct ?? 0, book_odds: p.americanOdds, fair_prob: p.eval.fairProb,
-    ev: p.eval.ev, verdict: "plus_ev", legs: p.legs.map(trackedLeg),
+    ev: p.eval.ev, verdict: p.eval.ev > 0 ? "plus_ev" : "minus_ev", legs: p.legs.map(trackedLeg),
   }));
   const past = await recentPicks(chatId);
   for (const [k, p] of picks.entries()) {
@@ -303,6 +361,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       return note ? [note] : [];
     })), ...new Set((p.free ?? []).map((f) => `🧩 ${f.rule.why}`)),
       whyNote(p, (promo.boost_pct ?? 0) / 100, promo.book!),
+      ...(p.eval.ev > 0 ? [] : [`⚠️ Nothing +EV includes "${s.must}", so this is the closest. Skip it unless you want that leg anyway.`]),
       ...[exposureNote(rows[k].legs, past, rows[k].dedup_key)].filter((x): x is string => !!x)];
     await sendWithButtons(chatId, [formatBet({
       title: `${promo.book} ${promo.title}${s.target ? ` (target ${formatRange(s.target)})` : ""}`,
@@ -389,21 +448,29 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
     ? [...promo.markets.filter((m) => MAIN_MARKETS.includes(m)), ...gameMarkets(league, promo, mode)]
     : [...MAIN_MARKETS, ...lines, ...props];
   const { data, remaining } = await eventOdds(game.sport_key, game.id, markets, bookKey);
-  const legs = filterMode(priceLegs([data], bookKey), mode).filter((l) => marketAllowed(promo, l.market));
-  const picks = bestBets(legs, promo, { league, target: s.target, book: promo.book ?? undefined });
+  const narrowed = narrowLegs(s, filterMode(priceLegs([data], bookKey), s.must ? "all" : mode).filter((l) => marketAllowed(promo, l.market)));
+  if (narrowed === "nomatch") {
+    await send(chatId, noMatchText(s));
+    return sendPrompt(chatId, prompt(s));
+  }
+  const { legs, must } = narrowed;
+  const picks = bestBets(legs, promo, { league, target: s.target, book: promo.book ?? undefined, must: must?.match });
   if (!picks.length) {
     const setting = mode === "all" ? "" : `\n\n(Picks are set to ${MODE_LABELS[mode]}; /settings to change.)`;
-    const why = legs.length ? noPicksReason(legs, { ...promo, bet_kinds: promo.bet_kinds.filter((k) => k !== "sgp") }, s.target) : `Neither ${promo.book} nor the sharp sources have lines up for ${name} yet. Try closer to kickoff.`;
+    const why = must ? mustNoPicksText(s, legs, must) : legs.length ? noPicksReason(legs, { ...promo, bet_kinds: promo.bet_kinds.filter((k) => k !== "sgp") }, s.target) : `Neither ${promo.book} nor the sharp sources have lines up for ${name} yet. Try closer to kickoff.`;
     await send(chatId, why + setting);
   }
   await sendCards(chatId, s, picks, [data]);
+  const shownNow = picks.flatMap((p) => p.legs);
   if (!promo.bet_kinds.length || promo.bet_kinds.includes("sgp")) {
-    const sg = suggestSgpLegs(legs, Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
+    const sg = suggestSgpLegs(mustFirst(legs, must), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
     if (sg) {
       await sendSgpSuggestion(chatId, sg, promo.book!);
       await logPicks([sgpRow(chatId, promo, sg)]);
+      shownNow.push(...sg.legs);
     }
   }
+  s = await remember(chatId, s, shownNow);
   await creditsNote(chatId, remaining);
   await sendPrompt(chatId, prompt(s));
 }
@@ -458,7 +525,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     await send(chatId, `No ${leagues.join("/")} games left that this promo covers${promo.game_date ? ` (games on ${promo.game_date} only)` : promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
     return sendPrompt(chatId, prompt(s));
   }
-  const named = promoGame(promo, events);
+  const named = promoGame(promo, events) ?? (s.must ? findEvent(events, [expandTeamAliases(s.must)]) : null);
   if (!named && !mainEvents) ({ events: mainEvents, remaining } = await mainLines(promo, bookKey, leagues));
   const candidates = named ? [named] : rankSgpGames(priceLegs(mainEvents!, bookKey))
     .map((id) => events.find((e) => e.id === id))
@@ -468,7 +535,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     await send(chatId, `Neither ${promo.book} nor the sharp sources have lines up for these games yet. Try closer to game time, or build an SGP and send me the slip.`);
     return sendPrompt(chatId, prompt(s));
   }
-  const { markets: mode } = await loadSettings(chatId);
+  const mode: MarketMode = s.must ? "all" : (await loadSettings(chatId)).markets;
   const tried: string[] = [];
   let sg = null;
   for (const game of candidates) {
@@ -478,16 +545,21 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
       : [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(PROP_MARKETS[league] ?? [])];
     const odds = await eventOdds(game.sport_key, game.id, markets, bookKey);
     remaining = odds.remaining;
-    sg = suggestSgpLegs(filterMode(priceLegs([odds.data], bookKey), promo.markets?.length ? "all" : mode).filter((l) => marketAllowed(promo, l.market)), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
+    const narrowed = narrowLegs(s, filterMode(priceLegs([odds.data], bookKey), promo.markets?.length ? "all" : mode).filter((l) => marketAllowed(promo, l.market)));
+    if (narrowed !== "nomatch") sg = suggestSgpLegs(mustFirst(narrowed.legs, narrowed.must), Math.max(3, promo.min_legs ?? 3), game.id, promo.book!);
     if (sg) break;
     tried.push(`${game.away_team} @ ${game.home_team} (${formatStart(game.commence_time)})`);
   }
-  if (!sg) {
+  if (!sg && s.must) {
+    await send(chatId, noMatchText(s));
+  } else if (!sg) {
     const setting = mode === "all" ? "" : ` (picks are set to ${MODE_LABELS[mode]}; /settings to change)`;
-    await send(chatId, `The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to kickoff, or build an SGP and send me the slip; I'll price it.`);
+    const again = s.shown?.length ? "Nothing different left to suggest. " : "";
+    await send(chatId, `${again}The sharp sources don't price enough lines yet${setting} on: ${tried.join("; ")}. Try closer to kickoff, or build an SGP and send me the slip; I'll price it.`);
   } else {
-      await sendSgpSuggestion(chatId, sg, promo.book!);
+    await sendSgpSuggestion(chatId, sg, promo.book!);
     await logPicks([sgpRow(chatId, promo, sg)]);
+    s = await remember(chatId, s, sg.legs);
   }
   await creditsNote(chatId, remaining);
   const next: FlowState = { ...s, step: "slip" };
@@ -870,8 +942,11 @@ async function advance(chatId: number, input: string, typed = false) {
 
 Deno.serve(async (req) => {
   // A tap on a 🛒 button (a GET from the phone, no secret): log and redirect.
-  const go = req.method === "GET" ? new URL(req.url).searchParams.get("go") : null;
+  const params = new URL(req.url).searchParams;
+  const go = req.method === "GET" ? params.get("go") : null;
   if (go !== null) return followLink(go);
+  // pg_cron's sweep (no secret: it only takes buttons off games already under way).
+  if (params.get("sweep") === "1") return sweepButtons();
   if (req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) return new Response("forbidden", { status: 403 });
   const update = await req.json();
   try {

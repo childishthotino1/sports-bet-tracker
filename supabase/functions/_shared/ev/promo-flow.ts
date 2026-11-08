@@ -18,7 +18,7 @@ export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; 
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "sport" | "range" | "target" | "slip" | "fair" | "boost" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "range" | "target" | "specific" | "slip" | "fair" | "boost" | "end";
   sport?: string; // league to search for picks, e.g. "NBA", or "ALL" for every one the promo covers
   target?: OddsRange; // odds the picks should land in; unset = any price that qualifies
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
@@ -29,6 +29,8 @@ export type FlowState = {
   rangeAsked?: boolean; // the odds-range question was answered (or skipped) for this promo
   bankroll?: number; // the user's bankroll (/bankroll), for the stake on a typed-price verdict; set by the bot
   slipOffers?: SlipOffer[]; // the last slip checked, at each book that posts it: a "which book?" tap gets that book's link
+  shown?: string[]; // legs already suggested for this promo (legKey), left out by "Try something different"
+  must?: string; // "Be specific": a leg, line or game every pick has to include, as the user typed it
 };
 
 // Odds ranges offered before a search, as [min, max] American odds. The first
@@ -104,9 +106,11 @@ export function prompt(s: FlowState): Prompt {
       };
     case "action":
       return {
-        text: `${summary(s.promo)}${s.target ? `\n🎚 Target ${formatRange(s.target)}` : ""}\n\nWhat do you want to do?`,
+        text: `${summary(s.promo)}${s.target ? `\n🎚 Target ${formatRange(s.target)}` : ""}${s.must ? `\n📌 Must include: ${s.must}` : ""}\n\nWhat do you want to do?`,
         buttons: [
           [{ label: "🎯 Find the best bets", value: "picks" }],
+          ...(s.shown?.length ? [[{ label: "🔄 Try something different", value: "different" }]] : []),
+          [{ label: s.must ? "✍️ Change what to include" : "✍️ Be specific", value: "specific" }],
           [{ label: "🔍 Check a bet I'm building", value: "check" }],
           [{ label: s.target ? "🎚 Change target odds" : "🎚 Set target odds", value: "target" }, { label: "✅ Done", value: "done" }],
         ],
@@ -143,7 +147,11 @@ export function prompt(s: FlowState): Prompt {
         ],
       };
     case "slip":
-      return { text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`, buttons: [] };
+      return {
+        text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`,
+        // After SGP leg ideas: other legs, or legs built around one the user names.
+        buttons: s.shown?.length || s.must ? [[{ label: "🔄 Try something different", value: "different" }], [{ label: s.must ? "✍️ Change what to include" : "✍️ Be specific", value: "specific" }]] : [],
+      };
     case "fair":
       return {
         text: "How should I price it fairly? Pick the book's likely margin on this bet, or type a fair price (e.g. +425).",
@@ -156,6 +164,11 @@ export function prompt(s: FlowState): Prompt {
           BOOSTS.slice(0, 3).map((b) => ({ label: `${b}%`, value: String(b) })),
           [...BOOSTS.slice(3).map((b) => ({ label: `${b}%`, value: String(b) })), { label: "No boost", value: "none" }],
         ],
+      };
+    case "specific":
+      return {
+        text: "What should every pick include? Type a player, a line or a game, e.g. \"Lamar Jackson anytime TD\", \"Ravens -3.5\", \"over 220.5\" or \"Ravens game\".",
+        buttons: s.must ? [[{ label: "Clear it", value: "clear" }]] : [],
       };
     case "end":
       return { text: "👍 Send another promo or bet slip screenshot anytime.", buttons: [] };
@@ -249,7 +262,14 @@ export function step(s: FlowState, input: string): StepResult {
     }
     case "action":
       if (v === "check") return { state: { ...s, step: "slip" } };
+      if (v === "different") {
+        // The same search, leaving out the legs already shown (the bot keeps the list).
+        if (s.sport) return { state: { ...s, step: "action", rangeAsked: true }, action: "picks" };
+        return step({ ...s }, "picks");
+      }
+      if (v === "specific") return { state: { ...s, step: "specific" } };
       if (v === "picks") {
+        s = { ...s, shown: undefined }; // a fresh search shows the best bets again
         // One searchable league: go. None named ("Any event") or several: ask.
         const leagues = searchable(s.promo);
         if (s.promo.leagues.length && !leagues.length) {
@@ -262,6 +282,13 @@ export function step(s: FlowState, input: string): StepResult {
       if (v === "target") return { state: { ...s, step: "target" } };
       if (v === "done") return { state: { ...s, step: "end" } };
       return { state: s, reply: "Pick an option above." };
+    case "specific": {
+      if (["clear", "none", "any", "nothing"].includes(v.toLowerCase())) return { state: { ...s, step: "action", must: undefined } };
+      if (v.length < 2) return { state: s, reply: "Type a player, a line or a game, e.g. \"Ravens game\"." };
+      const next: FlowState = { ...s, step: "action", must: v.slice(0, 80), shown: undefined };
+      if (next.sport) return { state: { ...next, rangeAsked: true }, action: "picks" };
+      return step(next, "picks");
+    }
     case "target": {
       if (v.toLowerCase() === "any") return { state: { ...s, step: "action", target: undefined } };
       const target = parseTarget(v);
@@ -285,6 +312,7 @@ export function step(s: FlowState, input: string): StepResult {
       return done(target);
     }
     case "slip": {
+      if (v === "different" || v === "specific") return step({ ...s, step: "action" }, v);
       const odds = parseAmerican(v);
       if (odds === null) return { state: s, reply: "Send a bet slip screenshot, or a price like +350." };
       // Only the price is known here, so check the rules that don't need the legs.

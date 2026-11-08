@@ -83,7 +83,7 @@ test("button values fit Telegram's 64-byte callback_data", () => {
 
 test("Find the best bets hands the odds lookup to the bot", () => {
   const s = startFlow({ ...promo(), book: "BetMGM" });
-  assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["picks", "check", "target", "done"]);
+  assert.deepEqual(prompt(s).buttons.flat().map((b) => b.value), ["picks", "specific", "check", "target", "done"]);
   const asked = step(s, "picks");
   assert.equal(asked.state.step, "range", "the odds range first");
   assert.equal(asked.state.sport, "MLB"); // the promo's one league, no question
