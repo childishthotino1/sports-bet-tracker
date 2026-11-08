@@ -111,6 +111,8 @@ export type Score = {
   away: number;
   home_h1?: number | null;
   away_h1?: number | null;
+  home_q1?: number | null;
+  away_q1?: number | null;
 };
 
 const cmp = (x: number) => (x > 0 ? "won" : x < 0 ? "lost" : "push");
@@ -121,10 +123,11 @@ const quarterLine = (p: number) => !Number.isInteger(p * 2); // 2.25, -0.75: spl
 // score can't settle (props, corners, 1st quarter, quarter lines).
 export function gradeFromScore(leg: TrackedLeg, s: Score): Exclude<LegResult, "unknown" | "void"> | null {
   const half = leg.market.endsWith("_h1");
-  if (/_q\d$/.test(leg.market)) return null;
-  const base = leg.market.replace(/^alternate_/, "").replace(/_h1$/, "");
-  const home = half ? s.home_h1 : s.home;
-  const away = half ? s.away_h1 : s.away;
+  const q1 = leg.market.endsWith("_q1");
+  if (/_q[2-4]$/.test(leg.market)) return null;
+  const base = leg.market.replace(/^alternate_/, "").replace(/_(h1|q1)$/, "");
+  const home = half ? s.home_h1 : q1 ? s.home_q1 : s.home;
+  const away = half ? s.away_h1 : q1 ? s.away_q1 : s.away;
   if (home === null || home === undefined || away === null || away === undefined) return null;
   const side = (name: string | null): "home" | "away" | null =>
     !name ? null : sameTeam(name, s.home_team) && !sameTeam(name, s.away_team) ? "home"

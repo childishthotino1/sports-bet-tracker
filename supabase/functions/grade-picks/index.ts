@@ -1,10 +1,12 @@
 // grade-picks: grades the promo bot's logged suggestions (promo_bot_picks) once
 // their games are over, so /stats can show how the bot is doing.
 //
-// One Claude + web search call per finished game finds the final score and
-// each logged leg's result; game lines (moneyline, spread, totals, team
-// totals, 1st half, BTTS) are then graded from the score itself, props from the
-// research. A game whose result isn't found is retried on later runs, up to
+// ESPN first (results.ts): the scoreboard's final settles game lines (1st half
+// and 1st quarter too), and the game's box score settles basketball and
+// football player props. A game ESPN shows still in play waits for a later run.
+// Whatever ESPN can't settle (a game it doesn't list, 1st / last TD scorer,
+// soccer and MLB / NHL props) goes to one Claude + web search call per game.
+// A game whose result isn't found is retried on later runs, up to
 // MAX_ATTEMPTS, then its legs are marked "unknown" and their picks "ungraded".
 //
 // Runs on a schedule (pg_cron -> pg_net with the project anon key; verify_jwt
@@ -15,6 +17,9 @@ import {
   gradePrompt, legResults, parseGradeReply, settle,
   type GradeReply, type LegResult, type StoredPick, type TrackedLeg,
 } from "../_shared/ev/track.ts";
+import {
+  easternDay, espnResults, matchGame, parseBox, parseScoreboard, scoreboardUrl, summaryUrl, type EspnGame,
+} from "../_shared/ev/results.ts";
 
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -57,6 +62,41 @@ async function research(prompt: string): Promise<GradeReply | null> {
   return null;
 }
 
+// ESPN's public site API. One scoreboard per sport and day per run.
+const boards = new Map<string, Promise<EspnGame[]>>();
+async function espnJson(url: string): Promise<unknown | null> {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (promo-bot grader)" } });
+    if (!res.ok) { console.error("ESPN", res.status, url); return null; }
+    return await res.json();
+  } catch (e) {
+    console.error("ESPN", url, e);
+    return null;
+  }
+}
+function espnBoard(sportKey: string, startIso: string): Promise<EspnGame[]> {
+  const url = scoreboardUrl(sportKey, easternDay(startIso));
+  if (!url) return Promise.resolve([]);
+  if (!boards.has(url)) boards.set(url, espnJson(url).then(parseScoreboard));
+  return boards.get(url)!;
+}
+
+type Found = { result: LegResult; why: string | null } | null;
+
+// ESPN's results for a game's legs: null when ESPN doesn't list the game,
+// "wait" while it's still being played.
+async function fromEspn(g: Game, teams: { home_team: string; away_team: string }): Promise<{ results: Found[]; espn: EspnGame } | "wait" | null> {
+  if (!g.sport_key) return null;
+  const espn = matchGame(await espnBoard(g.sport_key, g.start), g.game, g.start);
+  if (!espn) return null;
+  if (espn.status === "live" || espn.status === "scheduled") return "wait";
+  const props = g.legs.some((l) => /^player_/.test(l.market));
+  const box = espn.status === "final" && props && /^(basketball|americanfootball)_/.test(g.sport_key)
+    ? parseBox(await espnJson(summaryUrl(g.sport_key, espn.id)!), g.sport_key)
+    : null;
+  return { results: espnResults(g.legs, espn, g.sport_key, teams, box), espn };
+}
+
 async function pendingPicks(): Promise<StoredPick[]> {
   const out: StoredPick[] = [];
   for (let from = 0; ; from += 1000) {
@@ -91,21 +131,37 @@ async function run() {
 
   // event_id -> leg key -> result
   const found = new Map<string, Map<string, { result: LegResult; why: string | null }>>();
+  let espnLegs = 0, researched = 0;
   const gradeGame = async (g: Game) => {
     const [away_team, home_team] = g.game.split(" @ ");
-    const reply = await research(gradePrompt(g.game, g.start, g.legs));
-    const tries = (attempts.get(g.event_id) ?? 0) + 1;
-    const results = reply ? legResults(g.legs, reply, { home_team, away_team }) : g.legs.map(() => ({ result: null, why: null }));
+    const teams = { home_team, away_team };
+    const espn = await fromEspn(g, teams);
+    if (espn === "wait") return; // still being played: a later run
+    const results: Found[] = espn ? espn.results : g.legs.map(() => null);
+    espnLegs += results.filter(Boolean).length;
+    const rest = g.legs.flatMap((l, i) => (results[i] ? [] : [i]));
+    let reply: GradeReply | null = null;
+    let tries = attempts.get(g.event_id) ?? 0;
+    if (rest.length) {
+      researched++;
+      tries++;
+      const legs = rest.map((i) => g.legs[i]);
+      reply = await research(gradePrompt(g.game, g.start, legs));
+      const r = reply ? legResults(legs, reply, teams) : legs.map(() => ({ result: null, why: null }));
+      rest.forEach((i, k) => {
+        results[i] = r[k].result ? { result: r[k].result!, why: r[k].why }
+          : tries >= MAX_ATTEMPTS ? { result: "unknown", why: r[k].why ?? `no result found after ${tries} tries` } : null;
+      });
+    }
     const byLeg = new Map<string, { result: LegResult; why: string | null }>();
-    g.legs.forEach((l, i) => {
-      const r = results[i];
-      if (r.result) byLeg.set(legKey(l), { result: r.result, why: r.why });
-      else if (tries >= MAX_ATTEMPTS) byLeg.set(legKey(l), { result: "unknown", why: r.why ?? `no result found after ${tries} tries` });
-    });
+    g.legs.forEach((l, i) => { if (results[i]) byLeg.set(legKey(l), results[i]!); });
     found.set(g.event_id, byLeg);
+    const e = espn?.espn;
     await db.from("promo_bot_games").upsert({
       event_id: g.event_id, sport_key: g.sport_key, game: g.game, start: g.start, attempts: tries,
-      status: reply?.status ?? "error", result: reply, updated_at: new Date().toISOString(),
+      status: e && !rest.length ? (e.status === "final" ? "final" : "postponed") : reply?.status ?? (e ? e.status : "error"),
+      result: { espn: e ? { id: e.id, status: e.status, home: e.home, away: e.away } : null, research: reply },
+      updated_at: new Date().toISOString(),
     });
   };
   for (let i = 0; i < queue.length; i += CONCURRENCY) await Promise.all(queue.slice(i, i + CONCURRENCY).map(gradeGame));
@@ -128,7 +184,7 @@ async function run() {
     }).eq("id", p.id);
     if (error) console.error("update pick", p.id, error.message);
   }
-  return { picks: picks.length, games: queue.length, settled };
+  return { picks: picks.length, games: queue.length, espnLegs, researched, settled };
 }
 
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;

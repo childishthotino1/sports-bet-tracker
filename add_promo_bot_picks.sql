@@ -37,7 +37,7 @@ create table if not exists promo_bot_games (
   start       timestamptz,
   attempts    integer not null default 0,
   status      text,                      -- final / not_final / postponed / not_found
-  result      jsonb,                     -- the research reply
+  result      jsonb,                     -- {espn, research}: ESPN's game and the web-research reply
   updated_at  timestamptz not null default now()
 );
 alter table promo_bot_games enable row level security;
