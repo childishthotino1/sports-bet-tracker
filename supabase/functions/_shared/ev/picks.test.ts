@@ -241,3 +241,16 @@ test("SGP games are tried best main lines first", () => {
   const score = (id: string) => suggestSgpLegs(legs, 2, id)!.legs.reduce((a, l) => a + l.edge, 0);
   assert.ok(score(order[0]) >= score(order[1]));
 });
+
+test("a promo for games on one date covers only that date's games (Eastern)", async () => {
+  const { promoCovers, normalizePromo, summary } = await import("./mod.ts");
+  const promo = normalizePromo({ title: "NBA 30% SGP(x) Boost", bet_kinds: ["sgp"], leagues: ["NBA"], game_date: "2026-11-07", expires_at: "" });
+  assert.equal(promo.game_date, "2026-11-07");
+  const now = new Date("2026-11-08T02:05:00Z"); // 9:05 PM ET on Nov 7
+  assert.equal(promoCovers(promo, "2026-11-08T02:10:00Z", now), true, "9:10 PM ET tonight");
+  assert.equal(promoCovers(promo, "2026-11-08T03:00:00Z", now), true, "10 PM ET tonight is still Nov 7 in Eastern");
+  assert.equal(promoCovers(promo, "2026-11-08T20:40:00Z", now), false, "tomorrow's game");
+  assert.equal(promoCovers(promo, "2026-11-08T01:00:00Z", now), false, "already started");
+  assert.equal(normalizePromo({ title: "x", game_date: "11/7/2026" }).game_date, null, "only YYYY-MM-DD");
+  assert.match(summary(promo), /📅 Games on Sat, Nov 7 only/);
+});

@@ -37,6 +37,7 @@ export type Promo = {
   paid_in: "cash" | "bonus" | null; // how the boosted part of the win is paid
   expires_at: string | null; // as shown, "2026-10-29T08:07" (book's local time)
   game: string | null; // the one game the promo is limited to, "Florida vs Georgia"; null for any game
+  game_date?: string | null; // "2026-11-07": only games played that day (Eastern) qualify; null for any day
   markets: string[]; // the only markets that qualify (feed keys, PROMO_MARKETS); empty = any
   notes: string | null;
 };
@@ -76,7 +77,7 @@ export const PROMO_JSON_SCHEMA = {
   additionalProperties: false,
   required: [
     "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
-    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "game", "markets", "notes",
+    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "game", "game_date", "markets", "notes",
   ],
   properties: {
     book: { type: "string" },
@@ -95,6 +96,7 @@ export const PROMO_JSON_SCHEMA = {
     paid_in: { type: "string", enum: ["cash", "bonus", "unknown"] },
     expires_at: { type: "string" },
     game: { type: "string" },
+    game_date: { type: "string" },
     markets: { type: "array", items: { type: "string", enum: PROMO_MARKETS } },
     notes: { type: "string" },
   },
@@ -114,6 +116,7 @@ export const PROMO_PROMPT = `If it's a sportsbook promotion, read its rules into
 - live / pregame: whether live and pre-game bets qualify. If the promo doesn't say, both are true.
 - paid_in: "cash" or "bonus", for how the boosted winnings are paid.
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.
+- game_date: if the rules limit it to games played on one date ("The bet can be placed on NBA on 11/7/2026", "valid on Sunday 11/9 games", "tonight's games"), that date as YYYY-MM-DD; null when games on any date qualify. Don't repeat it in notes.
 - game: if the promo is for one game only (a matchup in its title or rules, like "Florida vs. Georgia 50% Boost" or "Carolina Panthers @ Green Bay Packers"), that matchup with the team names only, as shown: "Florida vs Georgia". Null when any game qualifies. Don't repeat it in notes.
 - markets: if only certain markets qualify, those markets: a "TD Boost" or "Touchdown Boost" is ["player_anytime_td", "player_1st_td", "player_last_td"] (add only the ones it names if it names "Anytime" or "First" TD), a "Home Run Boost" is ["batter_home_runs"], a goalscorer boost ["player_goal_scorer_anytime"], a "Player Props" boost ["any_player_prop"], a moneyline boost ["h2h"]. Read it from the title too: the market a promo is named for is the market it requires. Empty when any market qualifies.
 - notes: any other rule that limits which bets qualify (a specific tournament or round); null if none. Don't repeat the markets here.
@@ -166,6 +169,7 @@ export function normalizePromo(raw: unknown): Promo {
     paid_in: r.paid_in === "cash" || r.paid_in === "bonus" ? r.paid_in : null,
     expires_at: str(r.expires_at),
     game: str(r.game),
+    game_date: typeof r.game_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.game_date.trim()) ? r.game_date.trim() : null,
     markets: list(r.markets).filter((m) => (PROMO_MARKETS as readonly string[]).includes(m)),
     notes: str(r.notes),
   };

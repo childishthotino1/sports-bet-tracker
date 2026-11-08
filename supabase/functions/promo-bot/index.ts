@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -188,6 +188,10 @@ async function sendPicks(chatId: number, s: FlowState) {
   // A promo for one game is searched in that game only. An SGPx spans games,
   // so it's out then too.
   const covered = await coveredGames(promo, leagues);
+  if (promo.game_date && !covered.length) {
+    await send(chatId, `No ${leagues.join("/")} games left on ${promo.game_date}, the only date this promo covers. Games that have started can't be priced: live lines move faster than the odds feed.`);
+    return sendPrompt(chatId, prompt(s));
+  }
   const named = promoGame(promo, covered);
   if (promo.game && !named) {
     await send(chatId, `I can't find ${promo.game} among the upcoming ${leagues.join("/")} games. If it has already started, I can't price it: live lines move faster than the odds feed.`);
@@ -418,7 +422,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
   const { promo } = s;
   const events = await coveredGames(promo, leagues);
   if (!events.length) {
-    await send(chatId, `No ${leagues.join("/")} games left that this promo covers${promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
+    await send(chatId, `No ${leagues.join("/")} games left that this promo covers${promo.game_date ? ` (games on ${promo.game_date} only)` : promo.expires_at ? ` (it runs through ${promo.expires_at})` : ""}.`);
     return sendPrompt(chatId, prompt(s));
   }
   const named = promoGame(promo, events);
@@ -528,7 +532,9 @@ async function priceSlip(chatId: number, s: FlowState) {
   // A promo for one game doesn't cover a leg from another.
   const promoEvent = promo ? promoGame(promo, events) : null;
   const otherGame = !!promoEvent && ids.some((id) => id !== promoEvent.id);
-  const c = checkSlip(slip, priced, promo, book, otherGame);
+  const byStart = new Map(events.map((e) => [e.id, e.commence_time]));
+  const offDate = !!promo?.game_date && ids.some((id) => !!id && !!byStart.get(id) && easternStamp(byStart.get(id)!).slice(0, 10) !== promo.game_date);
+  const c = checkSlip(slip, priced, promo, book, otherGame, offDate);
   // A boost is tied to its book, so line shopping only helps an unboosted slip.
   const boosted = !!slip.boost_pct || (!s.noPromo && !!s.promo.boost_pct);
   const better = boosted ? [] : betterPrices(slip, legEvents, bookKey, SHOP_BOOKS);
@@ -772,7 +778,7 @@ async function handle(update: any) {
     const fileId = (update.message.photo as { file_id: string }[]).at(-1)!.file_id;
     // A caption is instructions ("Ravens game", "props only"): the read applies it to the promo.
     const caption = stripMention(String(update.message.caption ?? ""), me) || null;
-    const read = await readImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD, "image/jpeg", caption);
+    const read = await readImage(anthropic, await photoBase64(fileId), PROMO_EXAMPLES_MD, "image/jpeg", caption, easternStamp(new Date().toISOString()).slice(0, 10));
     if (read.kind === "promo") {
       const s: FlowState = { ...startFlow(read.promo), ...(caption ? { autoRun: true } : {}) };
       await saveState(chatId, s);

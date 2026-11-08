@@ -91,7 +91,7 @@ Everything is shared by the group: one bankroll, one set of /settings, one promo
 - **Only bet ✅ +EV.** If the bot says -EV, skip it or try different legs. A boost on a bad bet is still a bad bet.
 - **Bet the stake it gives you, not more.** Even good bets lose often. The edge only shows up over many bets.
 - **Prices move.** If the slip shows a worse price than the card, send the slip screenshot and the bot reprices it.
-- **Check the boost rules** (minimum odds, number of legs, eligible games). The bot checks too, and warns you when a slip doesn't qualify.
+- **Check the boost rules** (minimum odds, number of legs, eligible games and dates). A promo for one date ("can be placed on 11/7") only gets picks from that day's games. The bot checks too, and warns you when a slip doesn't qualify.
 - **Don't expect wins every day.** Think in months, not nights. `/stats` keeps score honestly.
 
 ## 6. What it can't do

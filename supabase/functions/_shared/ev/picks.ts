@@ -202,7 +202,7 @@ export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions =
 }
 
 // Eastern wall-clock time, "YYYY-MM-DDTHH:MM", the way promo expiries are read.
-function easternStamp(iso: string): string {
+export function easternStamp(iso: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(new Date(iso));
@@ -215,8 +215,9 @@ function easternStamp(iso: string): string {
 // 10/29") covers that day's games (Eastern), not tomorrow's.
 export function promoCovers(promo: Promo, commence: string, now = new Date()): boolean {
   if (new Date(commence).getTime() <= now.getTime()) return false;
-  if (!promo.expires_at) return true;
   const start = easternStamp(commence);
+  if (promo.game_date && start.slice(0, 10) !== promo.game_date) return false;
+  if (!promo.expires_at) return true;
   return promo.expires_at.length === 10 ? start.slice(0, 10) <= promo.expires_at : start <= promo.expires_at;
 }
 

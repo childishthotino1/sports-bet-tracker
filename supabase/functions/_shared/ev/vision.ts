@@ -13,6 +13,7 @@ export async function readImage(
   examplesMd: string,
   mediaType: ImageType = "image/jpeg",
   note: string | null = null, // the user's caption, as instructions
+  today: string | null = null, // the Eastern date, YYYY-MM-DD
 ): Promise<ImageRead> {
   const res = await client.beta.messages.create({
     model: "claude-opus-5-5",
@@ -24,7 +25,7 @@ export async function readImage(
       role: "user",
       content: [
         { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
-        { type: "text", text: imagePrompt(examplesMd, note) },
+        { type: "text", text: imagePrompt(examplesMd, note, today) },
       ],
     }],
   });

@@ -446,8 +446,9 @@ const toRuleLeg = (l: SlipLeg): RuleLeg => {
 };
 
 // book: the slip's book, for its SGP rules.
-// otherGame: true when a leg isn't from the one game the promo is for.
-export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | null, book: string | null = null, otherGame = false): SlipCheck | null {
+// otherGame: true when a leg isn't from the one game the promo is for;
+// offDate: true when a leg's game isn't on the promo's game_date.
+export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | null, book: string | null = null, otherGame = false, offDate = false): SlipCheck | null {
   const missing = priced.filter((l) => l.fair === null).map((l) => l.label);
   if (missing.length) return null;
   const fairs = priced.map((l) => l.fair!);
@@ -485,6 +486,7 @@ export function checkSlip(slip: Slip, priced: PricedSlipLeg[], promo: Promo | nu
 
   const promoIssues = promo ? promoViolations(promo, { americanOdds: totalOdds, legs: slip.legs.length, kind: slip.bet_kind, league: slip.league ?? undefined }) : [];
   if (promo?.game && otherGame) promoIssues.push(`only ${promo.game} qualifies`);
+  if (promo?.game_date && offDate) promoIssues.push(`only games on ${promo.game_date} qualify`);
   if (promo && slip.legs.some((l) => !marketAllowed(promo, l.market))) promoIssues.push(`only ${marketsLabel(promo)} bets qualify`);
   const promoBoost = promo && !promoIssues.length ? (promo.boost_pct ?? 0) / 100 : 0;
   const boostSource = slip.boost_pct ? "slip" : promoBoost ? "promo" : null;

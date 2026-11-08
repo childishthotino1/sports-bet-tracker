@@ -173,8 +173,9 @@ export function summary(p: Promo): string {
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
   const game = p.game ? `\n🏟 ${p.game} only` : "";
+  const day = p.game_date ? `\n📅 Games on ${new Date(p.game_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" })} only` : "";
   const markets = p.markets?.length ? `\n🎯 ${marketsLabel(p)[0].toUpperCase()}${marketsLabel(p).slice(1)} bets only` : "";
-  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${game}${markets}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${game}${day}${markets}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
 }
 
 // The leagues a search covers: the one picked, or for "ALL" every league the
