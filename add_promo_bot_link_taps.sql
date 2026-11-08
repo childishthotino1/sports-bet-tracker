@@ -9,6 +9,7 @@ create table if not exists promo_bot_links (
   source      text not null,                 -- pick / sgp_legs / slip_offer / better_price / question
   label       text,                          -- the button's text, e.g. "🛒 Build in DraftKings"
   url         text not null,                 -- where the tap goes (the book's own link)
+  starts_at   timestamptz,                   -- the bet's first game; taps after it get a "game started" page, not the book
   created_at  timestamptz not null default now()
 );
 create index if not exists promo_bot_links_chat on promo_bot_links (chat_id, created_at desc);
@@ -23,3 +24,6 @@ create index if not exists promo_bot_link_taps_link on promo_bot_link_taps (link
 -- Only the edge functions (service role) read or write these.
 alter table promo_bot_links enable row level security;
 alter table promo_bot_link_taps enable row level security;
+
+-- Added after the first deploy (a tap minutes after tip-off opened a live bet):
+alter table promo_bot_links add column if not exists starts_at timestamptz;

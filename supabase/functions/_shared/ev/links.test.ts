@@ -180,6 +180,7 @@ test("a shared slip: the same bet at each book that posts it, best price first",
   assert.match(slipButtons("DraftKings", sgp.find((o) => o.book === "DraftKings")!.legs)[0][0].text, /Build all 2 legs/);
 
   assert.deepEqual(slipOffers(read("single", [ml]), [null], books), [], "no game, no offers");
+  assert.equal(single[0].legs[0].start, GAME.commence_time, "each leg carries its game's start, so the link can stop once it's live");
 });
 
 test("tap tracking: each 🛒 URL points at the bot under a fresh id; other buttons untouched", async () => {
@@ -196,4 +197,10 @@ test("tap tracking: each 🛒 URL points at the bot under a fresh id; other butt
   assert.match(id, LINK_ID);
   assert.notEqual(id, newLinkId());
   assert.equal(LINK_ID.test("../etc"), false);
+});
+
+test("a bet's 🛒 link expires when its first game starts", async () => {
+  const { earliestStart } = await import("./mod.ts");
+  assert.equal(earliestStart(["2026-11-09T18:00:00Z", null, "2026-11-08T03:14:00Z", "bad"]), "2026-11-08T03:14:00Z");
+  assert.equal(earliestStart([undefined, null]), null);
 });

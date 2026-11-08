@@ -57,6 +57,15 @@ export function selectionLabel(market: string, o: Outcome): string {
 
 export type PriceOptions = { sharpKeys?: string[]; now?: Date; includeStarted?: boolean };
 
+// Games starting within this many minutes count as started. Books flip a game
+// to live a few minutes before the feed's start time (BetMGM showed Spurs @
+// Blazers live at 10:13 PM for a 10:14 tip), and a pick needs time to be read,
+// tapped and placed, so a leg minutes from tip-off would be a live bet.
+export const MIN_LEAD_MINUTES = 15;
+export function startsTooSoon(commence: string, now = new Date()): boolean {
+  return new Date(commence).getTime() <= now.getTime() + MIN_LEAD_MINUTES * 60_000;
+}
+
 // Every leg the book offers that at least one sharp source prices on the same
 // line. Games that have started are skipped unless asked for: live lines from
 // two books are captured at different moments, so comparing them shows false
@@ -67,7 +76,7 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
   const legs: PricedLeg[] = [];
   const seen = new Set<string>();
   for (const ev of events) {
-    if (!includeStarted && new Date(ev.commence_time).getTime() <= now.getTime()) continue;
+    if (!includeStarted && startsTooSoon(ev.commence_time, now)) continue;
     const book = ev.bookmakers.find((b) => b.key === bookKey);
     if (!book) continue;
     for (const m of book.markets) {
@@ -210,11 +219,12 @@ export function easternStamp(iso: string): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
-// Whether a game is one the promo can still be used on: it hasn't started, and
+// Whether a game is one the promo can still be used on: it isn't about to start
+// (startsTooSoon), and
 // it starts by the promo's expiry. A date-only expiry ("all NBA games on
 // 10/29") covers that day's games (Eastern), not tomorrow's.
 export function promoCovers(promo: Promo, commence: string, now = new Date()): boolean {
-  if (new Date(commence).getTime() <= now.getTime()) return false;
+  if (startsTooSoon(commence, now)) return false;
   const start = easternStamp(commence);
   if (promo.game_date && start.slice(0, 10) !== promo.game_date) return false;
   if (!promo.expires_at) return true;

@@ -170,7 +170,10 @@ test("odds client sends the right query and reads the credit headers", async () 
 // MEM @ POR and OKC @ DAL hadn't started and Pinnacle priced both; SAC @ NOP
 // had no Pinnacle line yet; MIA @ ATL was live with BetMGM's market frozen.
 const REAL: OddsEvent[] = JSON.parse(readFileSync(new URL("./samples/nba-2026-10-29.json", import.meta.url), "utf8"));
-const PULLED = new Date("2026-10-29T01:29:30Z");
+const PULLED_AT = new Date("2026-10-29T01:29:30Z");
+// The pull was 10 minutes before OKC @ DAL tipped (01:40), inside the
+// MIN_LEAD_MINUTES cutoff; the tests that need both games run 20 minutes early.
+const PULLED = new Date("2026-10-29T01:20:00Z");
 
 test("real pull: started games are skipped, so frozen live prices aren't picked", () => {
   const legs = priceLegs(REAL, "betmgm", { now: PULLED });
@@ -178,6 +181,8 @@ test("real pull: started games are skipped, so frozen live prices aren't picked"
     "Memphis Grizzlies @ Portland Trail Blazers",
     "Oklahoma City Thunder @ Dallas Mavericks",
   ]);
+  // 10 minutes before OKC @ DAL tips, it's too late: books are about to go live.
+  assert.deepEqual([...new Set(priceLegs(REAL, "betmgm", { now: PULLED_AT }).map((l) => l.game))], ["Memphis Grizzlies @ Portland Trail Blazers"]);
   // After tip-off, nothing from that game is priced.
   assert.equal(priceLegs(REAL, "betmgm", { now: new Date("2026-10-30T03:00:00Z") }).length, 0);
 });
@@ -247,7 +252,8 @@ test("a promo for games on one date covers only that date's games (Eastern)", as
   const promo = normalizePromo({ title: "NBA 30% SGP(x) Boost", bet_kinds: ["sgp"], leagues: ["NBA"], game_date: "2026-11-07", expires_at: "" });
   assert.equal(promo.game_date, "2026-11-07");
   const now = new Date("2026-11-08T02:05:00Z"); // 9:05 PM ET on Nov 7
-  assert.equal(promoCovers(promo, "2026-11-08T02:10:00Z", now), true, "9:10 PM ET tonight");
+  assert.equal(promoCovers(promo, "2026-11-08T02:30:00Z", now), true, "9:30 PM ET tonight");
+  assert.equal(promoCovers(promo, "2026-11-08T02:10:00Z", now), false, "9:10 PM ET tips in 5 minutes: too late to bet pregame");
   assert.equal(promoCovers(promo, "2026-11-08T03:00:00Z", now), true, "10 PM ET tonight is still Nov 7 in Eastern");
   assert.equal(promoCovers(promo, "2026-11-08T20:40:00Z", now), false, "tomorrow's game");
   assert.equal(promoCovers(promo, "2026-11-08T01:00:00Z", now), false, "already started");

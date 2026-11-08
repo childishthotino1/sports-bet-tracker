@@ -409,7 +409,7 @@ export function betterPrices(
 // "which book?" and hand back a link that puts it in that book's slip. A book
 // is offered only when it posts every leg. odds is the legs multiplied (null on
 // an SGP: the book's SGP price includes its correlation, which the feed lacks).
-export type SlipOffer = { key: string; book: string; odds: number | null; legs: { selection: string; link: string | null; eventLink: string | null }[] };
+export type SlipOffer = { key: string; book: string; odds: number | null; legs: { selection: string; link: string | null; eventLink: string | null; start?: string | null }[] };
 
 export function slipOffers(slip: Slip, legEvents: (OddsEvent | null)[], books: Record<string, string>): SlipOffer[] {
   const out: SlipOffer[] = [];
@@ -421,7 +421,7 @@ export function slipOffers(slip: Slip, legEvents: (OddsEvent | null)[], books: R
       const o = bm ? locate(bm.markets, leg)?.outcome : undefined;
       if (!o) break;
       decimal *= americanToDecimal(o.price);
-      legs.push({ selection: legLabel(leg), link: o.link ?? null, eventLink: bm?.link ?? null });
+      legs.push({ selection: legLabel(leg), link: o.link ?? null, eventLink: bm?.link ?? null, start: legEvents[i]?.commence_time ?? null });
     }
     if (legs.length < slip.legs.length || !legs.some((l) => l.link || l.eventLink)) continue;
     out.push({ key, book, odds: slip.bet_kind === "sgp" ? null : Math.round(decimalToAmerican(decimal)), legs });

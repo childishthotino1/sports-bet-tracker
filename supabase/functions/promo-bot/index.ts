@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, trackButtons, LINK_ID, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, trackButtons, LINK_ID, earliestStart, startsTooSoon, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -65,10 +65,10 @@ const BOOK_STATE_ENV = Deno.env.get("PROMO_BOOK_STATE")?.trim().toLowerCase() ||
 // redirects to the book's link (trackButtons in links.ts, promo_bot_links).
 const FUNCTION_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/promo-bot`;
 type LinkSource = "pick" | "sgp_legs" | "slip_offer" | "better_price" | "question";
-async function tracked(chatId: number, rows: LinkButton[][], source: LinkSource): Promise<LinkButton[][]> {
+async function tracked(chatId: number, rows: LinkButton[][], source: LinkSource, startsAt: string | null): Promise<LinkButton[][]> {
   const t = trackButtons(rows, FUNCTION_URL);
   if (!t.links.length) return rows;
-  const { error } = await db.from("promo_bot_links").insert(t.links.map((l) => ({ ...l, chat_id: String(chatId), source })));
+  const { error } = await db.from("promo_bot_links").insert(t.links.map((l) => ({ ...l, chat_id: String(chatId), source, starts_at: startsAt })));
   if (error) {
     console.error("promo_bot_links", error.message);
     return rows; // untracked beats broken: the book's own links
@@ -76,11 +76,18 @@ async function tracked(chatId: number, rows: LinkButton[][], source: LinkSource)
   return t.rows;
 }
 
-// A tap on a 🛒 button: log it and send the phone on to the book's link.
+// A tap on a 🛒 button: log it and send the phone on to the book's link. Once
+// the bet's first game has started the link stops: the bet would be live, and
+// the bot never suggests live bets.
 async function followLink(id: string): Promise<Response> {
   if (!LINK_ID.test(id)) return new Response("Not found", { status: 404 });
-  const { data } = await db.from("promo_bot_links").select("url").eq("id", id).maybeSingle();
+  const { data } = await db.from("promo_bot_links").select("url, starts_at").eq("id", id).maybeSingle();
   if (!data?.url) return new Response("This link has expired. Ask the bot again.", { status: 404 });
+  if (data.starts_at && new Date(data.starts_at).getTime() <= Date.now()) {
+    const at = new Date(data.starts_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" });
+    const page = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Game started</title><body style="font:17px/1.5 system-ui,sans-serif;margin:2rem;max-width:30rem">⏱ This bet's game started (${at} ET), so it would be a live bet now. The bot only prices bets before the game. Ask it for fresh picks.</body>`;
+    return new Response(page, { status: 410, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  }
   const { error } = await db.from("promo_bot_link_taps").insert({ link_id: id });
   if (error) console.error("promo_bot_link_taps", error.message);
   return new Response(null, { status: 302, headers: { Location: data.url, "Cache-Control": "no-store" } });
@@ -89,9 +96,9 @@ async function followLink(id: string): Promise<Response> {
 // A message with 🛒 URL buttons (links.ts). No buttons: sent exactly as before.
 // If Telegram turns the buttons down (a URL it won't take), the message still
 // goes out without them.
-async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][], source: LinkSource) {
+async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][], source: LinkSource, starts: (string | null | undefined)[] = []) {
   if (!rows.length) return send(chatId, text);
-  rows = await tracked(chatId, rows, source);
+  rows = await tracked(chatId, rows, source, earliestStart(starts));
   const r = await tg("sendMessage", { chat_id: chatId, text, reply_markup: { inline_keyboard: rows } });
   if (r?.ok === false) {
     console.error("buttons refused", r.description);
@@ -306,7 +313,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       maxStake: promo.max_stake,
       bankroll,
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
-    }).text, ...cautions].join("\n\n"), slipButtons(promo.book!, p.legs, { state: BOOK_STATE_ENV }), "pick");
+    }).text, ...cautions].join("\n\n"), slipButtons(promo.book!, p.legs, { state: BOOK_STATE_ENV }), "pick", p.legs.map((l) => l.start));
   }
   await logPicks(rows);
 }
@@ -344,7 +351,7 @@ function sendSgpSuggestion(chatId: number, sg: NonNullable<ReturnType<typeof sug
   const rows = slipButtons(book, sg.legs, { state: BOOK_STATE_ENV });
   const text = formatSgpSuggestion(sg, book);
   const hint = rows.length === 1 && rows[0][0].text.startsWith("🛒 Build all") ? SGP_ALL_HINT : SGP_BUTTON_HINT;
-  return sendWithButtons(chatId, rows.length ? `${text}\n\n${hint}` : text, rows, "sgp_legs");
+  return sendWithButtons(chatId, rows.length ? `${text}\n\n${hint}` : text, rows, "sgp_legs", sg.legs.map((l) => l.start));
 }
 
 // Every suggestion so far, paged past Supabase's 1000-row cap.
@@ -509,7 +516,7 @@ async function sendOfferLink(chatId: number, key: string) {
   const price = offer.odds !== null ? ` (${formatAmerican(offer.odds)} there)` : "";
   const hint = offer.legs.length === 1 ? "Tap to put it in the slip." : all ? "One tap puts every leg in the slip." : "Tap each leg to add it to the slip.";
   const sgp = offer.odds === null && offer.legs.length > 1 ? " If it shows as a regular parlay, switch it to SGP / Same Game Parlay." : "";
-  return sendWithButtons(chatId, `🛒 ${offer.book}${price}: ${hint}${sgp} Check the price in the slip before you place it.`, rows, "slip_offer");
+  return sendWithButtons(chatId, `🛒 ${offer.book}${price}: ${hint}${sgp} Check the price in the slip before you place it.`, rows, "slip_offer", offer.legs.map((l) => l.start));
 }
 
 async function priceSlip(chatId: number, s: FlowState) {
@@ -581,7 +588,7 @@ async function priceSlip(chatId: number, s: FlowState) {
       ? ((americanToDecimal(slip.boosted_odds) - 1) / (americanToDecimal(slip.total_odds) - 1) - 1) * 100
       : slip.boost_pct;
     const typing: FlowState = { ...done, promo: { ...done.promo, book, ...(slipBoost ? { boost_pct: slipBoost } : {}) }, step: "slip", legs: slip.legs.length };
-    if (shopNote) await sendWithButtons(chatId, shopNote, shopRows, "better_price");
+    if (shopNote) await sendWithButtons(chatId, shopNote, shopRows, "better_price", legEvents.map((e) => e?.commence_time));
     if (offers.length) {
       typing.slipOffers = offers;
       await sendOffers(chatId, offers);
@@ -617,7 +624,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   const { bankroll } = await loadSettings(chatId);
   await send(chatId, [formatSlipCheck(slip, book, c, promo, bankroll ?? null), exposure].filter(Boolean).join("\n\n"));
   await logPicks([row]);
-  if (shopNote) await sendWithButtons(chatId, shopNote, shopRows, "better_price");
+  if (shopNote) await sendWithButtons(chatId, shopNote, shopRows, "better_price", legEvents.map((e) => e?.commence_time));
   await creditsNote(chatId, remaining);
   if (offers.length) {
     await saveState(chatId, { ...done, slipOffers: offers });
@@ -638,7 +645,7 @@ const QUESTION_BOOKS = SHOP_BOOKS;
 async function answerTeasers(chatId: number) {
   await send(chatId, "🔎 Checking this week's NFL spreads for Wong teaser legs…");
   const { data, remaining } = await getOdds(ODDS_API_KEY, SPORT_KEYS.NFL, { markets: ["spreads"], bookmakers: ["pinnacle", ...Object.keys(QUESTION_BOOKS)] });
-  const upcoming = data.filter((e) => new Date(e.commence_time).getTime() > Date.now());
+  const upcoming = data.filter((e) => !startsTooSoon(e.commence_time));
   await send(chatId, formatWongSlate(upcoming));
   await creditsNote(chatId, remaining);
 }
@@ -650,9 +657,8 @@ async function answerTeasers(chatId: number) {
 // limit the promo to it, and find the picks. False when the text names no game.
 async function focusPromo(chatId: number, s: FlowState, text: string): Promise<boolean> {
   const leagues = leaguesToSearch({ ...s, sport: s.sport ?? "ALL" });
-  const now = Date.now();
   const lists = await Promise.all(leagues.map((l) => getEvents(ODDS_API_KEY, SPORT_KEYS[l]).catch(() => [])));
-  const events = lists.flat().filter((e) => new Date(e.commence_time).getTime() > now)
+  const events = lists.flat().filter((e) => !startsTooSoon(e.commence_time))
     .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
   const game = findEvent(events, [expandTeamAliases(text)]);
   if (!game) return false;
@@ -671,13 +677,12 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
     await answerTeasers(chatId);
     return true;
   }
-  const now = Date.now();
   // A league named in the question ("ncaaf") narrows the search; otherwise every league.
   const named = questionLeagues(text).filter((l) => SPORT_KEYS[l]);
   const keys = named.length ? named.map((l) => SPORT_KEYS[l]) : Object.values(SPORT_KEYS);
   const lists = await Promise.all(keys.map((k) => getEvents(ODDS_API_KEY, k).catch(() => [])));
   const events = lists.flat()
-    .filter((e) => new Date(e.commence_time).getTime() > now)
+    .filter((e) => !startsTooSoon(e.commence_time))
     .sort((a, b) => a.commence_time.localeCompare(b.commence_time));
   const game = findEvent(events, [expandTeamAliases(text)]);
   if (!game) return false;
@@ -700,7 +705,7 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   const shopped = filterMode(shopLegs(data, books), mode);
   // 🛒 for the top +EV lines (the ones the answer marks ✅), each at its own book.
   const plus = shopped.slice(0, 6).filter((l) => l.edge > 0);
-  await sendWithButtons(chatId, formatShop(data, shopped), shopButtons(plus, { state: BOOK_STATE_ENV }), "question");
+  await sendWithButtons(chatId, formatShop(data, shopped), shopButtons(plus, { state: BOOK_STATE_ENV }), "question", [game.commence_time]);
   // The ✅ lines (better than fair as is) are the suggestions; log each as a single.
   await logPicks(shopped.slice(0, 6).filter((l) => l.edge > 0).map((l) => pickRow({
     chat_id: String(chatId), source: "question", book: l.book, league, kind: "single", promo_title: null, boost_pct: 0,

@@ -166,3 +166,10 @@ export function trackButtons(rows: LinkButton[][], functionUrl: string, newId: (
   }));
   return { rows: out, links };
 }
+
+// When the first of a bet's games starts (ISO), or null if none is known. A 🛒
+// link stops opening the book at that moment: past it the bet would be live.
+export function earliestStart(starts: (string | null | undefined)[]): string | null {
+  const known = starts.filter((s): s is string => !!s && !Number.isNaN(new Date(s).getTime())).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+  return known[0] ?? null;
+}
