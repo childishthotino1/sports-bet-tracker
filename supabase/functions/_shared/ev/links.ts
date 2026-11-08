@@ -134,3 +134,35 @@ export function shopButtons(legs: (LinkedLeg & { book: string })[], opts: Button
     return url ? [[{ text: clip(`🛒 ${l.selection} @ ${l.book}`, 56), url }]] : [];
   }).slice(0, max);
 }
+
+// ── Tap tracking ────────────────────────────────────────────
+// Telegram doesn't tell a bot when a URL button is tapped, so each 🛒 button
+// points at the bot (promo-bot?go=<id>), which logs the tap and redirects to the
+// book's link, stored under that id (promo_bot_links).
+
+const ID_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+export const LINK_ID = /^[A-Za-z0-9]{10}$/;
+
+// A random 10-character id: about 58 bits, so ids can't be guessed.
+export function newLinkId(random: (n: number) => Uint8Array = (n) => crypto.getRandomValues(new Uint8Array(n))): string {
+  return [...random(10)].map((b) => ID_CHARS[b % ID_CHARS.length]).join("");
+}
+
+export function trackedUrl(functionUrl: string, id: string): string {
+  return `${functionUrl}?go=${id}`;
+}
+
+// The buttons with each URL swapped for a tracked one, and the rows to store.
+export function trackButtons(rows: LinkButton[][], functionUrl: string, newId: () => string = () => newLinkId()): {
+  rows: LinkButton[][];
+  links: { id: string; label: string; url: string }[];
+} {
+  const links: { id: string; label: string; url: string }[] = [];
+  const out = rows.map((row) => row.map((b) => {
+    if (!usable(b.url)) return b;
+    const id = newId();
+    links.push({ id, label: b.text, url: b.url });
+    return { ...b, url: trackedUrl(functionUrl, id) };
+  }));
+  return { rows: out, links };
+}

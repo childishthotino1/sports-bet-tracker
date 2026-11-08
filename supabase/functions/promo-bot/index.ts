@@ -13,7 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, trackButtons, LINK_ID, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
@@ -61,11 +61,37 @@ function send(chatId: number, text: string) {
 // The book's state for BetMGM's {state} links (links.ts); Maryland unless set.
 const BOOK_STATE_ENV = Deno.env.get("PROMO_BOOK_STATE")?.trim().toLowerCase() || BOOK_STATE;
 
+// Each 🛒 button points at this function (?go=<id>), which logs the tap and
+// redirects to the book's link (trackButtons in links.ts, promo_bot_links).
+const FUNCTION_URL = `${Deno.env.get("SUPABASE_URL")}/functions/v1/promo-bot`;
+type LinkSource = "pick" | "sgp_legs" | "slip_offer" | "better_price" | "question";
+async function tracked(chatId: number, rows: LinkButton[][], source: LinkSource): Promise<LinkButton[][]> {
+  const t = trackButtons(rows, FUNCTION_URL);
+  if (!t.links.length) return rows;
+  const { error } = await db.from("promo_bot_links").insert(t.links.map((l) => ({ ...l, chat_id: String(chatId), source })));
+  if (error) {
+    console.error("promo_bot_links", error.message);
+    return rows; // untracked beats broken: the book's own links
+  }
+  return t.rows;
+}
+
+// A tap on a 🛒 button: log it and send the phone on to the book's link.
+async function followLink(id: string): Promise<Response> {
+  if (!LINK_ID.test(id)) return new Response("Not found", { status: 404 });
+  const { data } = await db.from("promo_bot_links").select("url").eq("id", id).maybeSingle();
+  if (!data?.url) return new Response("This link has expired. Ask the bot again.", { status: 404 });
+  const { error } = await db.from("promo_bot_link_taps").insert({ link_id: id });
+  if (error) console.error("promo_bot_link_taps", error.message);
+  return new Response(null, { status: 302, headers: { Location: data.url, "Cache-Control": "no-store" } });
+}
+
 // A message with 🛒 URL buttons (links.ts). No buttons: sent exactly as before.
 // If Telegram turns the buttons down (a URL it won't take), the message still
 // goes out without them.
-async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][]) {
+async function sendWithButtons(chatId: number, text: string, rows: LinkButton[][], source: LinkSource) {
   if (!rows.length) return send(chatId, text);
+  rows = await tracked(chatId, rows, source);
   const r = await tg("sendMessage", { chat_id: chatId, text, reply_markup: { inline_keyboard: rows } });
   if (r?.ok === false) {
     console.error("buttons refused", r.description);
@@ -280,7 +306,7 @@ async function sendCards(chatId: number, s: FlowState, picks: ReturnType<typeof 
       maxStake: promo.max_stake,
       bankroll,
       kindLabel: p.kind === "sgp" ? `${p.legs.length}-leg ${SGPX_NAME[promo.book!] ?? "SGPx"}, one leg per game` : undefined,
-    }).text, ...cautions].join("\n\n"), slipButtons(promo.book!, p.legs, { state: BOOK_STATE_ENV }));
+    }).text, ...cautions].join("\n\n"), slipButtons(promo.book!, p.legs, { state: BOOK_STATE_ENV }), "pick");
   }
   await logPicks(rows);
 }
@@ -318,7 +344,7 @@ function sendSgpSuggestion(chatId: number, sg: NonNullable<ReturnType<typeof sug
   const rows = slipButtons(book, sg.legs, { state: BOOK_STATE_ENV });
   const text = formatSgpSuggestion(sg, book);
   const hint = rows.length === 1 && rows[0][0].text.startsWith("🛒 Build all") ? SGP_ALL_HINT : SGP_BUTTON_HINT;
-  return sendWithButtons(chatId, rows.length ? `${text}\n\n${hint}` : text, rows);
+  return sendWithButtons(chatId, rows.length ? `${text}\n\n${hint}` : text, rows, "sgp_legs");
 }
 
 // Every suggestion so far, paged past Supabase's 1000-row cap.
@@ -483,7 +509,7 @@ async function sendOfferLink(chatId: number, key: string) {
   const price = offer.odds !== null ? ` (${formatAmerican(offer.odds)} there)` : "";
   const hint = offer.legs.length === 1 ? "Tap to put it in the slip." : all ? "One tap puts every leg in the slip." : "Tap each leg to add it to the slip.";
   const sgp = offer.odds === null && offer.legs.length > 1 ? " If it shows as a regular parlay, switch it to SGP / Same Game Parlay." : "";
-  return sendWithButtons(chatId, `🛒 ${offer.book}${price}: ${hint}${sgp} Check the price in the slip before you place it.`, rows);
+  return sendWithButtons(chatId, `🛒 ${offer.book}${price}: ${hint}${sgp} Check the price in the slip before you place it.`, rows, "slip_offer");
 }
 
 async function priceSlip(chatId: number, s: FlowState) {
@@ -555,7 +581,7 @@ async function priceSlip(chatId: number, s: FlowState) {
       ? ((americanToDecimal(slip.boosted_odds) - 1) / (americanToDecimal(slip.total_odds) - 1) - 1) * 100
       : slip.boost_pct;
     const typing: FlowState = { ...done, promo: { ...done.promo, book, ...(slipBoost ? { boost_pct: slipBoost } : {}) }, step: "slip", legs: slip.legs.length };
-    if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
+    if (shopNote) await sendWithButtons(chatId, shopNote, shopRows, "better_price");
     if (offers.length) {
       typing.slipOffers = offers;
       await sendOffers(chatId, offers);
@@ -591,7 +617,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   const { bankroll } = await loadSettings(chatId);
   await send(chatId, [formatSlipCheck(slip, book, c, promo, bankroll ?? null), exposure].filter(Boolean).join("\n\n"));
   await logPicks([row]);
-  if (shopNote) await sendWithButtons(chatId, shopNote, shopRows);
+  if (shopNote) await sendWithButtons(chatId, shopNote, shopRows, "better_price");
   await creditsNote(chatId, remaining);
   if (offers.length) {
     await saveState(chatId, { ...done, slipOffers: offers });
@@ -674,7 +700,7 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   const shopped = filterMode(shopLegs(data, books), mode);
   // 🛒 for the top +EV lines (the ones the answer marks ✅), each at its own book.
   const plus = shopped.slice(0, 6).filter((l) => l.edge > 0);
-  await sendWithButtons(chatId, formatShop(data, shopped), shopButtons(plus, { state: BOOK_STATE_ENV }));
+  await sendWithButtons(chatId, formatShop(data, shopped), shopButtons(plus, { state: BOOK_STATE_ENV }), "question");
   // The ✅ lines (better than fair as is) are the suggestions; log each as a single.
   await logPicks(shopped.slice(0, 6).filter((l) => l.edge > 0).map((l) => pickRow({
     chat_id: String(chatId), source: "question", book: l.book, league, kind: "single", promo_title: null, boost_pct: 0,
@@ -838,6 +864,9 @@ async function advance(chatId: number, input: string, typed = false) {
 }
 
 Deno.serve(async (req) => {
+  // A tap on a 🛒 button (a GET from the phone, no secret): log and redirect.
+  const go = req.method === "GET" ? new URL(req.url).searchParams.get("go") : null;
+  if (go !== null) return followLink(go);
   if (req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) return new Response("forbidden", { status: 403 });
   const update = await req.json();
   try {

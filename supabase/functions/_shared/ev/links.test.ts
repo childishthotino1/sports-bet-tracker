@@ -181,3 +181,19 @@ test("a shared slip: the same bet at each book that posts it, best price first",
 
   assert.deepEqual(slipOffers(read("single", [ml]), [null], books), [], "no game, no offers");
 });
+
+test("tap tracking: each 🛒 URL points at the bot under a fresh id; other buttons untouched", async () => {
+  const { trackButtons, newLinkId, LINK_ID } = await import("./mod.ts");
+  let n = 0;
+  const ids = ["AAAAAAAAA1", "AAAAAAAAA2"];
+  const rows = [[{ text: "🛒 Build in DraftKings", url: DK }], [{ text: "📍 Open game", url: DK_GAME }]];
+  const t = trackButtons(rows, "https://x.supabase.co/functions/v1/promo-bot", () => ids[n++]);
+  assert.deepEqual(t.rows, [[{ text: "🛒 Build in DraftKings", url: "https://x.supabase.co/functions/v1/promo-bot?go=AAAAAAAAA1" }],
+    [{ text: "📍 Open game", url: "https://x.supabase.co/functions/v1/promo-bot?go=AAAAAAAAA2" }]]);
+  assert.deepEqual(t.links.map((l) => [l.id, l.url]), [["AAAAAAAAA1", DK], ["AAAAAAAAA2", DK_GAME]]);
+  assert.deepEqual(trackButtons([], "u").links, []);
+  const id = newLinkId();
+  assert.match(id, LINK_ID);
+  assert.notEqual(id, newLinkId());
+  assert.equal(LINK_ID.test("../etc"), false);
+});
