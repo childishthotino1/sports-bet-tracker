@@ -14,7 +14,7 @@ import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
   allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, LINK_ID, earliestStart, startsTooSoon, legKey, matchMust, type MustMatch, type PricedLeg, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
-  formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs,
+  formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, MIN_LEAD_MINUTES,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type Promo, type Prompt,
   formatStats, parseStatsArgs, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
@@ -271,9 +271,15 @@ async function sendPicks(chatId: number, s: FlowState) {
     await send(chatId, `No ${leagues.join("/")} games left on ${promo.game_date}, the only date this promo covers. Games that have started can't be priced: live lines move faster than the odds feed.`);
     return sendPrompt(chatId, prompt(s));
   }
-  const named = promoGame(promo, covered);
+  // The promo's game, or, if its name for it doesn't match, the game a "Be specific" names.
+  const named = promoGame(promo, covered) ?? (promo.game && s.must ? findEvent(covered, [expandTeamAliases(s.must)]) : null);
   if (promo.game && !named) {
-    await send(chatId, `I can't find ${promo.game} among the upcoming ${leagues.join("/")} games. If it has already started, I can't price it: live lines move faster than the odds feed.`);
+    // Say why: the game starts inside the cutoff (or has started), or it isn't on the schedule.
+    const all = (await Promise.all(leagues.map((l) => getEvents(ODDS_API_KEY, SPORT_KEYS[l]).catch(() => [])))).flat();
+    const game = promoGame(promo, all) ?? (s.must ? findEvent(all, [expandTeamAliases(s.must)]) : null);
+    await send(chatId, game
+      ? `${game.away_team} @ ${game.home_team} ${new Date(game.commence_time).getTime() <= Date.now() ? "has started" : `starts at ${formatStart(game.commence_time)}`}, so it's too close to price: I stop ${MIN_LEAD_MINUTES} minutes before kickoff, when books start taking it live and live lines move faster than the odds feed.`
+      : `I can't find ${promo.game} among the upcoming ${leagues.join("/")} games. Tap ✍️ Be specific and type the teams (e.g. "Bucs Bears") if I misread them.`);
     return sendPrompt(chatId, prompt(s));
   }
   const sgpx = sgpOnly && covered.length > 0 && !named && allowsSgpx(promo);
@@ -431,7 +437,7 @@ async function loadPicks(chatId: number | null): Promise<StoredPick[]> {
 // saved before `game` was read, a matchup named in its notes or title.
 function promoGame<E extends Pick<OddsEvent, "id" | "home_team" | "away_team" | "commence_time">>(promo: Promo, events: E[]): E | null {
   if (promo.game === undefined) return findEvent(events, [promo.notes, promo.title]);
-  return promo.game ? findEvent(events, [promo.game]) : null;
+  return promo.game ? findEvent(events, [expandTeamAliases(promo.game)]) : null;
 }
 
 // A promo for one game: everything the feed has on that game in one call (main

@@ -9,6 +9,7 @@
 // margin the book adds to SGPs, so the result says how big that margin can be
 // before the bet turns -EV.
 
+import { expandTeamAliases } from "./question.ts";
 import { americanToDecimal, decimalToAmerican, formatAmerican, formatPct, impliedProb, probToAmerican } from "./odds.ts";
 import { worstCaseDevig } from "./devig.ts";
 import { evaluateBet, wagerLine, type BetEval } from "./bet.ts";
@@ -557,7 +558,7 @@ export function legEventIds<E extends EventRef>(slip: Slip, events: E[], now = n
   const whole = findEvent(events, slipNames(slip), now);
   return slip.legs.map((leg) => {
     const teams = leg.market === "h2h" || leg.market === "spreads" ? [leg.side, leg.team_or_player, leg.team] : [leg.team];
-    const own = (leg.game ? findEvent(events, [leg.game], now) : null) ?? findEvent(events, teams, now);
+    const own = (leg.game ? findEvent(events, [expandTeamAliases(leg.game)], now) : null) ?? findEvent(events, teams, now);
     return (own ?? (slip.bet_kind === "parlay" ? null : whole))?.id ?? null;
   });
 }

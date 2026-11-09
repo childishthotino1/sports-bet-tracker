@@ -82,7 +82,44 @@ const TEAM_ALIASES: [RegExp, string][] = [
   [/\bbarca\b/gi, "Barcelona"],
   [/\b(psg|paris sg)\b/gi, "Paris Saint Germain"],
   [/\binter miami\b/gi, "Inter Miami CF"],
+  // NFL nicknames the feed spells out.
+  [/\bbucs\b/gi, "Buccaneers"],
+  [/\bniners\b/gi, "49ers"],
+  [/\bpats\b/gi, "Patriots"],
+  [/\bjags\b/gi, "Jaguars"],
+  [/\bphins\b/gi, "Dolphins"],
+  [/\b(commies|commish)\b/gi, "Commanders"],
 ];
+// Team abbreviations, as promos and slips print them ("TB vs CHI"), to the
+// city or school the feed's team names start with ("Tampa Bay", "Chicago"), so
+// the usual matching finds the game. NFL, NBA and NHL; where two teams share a
+// city the abbreviation keeps the nickname (NYG, LAL). Abbreviations that are
+// also common words (NO, WAS, MIN, CAR...) count only in capitals.
+const ABBREVIATIONS: Record<string, string> = {
+  ARI: "Arizona", ATL: "Atlanta", BAL: "Baltimore", BUF: "Buffalo", CAR: "Carolina", CHI: "Chicago", CIN: "Cincinnati",
+  CLE: "Cleveland", DAL: "Dallas", DEN: "Denver", DET: "Detroit", GB: "Green Bay", HOU: "Houston", IND: "Indianapolis",
+  JAX: "Jacksonville", JAC: "Jacksonville", KC: "Kansas City", LV: "Las Vegas", LAC: "Los Angeles Chargers",
+  LAR: "Los Angeles Rams", MIA: "Miami", MIN: "Minnesota", NE: "New England", NO: "New Orleans", NYG: "New York Giants",
+  NYJ: "New York Jets", PHI: "Philadelphia", PIT: "Pittsburgh", SF: "San Francisco", SEA: "Seattle", TB: "Tampa Bay",
+  TEN: "Tennessee", WAS: "Washington", WSH: "Washington",
+  BKN: "Brooklyn", BRK: "Brooklyn", BOS: "Boston", CHA: "Charlotte", GSW: "Golden State", GS: "Golden State",
+  LAL: "Los Angeles Lakers", MEM: "Memphis", MIL: "Milwaukee", NOP: "New Orleans", NYK: "New York Knicks",
+  OKC: "Oklahoma City", ORL: "Orlando", PHX: "Phoenix", POR: "Portland", SAC: "Sacramento", SAS: "San Antonio",
+  TOR: "Toronto", UTA: "Utah", UTAH: "Utah",
+  CBJ: "Columbus", NJD: "New Jersey", NYR: "New York Rangers", NYI: "New York Islanders", VGK: "Vegas", TBL: "Tampa Bay",
+  LAK: "Los Angeles Kings", SJS: "San Jose", STL: "St Louis", WPG: "Winnipeg", VAN: "Vancouver", CGY: "Calgary",
+  EDM: "Edmonton", MTL: "Montreal", OTT: "Ottawa", NSH: "Nashville", COL: "Colorado", FLA: "Florida",
+};
+const WORDLIKE = new Set(["NO", "WAS", "MIN", "CAR", "SEA", "TEN", "DEN", "IND", "MIA", "COL", "BOS", "MEM", "GS", "NE", "SF", "TOR", "VAN", "OTT", "CHA", "MIL", "UTAH", "STL", "POR"]);
+function expandAbbreviations(text: string): string {
+  return text.replace(/\b[A-Za-z]{2,4}\b/g, (w) => {
+    const up = w.toUpperCase();
+    const full = ABBREVIATIONS[up];
+    if (!full) return w;
+    return WORDLIKE.has(up) && w !== up ? w : full;
+  });
+}
+
 export function expandTeamAliases(text: string): string {
-  return TEAM_ALIASES.reduce((t, [re, name]) => t.replace(re, name), text);
+  return expandAbbreviations(TEAM_ALIASES.reduce((t, [re, name]) => t.replace(re, name), text));
 }

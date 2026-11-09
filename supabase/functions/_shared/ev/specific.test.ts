@@ -65,3 +65,25 @@ test("Try something different and Be specific in the promo flow", () => {
   assert.equal(step(waiting, "different").action, "picks");
   assert.equal(step(waiting, "specific").state.step, "specific");
 });
+
+// "TB vs CHI Pro Football SGP Profit Boost" (DraftKings, 2026-11-08): the bot read
+// the game as "TB vs CHI" and couldn't match it; "Bucs" in a Be specific didn't
+// match either.
+test("team abbreviations and nicknames find the game", async () => {
+  const { findEvent, expandTeamAliases } = await import("./mod.ts");
+  const ev = [
+    { id: "tbchi", home_team: "Chicago Bears", away_team: "Tampa Bay Buccaneers", commence_time: "2026-11-09T01:20:00Z" },
+    { id: "phigb", home_team: "Green Bay Packers", away_team: "Philadelphia Eagles", commence_time: "2026-11-10T01:15:00Z" },
+    { id: "nolar", home_team: "Los Angeles Rams", away_team: "New Orleans Saints", commence_time: "2026-11-09T21:05:00Z" },
+  ];
+  const find = (t: string) => findEvent(ev, [expandTeamAliases(t)], new Date("2026-11-09T00:50:00Z"))?.id ?? null;
+  assert.equal(find("TB vs CHI"), "tbchi");
+  assert.equal(find("tb @ chi"), "tbchi", "lower case too");
+  assert.equal(find("Chicago bears and Tampa bay Bucs game"), "tbchi");
+  assert.equal(find("PHI @ GB"), "phigb");
+  assert.equal(find("NO @ LAR"), "nolar");
+  assert.equal(expandTeamAliases("no boost on the car"), "no boost on the car", "common words stay words in lower case");
+  const legs = [{ eventId: "tbchi", game: "Tampa Bay Buccaneers @ Chicago Bears", market: "h2h", selection: "Chicago Bears ML", side: "Chicago Bears" }] as any;
+  assert.equal(matchMust(legs, "Chicago bears and Tampa bay Bucs game")?.game, true);
+  assert.deepEqual(legs.filter(matchMust(legs, "CHI ML")!.match).map((l: any) => l.selection), ["Chicago Bears ML"]);
+});
