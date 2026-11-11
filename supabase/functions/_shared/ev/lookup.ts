@@ -48,7 +48,7 @@ const STATS: [RegExp, string, Partial<Record<Family, string[]>>][] = [
 ];
 
 type Family = "football" | "basketball" | "baseball" | "hockey" | "soccer";
-export function family(sportKey: string): Family {
+export function sportFamily(sportKey: string): Family {
   if (sportKey.startsWith("americanfootball")) return "football";
   if (sportKey.startsWith("basketball")) return "basketball";
   if (sportKey.startsWith("baseball")) return "baseball";
@@ -88,7 +88,7 @@ export function questionFilter(text: string): QuestionFilter {
 
 const narrow = (f: QuestionFilter) => f.main.length > 0 || f.stats.length > 0 || f.periods.length > 0;
 
-const base = (m: string) => m.replace(/^alternate_/, "").replace(/_alternate$/, "");
+const lookupBase = (m: string) => m.replace(/^alternate_/, "").replace(/_alternate$/, "");
 const PERIOD = /_(h1|q1)$/;
 
 // The feed markets a question needs at one game, or null to use the default set.
@@ -105,20 +105,20 @@ export function questionMarkets(f: QuestionFilter, sportKey: string): string[] |
   }
   // The main line rides along so the answer can still note blowout risk and teasers.
   if (f.stats.length && !out.includes("spreads")) out.push("spreads");
-  const fam = family(sportKey);
+  const fam = sportFamily(sportKey);
   for (const [, key, markets] of STATS) if (f.stats.includes(key)) out.push(...(markets[fam] ?? []));
   return [...new Set(out)];
 }
 
 // Whether a priced leg is one the question asks for.
 export function wantLeg(f: QuestionFilter, l: Pick<PricedLeg, "market" | "sportKey">): boolean {
-  const m = base(l.market);
+  const m = lookupBase(l.market);
   const prop = /^(player|batter|pitcher)_/.test(m);
   if (f.mode === "main" && prop) return false;
   if (f.mode === "props" && !prop) return false;
   if (!narrow(f)) return true;
   if (prop) {
-    const fam = family(l.sportKey);
+    const fam = sportFamily(l.sportKey);
     return STATS.some(([, key, markets]) => f.stats.includes(key) && (markets[fam] ?? []).includes(m));
   }
   if (!f.main.length && !f.periods.length) return false; // only props named
