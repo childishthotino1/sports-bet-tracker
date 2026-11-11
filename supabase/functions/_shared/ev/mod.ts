@@ -23,3 +23,4 @@ export * from "./track.ts";
 export * from "./results.ts";
 export * from "./question.ts";
 export * from "./specific.ts";
+export * from "./lookup.ts";

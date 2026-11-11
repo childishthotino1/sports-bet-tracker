@@ -95,7 +95,7 @@ const TEAM_ALIASES: [RegExp, string][] = [
 // the usual matching finds the game. NFL, NBA and NHL; where two teams share a
 // city the abbreviation keeps the nickname (NYG, LAL). Abbreviations that are
 // also common words (NO, WAS, MIN, CAR...) count only in capitals.
-const ABBREVIATIONS: Record<string, string> = {
+export const ABBREVIATIONS: Record<string, string> = {
   ARI: "Arizona", ATL: "Atlanta", BAL: "Baltimore", BUF: "Buffalo", CAR: "Carolina", CHI: "Chicago", CIN: "Cincinnati",
   CLE: "Cleveland", DAL: "Dallas", DEN: "Denver", DET: "Detroit", GB: "Green Bay", HOU: "Houston", IND: "Indianapolis",
   JAX: "Jacksonville", JAC: "Jacksonville", KC: "Kansas City", LV: "Las Vegas", LAC: "Los Angeles Chargers",

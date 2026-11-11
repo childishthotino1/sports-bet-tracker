@@ -66,6 +66,12 @@ Then it asks **🛒 Want a link to build this bet? Which book?**, with each book
 Just type, for example:
 
 - *"good bets on the Ravens game?"* gives that game's best prices across BetMGM, DraftKings, FanDuel, theScore, Caesars and Fanatics, against the fair price. Lines marked ✅ are worth betting even without a boost.
+- Narrow it down in the same sentence:
+  - **Main lines or props:** *"Knicks game plays, not player props"*, *"Knicks props"*, *"main lines only"*.
+  - **A market:** *"Knicks spread"*, *"Knicks moneyline"*, *"Ravens team total"*, *"Ravens 1st half total"*.
+  - **A player or a stat:** *"Brunson points"*, *"Falcons Bijan TD"*, *"Ravens pass yards"*. Name the team or league with the player, so the bot knows which game.
+  - **A whole league:** *"nba spreads tonight"*, *"nfl TD props"*, *"nhl moneylines"*. Main lines cover every upcoming game; props, 1st half lines and team totals cover the next 4 games.
+  - **A book:** *"on fanduel"* prices only that book.
 - *"teasers"* gives this week's NFL Wong teaser legs.
 
 ### Using it in a group chat

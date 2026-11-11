@@ -456,9 +456,9 @@ export function guideNotes(event: OddsEvent, legs: { market: string; side: strin
   return notes;
 }
 
-export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6): string {
-  const head = `🔎 ${event.away_team} @ ${event.home_team}, ${formatStart(event.commence_time)}`;
-  if (!legs.length) return `${head}\nThe sharp sources (Pinnacle and the exchanges) don't price this game's lines yet. Try closer to kickoff.`;
+export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6, label: string | null = null): string {
+  const head = `🔎 ${event.away_team} @ ${event.home_team}, ${formatStart(event.commence_time)}${label ? ` · ${label}` : ""}`;
+  if (!legs.length) return `${head}\nThe sharp sources (Pinnacle and the exchanges) don't price ${label ? "those" : "this game's"} lines yet. Try closer to kickoff${label ? ", or ask for other lines" : ""}.`;
   const lines = legs.slice(0, top).map((l, i) =>
     `${i + 1}. ${l.edge > 0 ? "✅ " : ""}${l.selection} ${formatAmerican(l.bookOdds)} at ${l.book} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}%)`);
   const plus = legs.filter((l) => l.edge > 0).length;
@@ -470,7 +470,7 @@ export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6): string {
     ...lines,
     "",
     plus
-      ? `✅ ${plus} line${plus === 1 ? " beats" : "s beat"} the fair price as is. Bet those at that book; the rest only make sense with a boost.`
+      ? `✅ ${plus} line${plus === 1 ? " beats" : "s beat"} the fair price as is${plus > top ? ` (the top ${top} are shown)` : ""}. Bet those at that book; the rest only make sense with a boost.`
       : "Nothing beats the fair price as is: every book's margin wins. These are the closest; send a promo screenshot and the boost may flip them +EV.",
     ...guideNotes(event, legs.slice(0, top)).flatMap((n) => ["", n]),
   ].join("\n");
