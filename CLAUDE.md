@@ -47,6 +47,7 @@ supabase/functions/
   telegram-bot/     # Webhook: photo → Claude vision → conversational intake → save
   parse-bet/        # Simple CORS endpoint for direct image parsing (legacy)
   grade-bets/       # Daily auto-checker: Claude + web search verifies open bets, recommend-and-confirm
+  nfl-spreads/      # Thursday-noon-ET DraftKings NFL spreads snapshot for the HLD pick'em page (see below)
   promo-bot/        # @Bmorepromobot webhook: promo screenshot → rules → best bets / check a bet (separate bot)
   _shared/ev/       # +EV core used by promo-bot: devig, EV, Kelly, promo rules + flow, odds client, picks
   _shared/books/    # Sportsbook knowledge shared by telegram-bot AND promo-bot (see below)
@@ -118,7 +119,7 @@ Runs daily via `pg_cron` (job `grade-bets-daily`, `0 13 * * *` UTC, calls the ed
 
 ## Migrations
 
-SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above), `add_promo_bot_state.sql` (promo bot's per-chat conversation state; RLS on, no policies), `add_promo_bot_settings.sql` (its per-chat settings; already applied).
+SQL migrations live in the repo root (not a `migrations/` folder). Apply manually via the Supabase dashboard SQL editor or `./db.sh push <file>`. Files: `schema.sql`, `update.sql`, `add_activity_log.sql`, `add_pending_bets.sql`, `add_pending_bets_stage.sql`, `add_snapshots.sql`, `add_transaction_types.sql` (widens `transactions.type` to include `redeployment`, `payout`, `adjustment` — must be applied before adjustment-logging features will insert successfully), `add_version_v2.sql` (the V1→V2 season split: `version` columns + `void` status; already applied), `add_legs_and_grading_support.sql` (bets.legs jsonb + pg_cron/pg_net extensions; already applied — see Auto-Grader above), `add_promo_bot_state.sql` (promo bot's per-chat conversation state; RLS on, no policies), `add_promo_bot_settings.sql` (its per-chat settings; already applied), `add_nfl_spreads.sql` (`nfl_spread_snapshots` + the `nfl-spreads-thursday` cron job; already applied).
 
 ## +EV Core (`supabase/functions/_shared/ev/`)
 
@@ -161,3 +162,10 @@ Button taps arrive as `callback_data` `pf:<value>`. `/skip` (also `/cancel`, `/n
 Secrets: `PROMO_BOT_TOKEN`, `PROMO_WEBHOOK_SECRET` (Telegram sends it as `X-Telegram-Bot-Api-Secret-Token`; anything else gets 403), `PROMO_ALLOWED` (comma list of chat IDs and/or `@usernames`; others get "This bot is private" with their chat ID), `ODDS_API_KEY`, and the existing `ANTHROPIC_API_KEY`. Never name a secret `TELEGRAM_BOT_TOKEN`: secrets are project-wide, and that one belongs to the tracker bot.
 
 The bot imports the examples from `promo-examples.ts`, generated from the `.md` (edge functions can't read a bundled `.md`): after editing the `.md`, run `node supabase/functions/_shared/ev/gen-examples.mjs` (a test fails if they drift).
+
+## HLD Spreads page (`nfl-spreads`)
+
+A shared claude.ai artifact (https://claude.ai/artifact/XZnQZLk3EceXj66Luwkvb9, source `spreads/hld-spreads.html`) lists the week's NFL spreads for the HLD pick'em group: Favorite | Line | Underdog, home team in caps, as DraftKings had them at noon ET Thursday. Lines are frozen for the week on purpose.
+
+- pg_cron `nfl-spreads-thursday` (`0 16,17 * * 4` UTC, anon-key bearer copied from `grade-bets-daily`) calls the `nfl-spreads` edge function; only the run at noon New York time pulls (handles DST). One Odds API call (DraftKings, spreads) = 1 credit. `POST {"force": true}` pulls at any time. The row is upserted into `nfl_spread_snapshots` keyed by the Thursday's date.
+- A Claude scheduled task ("HLD spreads page — Thursday refresh", 12:10 ET Thursdays) reads the latest row with the Supabase connector and swaps it into the page's `<script id="spreads-data">` JSON, then republishes to the same URL. It needs the Supabase connector attached to the task.

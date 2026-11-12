@@ -1,0 +1,124 @@
+<title>HLD Spreads</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one narrow column, a pick'em sheet — Favorite | Line | Underdog, home team in caps, grouped by kickoff day. */
+:root {
+  --bg: #f4f3f8; --card: #ffffff; --fg: #17141f; --muted: #6b6578; --line: #dedbe6;
+  --accent: #4b2e83; --accent-soft: #ece6f7; --gold: #a67c00;
+  --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121019; --card: #1c1926; --fg: #eeebf5; --muted: #9a94a8; --line: #2e2a3b;
+  --accent: #b9a2ea; --accent-soft: #2a2340; --gold: #e0b84a; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #121019; --card: #1c1926; --fg: #eeebf5; --muted: #9a94a8; --line: #2e2a3b;
+  --accent: #b9a2ea; --accent-soft: #2a2340; --gold: #e0b84a; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--body); }
+.wrap { max-width: 640px; margin: 0 auto; padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 22px; }
+header { display: grid; gap: 6px; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(40px, 9vw, 56px); line-height: .95; margin: 0; text-wrap: balance; }
+.stamp { color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+.stamp b { color: var(--fg); font-weight: 600; }
+.note { font-size: 13px; color: var(--muted); }
+
+.day { display: grid; gap: 8px; }
+.day h2 { font-family: var(--display); font-weight: 600; font-size: 20px; letter-spacing: .03em; text-transform: uppercase; margin: 0; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; }
+th { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 11px 12px; border-top: 1px solid var(--line); vertical-align: middle; }
+tr:first-child td { border-top: 0; }
+th.line, td.line { text-align: center; width: 64px; }
+td.line { font-family: var(--display); font-weight: 700; font-size: 22px; color: var(--accent); background: var(--accent-soft); }
+.team { font-weight: 500; font-size: 15px; }
+.team.home { font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+.sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+td.dog { text-align: right; } th.dog { text-align: right; }
+.pk { color: var(--gold); }
+footer { font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">HLD pick'em · DraftKings</div>
+    <h1 id="title">NFL spreads</h1>
+    <div class="stamp" id="stamp">Loading the week's lines.</div>
+  </header>
+  <div id="days"></div>
+  <footer>
+    Home team in CAPS. Spreads are DraftKings' numbers at the time above and stay fixed for the week, even if the books move.
+    Juice shown under each team. Lines refresh every Thursday at noon ET.
+  </footer>
+</div>
+
+<script type="application/json" id="spreads-data">
+{"week_of":"2026-11-12","pulled_at":"2026-11-12T20:39:57.997Z","source":"DraftKings","games":[{"away":"Washington Commanders","home":"New York Giants","kickoff":"2026-11-13T01:15:00Z","away_price":-110,"home_price":-110,"away_spread":2.5,"home_spread":-2.5},{"away":"New England Patriots","home":"Detroit Lions","kickoff":"2026-11-15T14:30:00Z","away_price":100,"home_price":-120,"away_spread":2.5,"home_spread":-2.5,"note":"Munich"},{"away":"Kansas City Chiefs","home":"Atlanta Falcons","kickoff":"2026-11-15T18:00:00Z","away_price":-120,"home_price":100,"away_spread":-3,"home_spread":3},{"away":"Buffalo Bills","home":"New York Jets","kickoff":"2026-11-15T18:00:00Z","away_price":-108,"home_price":-112,"away_spread":-8.5,"home_spread":8.5},{"away":"Carolina Panthers","home":"New Orleans Saints","kickoff":"2026-11-15T18:00:00Z","away_price":-112,"home_price":-108,"away_spread":2.5,"home_spread":-2.5},{"away":"Houston Texans","home":"Cleveland Browns","kickoff":"2026-11-15T18:00:00Z","away_price":-110,"home_price":-110,"away_spread":-4.5,"home_spread":4.5},{"away":"Minnesota Vikings","home":"Green Bay Packers","kickoff":"2026-11-15T18:00:00Z","away_price":-108,"home_price":-112,"away_spread":3,"home_spread":-3},{"away":"Miami Dolphins","home":"Indianapolis Colts","kickoff":"2026-11-15T18:00:00Z","away_price":-102,"home_price":-118,"away_spread":3.5,"home_spread":-3.5},{"away":"Jacksonville Jaguars","home":"Tennessee Titans","kickoff":"2026-11-15T18:00:00Z","away_price":-112,"home_price":-108,"away_spread":-10.5,"home_spread":10.5},{"away":"Los Angeles Rams","home":"Arizona Cardinals","kickoff":"2026-11-15T21:05:00Z","away_price":-112,"home_price":-108,"away_spread":-9.5,"home_spread":9.5},{"away":"Seattle Seahawks","home":"Las Vegas Raiders","kickoff":"2026-11-15T21:05:00Z","away_price":-112,"home_price":-108,"away_spread":-6.5,"home_spread":6.5},{"away":"San Francisco 49ers","home":"Dallas Cowboys","kickoff":"2026-11-15T21:25:00Z","away_price":-115,"home_price":-105,"away_spread":-3.5,"home_spread":3.5},{"away":"Pittsburgh Steelers","home":"Cincinnati Bengals","kickoff":"2026-11-16T01:20:00Z","away_price":-110,"home_price":-110,"away_spread":3.5,"home_spread":-3.5},{"away":"Los Angeles Chargers","home":"Baltimore Ravens","kickoff":"2026-11-17T01:15:00Z","away_price":-112,"home_price":-108,"away_spread":4.5,"home_spread":-4.5}]}
+</script>
+
+<script>
+(function () {
+  var data = JSON.parse(document.getElementById("spreads-data").textContent);
+  var TZ = "America/New_York";
+  // 2026 season: Week 1 kicked off Thursday, Sept 10.
+  var SEASON_THU1 = Date.UTC(2026, 8, 10);
+  var w = data.week_of.split("-").map(Number);
+  var week = Math.round((Date.UTC(w[0], w[1] - 1, w[2]) - SEASON_THU1) / 604800000) + 1;
+
+  function nick(full) { var p = full.split(" "); return p[p.length - 1]; }
+  function fmtPrice(p) { return p == null ? "" : (p > 0 ? "+" + p : String(p)); }
+  function fmt(d, opts) { return new Intl.DateTimeFormat("en-US", Object.assign({ timeZone: TZ }, opts)).format(d); }
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  document.getElementById("title").textContent = "Week " + week + " spreads";
+  document.title = "HLD Week " + week + " Spreads";
+  var pulled = new Date(data.pulled_at);
+  var stamp = document.getElementById("stamp");
+  stamp.textContent = "";
+  stamp.append("Pulled from ", el("b", null, data.source), " on ",
+    el("b", null, fmt(pulled, { weekday: "short", month: "short", day: "numeric" }) + " at " + fmt(pulled, { hour: "numeric", minute: "2-digit" }) + " ET"),
+    ". " + data.games.length + " games.");
+
+  var groups = [];
+  data.games.forEach(function (g) {
+    var d = new Date(g.kickoff);
+    var key = fmt(d, { weekday: "long", month: "short", day: "numeric" });
+    var last = groups[groups.length - 1];
+    if (!last || last.key !== key) groups.push(last = { key: key, games: [] });
+    last.games.push(g);
+  });
+
+  var root = document.getElementById("days");
+  root.style.display = "grid"; root.style.gap = "22px";
+  groups.forEach(function (grp) {
+    var sec = el("section", "day");
+    sec.append(el("h2", null, grp.key));
+    var tbl = el("table"); var thead = el("thead"); var hr = el("tr");
+    hr.append(el("th", null, "Favorite"), el("th", "line", "Line"), el("th", "dog", "Underdog"));
+    thead.append(hr); tbl.append(thead);
+    var tb = el("tbody");
+    grp.games.forEach(function (g) {
+      var homeFav = g.home_spread != null && g.home_spread < 0;
+      var pk = g.home_spread === 0;
+      var fav = homeFav ? { n: g.home, p: g.home_price, home: true } : { n: g.away, p: g.away_price, home: false };
+      var dog = homeFav ? { n: g.away, p: g.away_price, home: false } : { n: g.home, p: g.home_price, home: true };
+      var line = g.home_spread == null ? "—" : (pk ? "PK" : String(Math.abs(g.home_spread)));
+      var time = fmt(new Date(g.kickoff), { hour: "numeric", minute: "2-digit" }) + " ET" + (g.note ? " · " + g.note : "");
+      function cell(t, cls, extra) {
+        var td = el("td", cls); var s = el("span", "team" + (t.home ? " home" : ""), nick(t.n));
+        s.append(el("span", "sub", fmtPrice(t.p) + (extra ? " · " + extra : "")));
+        td.append(s); return td;
+      }
+      var tr = el("tr");
+      tr.append(cell(fav, "", time), el("td", "line" + (pk ? " pk" : ""), line), cell(dog, "dog"));
+      tb.append(tr);
+    });
+    tbl.append(tb); sec.append(tbl); root.append(sec);
+  });
+})();
+</script>
