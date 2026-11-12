@@ -183,6 +183,24 @@ test("a shared slip: the same bet at each book that posts it, best price first",
   assert.equal(single[0].legs[0].start, GAME.commence_time, "each leg carries its game's start, so the link can stop once it's live");
 });
 
+// "Over 1.5 - Jimmy Snuggerud Points" (BetMGM, NHL, 2026-11-12) was read as market
+// "other": nothing to price or link, and "give me bet link" got nothing. A leg the
+// feed doesn't carry still gets the slip's own book's link to the game.
+test("a leg the feed doesn't carry: the slip's own book still offers the game", async () => {
+  const { slipOffers, legLabel, SLIP_PROMPT } = await import("./mod.ts");
+  const other = normalizeSlip({ book: "MGM", league: "NFL", bet_kind: "single", total_odds: 425, boosted_odds: 0, boost_pct: 0, game: "",
+    legs: [{ team_or_player: "Bijan Robinson", market: "other", line: 1.5, side: "Over", team: "", game: "", odds: 425 }] })!;
+  assert.equal(legLabel(other.legs[0]), "Bijan Robinson Over 1.5", "no 'Other' in the label");
+  const books = { betmgm: "BetMGM", draftkings: "DraftKings" };
+  const offers = slipOffers(other, [GAME], books, "betmgm");
+  assert.deepEqual(offers.map((o) => [o.book, o.odds]), [["BetMGM", null]], "only the slip's own book, no price");
+  const [[b]] = slipButtons("BetMGM", offers[0].legs);
+  assert.match(b.text, /Open the game in BetMGM/);
+  assert.deepEqual(slipOffers(other, [GAME], books), [], "no own book named: nothing to offer");
+  assert.match(SLIP_PROMPT, /"Over 1\.5 - Jimmy Snuggerud Points"/);
+  assert.match(SLIP_PROMPT, /NHL "Points" -> player_points/);
+});
+
 test("tap tracking: each 🛒 URL points at the bot under a fresh id; other buttons untouched", async () => {
   const { trackButtons, newLinkId, LINK_ID } = await import("./mod.ts");
   let n = 0;

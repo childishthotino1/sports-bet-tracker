@@ -73,6 +73,7 @@ Just type, for example:
   - **A whole league:** *"nba spreads tonight"*, *"nfl TD props"*, *"nhl moneylines"*. Main lines cover every upcoming game; props, 1st half lines and team totals cover the next 4 games.
   - **A book:** *"on fanduel"* prices only that book.
 - *"teasers"* gives this week's NFL Wong teaser legs.
+- *"give me the bet link"* after a slip check re-sends the buttons for building that bet. If the bet isn't on the odds feed, the button opens the game on your book instead.
 
 ### Using it in a group chat
 

@@ -114,6 +114,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
 - legs: one per selection.
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
   - market: h2h for moneylines, spreads, totals for the game total, team_totals for one team's total (team_or_player is that team), h2h_h1 / spreads_h1 / totals_h1 for 1st-half lines and h2h_q1 / spreads_q1 / totals_q1 for 1st-quarter lines, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_1st_td for "First Touchdown Scorer", player_last_td for "Last Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
+  - Prop names by sport: NHL "Points" -> player_points, "Assists" -> player_assists, "Shots on Goal" -> player_shots_on_goal, "Goals" over/under -> player_goals, "Anytime Goalscorer" -> player_goal_scorer_anytime, "Power Play Points" -> player_power_play_points, "Blocked Shots" -> player_blocked_shots, "Saves" -> player_total_saves; NBA "Pts + Reb + Ast" -> player_points_rebounds_assists; MLB "Hits" -> batter_hits, "Total Bases" -> batter_total_bases, a pitcher's "Strikeouts" -> pitcher_strikeouts. BetMGM writes a prop as "Over 1.5 - Jimmy Snuggerud Points": side Over, line 1.5, team_or_player Jimmy Snuggerud, market from the stat word at the end (player_points). Use "other" only when no key fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.
   - game: the matchup this leg is from, as the slip shows it above or beside the leg ("Brentford vs Nottingham Forest"); "" if none is shown.
   - team: the full team name the leg is on (for a player prop, the player's team, from the slip or the matchup); "" for game totals or if unsure.
@@ -319,7 +320,7 @@ export function legLabel(leg: SlipLeg): string {
   if (leg.market === "player_last_td") return `${leg.team_or_player} Last TD`;
   if (leg.market === "player_goal_scorer_anytime") return `${leg.team_or_player} Anytime Goal`;
   if (leg.market === "btts") return `Both Teams To Score: ${leg.side}`;
-  return `${leg.team_or_player ?? ""} ${leg.side}${line} ${stat}`.trim();
+  return `${leg.team_or_player ?? ""} ${leg.side}${line}${leg.market === "other" ? "" : ` ${stat}`}`.trim();
 }
 
 // legEvents[i] is the feed's odds for leg i's game (null if it wasn't found).
@@ -412,7 +413,10 @@ export function betterPrices(
 // an SGP: the book's SGP price includes its correlation, which the feed lacks).
 export type SlipOffer = { key: string; book: string; odds: number | null; legs: { selection: string; link: string | null; eventLink: string | null; start?: string | null }[] };
 
-export function slipOffers(slip: Slip, legEvents: (OddsEvent | null)[], books: Record<string, string>): SlipOffer[] {
+// ownKey: the slip's own book. When it doesn't post a leg on the feed (a market
+// the feed doesn't carry), it still gets an offer that opens the game, so "give
+// me the link" always has an answer.
+export function slipOffers(slip: Slip, legEvents: (OddsEvent | null)[], books: Record<string, string>, ownKey: string | null = null): SlipOffer[] {
   const out: SlipOffer[] = [];
   for (const [key, book] of Object.entries(books)) {
     const legs: SlipOffer["legs"] = [];
@@ -420,12 +424,13 @@ export function slipOffers(slip: Slip, legEvents: (OddsEvent | null)[], books: R
     for (const [i, leg] of slip.legs.entries()) {
       const bm = legEvents[i]?.bookmakers.find((b) => b.key === key);
       const o = bm ? locate(bm.markets, leg)?.outcome : undefined;
-      if (!o) break;
-      decimal *= americanToDecimal(o.price);
-      legs.push({ selection: legLabel(leg), link: o.link ?? null, eventLink: bm?.link ?? null, start: legEvents[i]?.commence_time ?? null });
+      if (!o && !(key === ownKey && bm?.link)) break;
+      if (o) decimal *= americanToDecimal(o.price);
+      else decimal = NaN; // the game's link only: no price for this leg
+      legs.push({ selection: legLabel(leg), link: o?.link ?? null, eventLink: bm?.link ?? null, start: legEvents[i]?.commence_time ?? null });
     }
     if (legs.length < slip.legs.length || !legs.some((l) => l.link || l.eventLink)) continue;
-    out.push({ key, book, odds: slip.bet_kind === "sgp" ? null : Math.round(decimalToAmerican(decimal)), legs });
+    out.push({ key, book, odds: slip.bet_kind === "sgp" || Number.isNaN(decimal) ? null : Math.round(decimalToAmerican(decimal)), legs });
   }
   // Best price first.
   return out.sort((a, b) => (b.odds === null || a.odds === null ? 0 : americanToDecimal(b.odds) - americanToDecimal(a.odds)));

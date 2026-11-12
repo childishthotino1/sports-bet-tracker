@@ -593,7 +593,8 @@ async function sendOfferLink(chatId: number, key: string) {
   if (!rows.length) return send(chatId, `${offer.book} didn't send a link for this bet.`);
   const all = offer.legs.length > 1 && rows.length === 1 && rows[0][0].text.startsWith("🛒 Build all");
   const price = offer.odds !== null ? ` (${formatAmerican(offer.odds)} there)` : "";
-  const hint = offer.legs.length === 1 ? "Tap to put it in the slip." : all ? "One tap puts every leg in the slip." : "Tap each leg to add it to the slip.";
+  const hint = offer.legs.every((l) => !l.link) ? `That bet isn't on my odds feed, so this opens the game in ${offer.book}; pick it there.`
+    : offer.legs.length === 1 ? "Tap to put it in the slip." : all ? "One tap puts every leg in the slip." : "Tap each leg to add it to the slip.";
   const sgp = offer.odds === null && offer.legs.length > 1 ? " If it shows as a regular parlay, switch it to SGP / Same Game Parlay." : "";
   return sendWithButtons(chatId, `🛒 ${offer.book}${price}: ${hint}${sgp} Check the price in the slip before you place it.`, rows, "slip_offer", offer.legs.map((l) => l.start));
 }
@@ -632,9 +633,9 @@ async function priceSlip(chatId: number, s: FlowState) {
   for (const id of new Set(ids as string[])) {
     const legs = slip.legs.filter((_, i) => ids[i] === id);
     const markets = marketsFor({ ...slip, legs });
-    if (!markets.length) continue; // only markets the feed doesn't carry: nothing to fetch
+    // Only markets the feed doesn't carry: the moneyline alone, for the book's link to the game.
     // Your other books ride along (same credits) so the check can line-shop each leg.
-    const r = await eventOdds(sportKey, id, markets, bookKey, Object.keys(SHOP_BOOKS));
+    const r = await eventOdds(sportKey, id, markets.length ? markets : ["h2h"], bookKey, Object.keys(SHOP_BOOKS));
     odds.set(id, r.data);
     remaining = r.remaining;
   }
@@ -651,7 +652,7 @@ async function priceSlip(chatId: number, s: FlowState) {
   const boosted = !!slip.boost_pct || (!s.noPromo && !!s.promo.boost_pct);
   const better = boosted ? [] : betterPrices(slip, legEvents, bookKey, SHOP_BOOKS);
   const shopNote = boosted ? null : formatBetterPrices(slip, book, better);
-  const offers = slipOffers(slip, legEvents, SHOP_BOOKS);
+  const offers = slipOffers(slip, legEvents, SHOP_BOOKS, bookKey);
   const shopRows = shopButtons(better.flatMap((b, i) => (b ? [{ selection: legLabel(slip.legs[i]), book: b.book, link: b.link }] : [])), { state: BOOK_STATE_ENV });
   if (!c) {
     // Market types the odds feed doesn't carry come back as "other": say so, rather than blaming the prices.
@@ -998,8 +999,15 @@ async function handle(update: any) {
   return advance(chatId, text, true);
 }
 
+// "give me the bet link", "link?": the last slip's book links, without starting a question.
+const LINK_ASK = /\b(links?|url)\b/i;
+
 async function advance(chatId: number, input: string, typed = false) {
   const s = await loadState(chatId);
+  if (typed && LINK_ASK.test(input) && input.length <= 60) {
+    if (s?.slipOffers?.length) return sendOffers(chatId, s.slipOffers);
+    return send(chatId, "I don't have a link for that: none of your books on my odds feed posts it, or the slip's game has started. Send the slip screenshot again, or name the game (\"Blues game\") for its best lines with links.");
+  }
   // Typed text that isn't an answer to a question the bot asked: a question
   // about a game ("good bets on the Ravens game?").
   // With a promo open, naming a game runs the promo on that game.
