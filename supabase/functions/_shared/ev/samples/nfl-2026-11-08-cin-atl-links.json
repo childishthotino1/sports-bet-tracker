@@ -1,0 +1,984 @@
+{
+ "id": "dc56d980f527ffeef89940133b211b13",
+ "away_team": "Cincinnati Bengals",
+ "home_team": "Atlanta Falcons",
+ "sport_key": "americanfootball_nfl",
+ "bookmakers": [
+  {
+   "key": "draftkings",
+   "sid": "34118128",
+   "link": "https://sportsbook.draftkings.com/event/34118128",
+   "title": "DraftKings",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "0ML84695561_1",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0ML84695561_1",
+       "name": "Atlanta Falcons",
+       "price": 150,
+       "bet_limit": null
+      },
+      {
+       "sid": "0ML84695561_3",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0ML84695561_3",
+       "name": "Cincinnati Bengals",
+       "price": -180,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:05:46Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "0HC84695561P300_1",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0HC84695561P300_1",
+       "name": "Atlanta Falcons",
+       "point": 3,
+       "price": 100,
+       "bet_limit": null
+      },
+      {
+       "sid": "0HC84695561N300_3",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0HC84695561N300_3",
+       "name": "Cincinnati Bengals",
+       "point": -3,
+       "price": -120,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:05:46Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "0OU84695561O5250_1",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0OU84695561O5250_1",
+       "name": "Over",
+       "point": 52.5,
+       "price": -105,
+       "bet_limit": null
+      },
+      {
+       "sid": "0OU84695561U5250_3",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0OU84695561U5250_3",
+       "name": "Under",
+       "point": 52.5,
+       "price": -115,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:05:46Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "0QA385025617#2346198679_13L88808Q1-1195523501Q20",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0QA385025617%232346198679_13L88808Q1-1195523501Q20",
+       "name": "Yes",
+       "price": -310,
+       "bet_limit": null,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "0QA385025617#2346198685_13L88808Q1-189550648Q20",
+       "link": "https://sportsbook.draftkings.com/?outcomes=0QA385025617%232346198685_13L88808Q1-189550648Q20",
+       "name": "Yes",
+       "price": 900,
+       "bet_limit": null,
+       "description": "Austin Hooper"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:31Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:05:46Z"
+  },
+  {
+   "key": "fanduel",
+   "sid": "35603243",
+   "link": "https://sportsbook.fanduel.com/football/nfl/cincinnati-bengals-%40-atlanta-falcons-35603243",
+   "title": "FanDuel",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "50199",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189645&selectionId=50199",
+       "name": "Atlanta Falcons",
+       "price": 140,
+       "bet_limit": null
+      },
+      {
+       "sid": "50210",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189645&selectionId=50210",
+       "name": "Cincinnati Bengals",
+       "price": -166,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:07:45Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "12373576",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189646&selectionId=12373576",
+       "name": "Atlanta Falcons",
+       "point": 3,
+       "price": -105,
+       "bet_limit": null
+      },
+      {
+       "sid": "10697804",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189646&selectionId=10697804",
+       "name": "Cincinnati Bengals",
+       "point": -3,
+       "price": -115,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:07:45Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "7017916",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189648&selectionId=7017916",
+       "name": "Over",
+       "point": 52.5,
+       "price": -110,
+       "bet_limit": null
+      },
+      {
+       "sid": "7017917",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.578189648&selectionId=7017917",
+       "name": "Under",
+       "point": 52.5,
+       "price": -110,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:07:45Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "38093938",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.622015337&selectionId=38093938",
+       "name": "Yes",
+       "price": -310,
+       "bet_limit": null,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "10680486",
+       "link": "https://sportsbook.fanduel.com/addToBetslip?marketId=42.622015337&selectionId=10680486",
+       "name": "Yes",
+       "price": 900,
+       "bet_limit": null,
+       "description": "Austin Hooper"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:35Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:45Z"
+  },
+  {
+   "key": "betmgm",
+   "sid": "6:44009",
+   "link": "https://sports.{state}.betmgm.com/en/sports/events/cincinnati-bengals-@-atlanta-falcons-6%3A44009",
+   "title": "BetMGM",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "5411235",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-3451275-5411235&type=Single",
+       "name": "Atlanta Falcons",
+       "price": 145,
+       "bet_limit": null
+      },
+      {
+       "sid": "5411234",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-3451275-5411234&type=Single",
+       "name": "Cincinnati Bengals",
+       "price": -175,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:07:22Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "7050340",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-4345381-7050340&type=Single",
+       "name": "Atlanta Falcons",
+       "point": 3.5,
+       "price": -120,
+       "bet_limit": null
+      },
+      {
+       "sid": "7050339",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-4345381-7050339&type=Single",
+       "name": "Cincinnati Bengals",
+       "point": -3.5,
+       "price": 100,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:07:22Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "7073291",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-4354778-7073291&type=Single",
+       "name": "Over",
+       "point": 52.5,
+       "price": -108,
+       "bet_limit": null
+      },
+      {
+       "sid": "7073292",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-4354778-7073292&type=Single",
+       "name": "Under",
+       "point": 52.5,
+       "price": -110,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:07:22Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "7082895",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-4359616-7082895&type=Single",
+       "name": "Yes",
+       "price": 825,
+       "bet_limit": null,
+       "description": "Austin Hooper"
+      },
+      {
+       "sid": "7082983",
+       "link": "https://sports.{state}.betmgm.com/en/sports?options=6:44009-4359660-7082983&type=Single",
+       "name": "Yes",
+       "price": -250,
+       "bet_limit": null,
+       "description": "Bijan Robinson"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:30Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:22Z"
+  },
+  {
+   "key": "espnbet",
+   "sid": "98aa04c6-c5a6-4067-b871-53d8a53e1995",
+   "link": "https://sportsbook.thescore.bet/sport/football/organization/united-states/competition/nfl/event/98aa04c6-c5a6-4067-b871-53d8a53e1995",
+   "title": "theScore Bet",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": "59d31ff4-984a-4da8-a3ae-4ab3088fd30a",
+     "link": "https://sportsbook.thescore.bet/sport/football/organization/united-states/competition/nfl/event/98aa04c6-c5a6-4067-b871-53d8a53e1995/section/lines",
+     "outcomes": [
+      {
+       "sid": "3575ef93-588d-407f-9ae2-c7d6dcd021c3",
+       "link": "https://sportsbook.thescore.bet/?market_selection_id[0]=3575ef93-588d-407f-9ae2-c7d6dcd021c3&odds_numerator[0]=2&odds_denominator[0]=1",
+       "name": "Atlanta Falcons",
+       "price": 145,
+       "bet_limit": null
+      },
+      {
+       "sid": "042e773f-6c79-48bd-9294-e71bda5fc336",
+       "link": "https://sportsbook.thescore.bet/?market_selection_id[0]=042e773f-6c79-48bd-9294-e71bda5fc336&odds_numerator[0]=2&odds_denominator[0]=1",
+       "name": "Cincinnati Bengals",
+       "price": -170,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:06:59Z"
+    },
+    {
+     "key": "spreads",
+     "sid": "4e1fb183-d6e0-47af-95ce-a430b21a4b72",
+     "link": "https://sportsbook.thescore.bet/sport/football/organization/united-states/competition/nfl/event/98aa04c6-c5a6-4067-b871-53d8a53e1995/section/lines",
+     "outcomes": [
+      {
+       "sid": "cd822650-3665-4a25-96a1-65b85aeafda9",
+       "link": "https://sportsbook.thescore.bet/?market_selection_id[0]=cd822650-3665-4a25-96a1-65b85aeafda9&odds_numerator[0]=2&odds_denominator[0]=1",
+       "name": "Atlanta Falcons",
+       "point": 3,
+       "price": 100,
+       "bet_limit": null
+      },
+      {
+       "sid": "b20ffec5-83f8-4490-87e4-0f05f935d44a",
+       "link": "https://sportsbook.thescore.bet/?market_selection_id[0]=b20ffec5-83f8-4490-87e4-0f05f935d44a&odds_numerator[0]=2&odds_denominator[0]=1",
+       "name": "Cincinnati Bengals",
+       "point": -3,
+       "price": -120,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:06:59Z"
+    },
+    {
+     "key": "totals",
+     "sid": "7ee3391c-5cd9-41a4-bbb0-dc0f04453114",
+     "link": "https://sportsbook.thescore.bet/sport/football/organization/united-states/competition/nfl/event/98aa04c6-c5a6-4067-b871-53d8a53e1995/section/lines",
+     "outcomes": [
+      {
+       "sid": "d682ae8b-1f54-4327-a7ad-e1fa594d344b",
+       "link": "https://sportsbook.thescore.bet/?market_selection_id[0]=d682ae8b-1f54-4327-a7ad-e1fa594d344b&odds_numerator[0]=2&odds_denominator[0]=1",
+       "name": "Over",
+       "point": 53.5,
+       "price": -105,
+       "bet_limit": null
+      },
+      {
+       "sid": "818a3657-be87-4027-b850-148b89522074",
+       "link": "https://sportsbook.thescore.bet/?market_selection_id[0]=818a3657-be87-4027-b850-148b89522074&odds_numerator[0]=2&odds_denominator[0]=1",
+       "name": "Under",
+       "point": 53.5,
+       "price": -115,
+       "bet_limit": null
+      }
+     ],
+     "last_update": "2026-11-07T02:06:59Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:06:59Z"
+  },
+  {
+   "key": "kalshi",
+   "sid": "9efc48ed-931e-4a1a-8426-edbc35b14487",
+   "link": "https://kalshi.com/markets/KXNFLGAME/professional-football-game/KXNFLGAME-26NOV08CINATL",
+   "title": "Kalshi",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": "KXNFLGAME-26NOV08CINATL",
+     "link": "https://kalshi.com/markets/KXNFLGAME/professional-football-game/KXNFLGAME-26NOV08CINATL",
+     "outcomes": [
+      {
+       "sid": "KXNFLGAME-26NOV08CINATL-ATL",
+       "link": null,
+       "name": "Atlanta Falcons",
+       "price": 156,
+       "bet_limit": 383126
+      },
+      {
+       "sid": "KXNFLGAME-26NOV08CINATL-CIN",
+       "link": null,
+       "name": "Cincinnati Bengals",
+       "price": -163,
+       "bet_limit": 662134
+      }
+     ],
+     "last_update": "2026-11-07T02:07:45Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "KXNFLSPREAD-26NOV08CINATL-CIN4",
+       "link": null,
+       "name": "Atlanta Falcons",
+       "point": 3.5,
+       "price": -117,
+       "bet_limit": 228238
+      },
+      {
+       "sid": "KXNFLSPREAD-26NOV08CINATL-CIN4",
+       "link": null,
+       "name": "Cincinnati Bengals",
+       "point": -3.5,
+       "price": 113,
+       "bet_limit": 173632
+      }
+     ],
+     "last_update": "2026-11-07T02:07:45Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "KXNFLTOTAL-26NOV08CINATL-53",
+       "link": null,
+       "name": "Over",
+       "point": 52.5,
+       "price": -104,
+       "bet_limit": 134430
+      },
+      {
+       "sid": "KXNFLTOTAL-26NOV08CINATL-53",
+       "link": null,
+       "name": "Under",
+       "point": 52.5,
+       "price": 100,
+       "bet_limit": 258742
+      }
+     ],
+     "last_update": "2026-11-07T02:07:45Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:45Z"
+  },
+  {
+   "key": "novig",
+   "sid": "01a17f1a-e8c2-7253-ab6a-aa31d5a8a1c5",
+   "link": "https://novig.com/event-markets/01a17f1a-e8c2-7253-ab6a-aa31d5a8a1c5",
+   "title": "Novig",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "01a17f1a-e952-7610-bd2e-d69b0a04cf25",
+       "link": "https://novig.com/events/01a17f1a-e952-7610-bd2e-d69b0a04cf25/oddsapi/{wager}",
+       "name": "Atlanta Falcons",
+       "price": 156,
+       "bet_limit": 1926
+      },
+      {
+       "sid": "01a17f1a-e952-7610-bd2e-d6abfcc60c36",
+       "link": "https://novig.com/events/01a17f1a-e952-7610-bd2e-d6abfcc60c36/oddsapi/{wager}",
+       "name": "Cincinnati Bengals",
+       "price": -163,
+       "bet_limit": 10086
+      }
+     ],
+     "last_update": "2026-11-07T02:07:30Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "01a17f1a-e952-7610-bd2e-d630a64c3111",
+       "link": "https://novig.com/events/01a17f1a-e952-7610-bd2e-d630a64c3111/oddsapi/{wager}",
+       "name": "Atlanta Falcons",
+       "point": 3.5,
+       "price": -115,
+       "bet_limit": 22968
+      },
+      {
+       "sid": "01a17f1a-e952-7610-bd2e-d6420e38b4b5",
+       "link": "https://novig.com/events/01a17f1a-e952-7610-bd2e-d6420e38b4b5/oddsapi/{wager}",
+       "name": "Cincinnati Bengals",
+       "point": -3.5,
+       "price": 113,
+       "bet_limit": 503
+      }
+     ],
+     "last_update": "2026-11-07T02:07:30Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "01a17f1a-e953-79e0-bf0d-b7dbd42bd584",
+       "link": "https://novig.com/events/01a17f1a-e953-79e0-bf0d-b7dbd42bd584/oddsapi/{wager}",
+       "name": "Over",
+       "point": 52.5,
+       "price": -106,
+       "bet_limit": 10537
+      },
+      {
+       "sid": "01a17f1a-e953-79e0-bf0d-b7ec2fd14cba",
+       "link": "https://novig.com/events/01a17f1a-e953-79e0-bf0d-b7ec2fd14cba/oddsapi/{wager}",
+       "name": "Under",
+       "point": 52.5,
+       "price": 104,
+       "bet_limit": 48
+      }
+     ],
+     "last_update": "2026-11-07T02:07:30Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "01a19b79-1482-7062-8f2e-cddf195c2697",
+       "link": "https://novig.com/events/01a19b79-1482-7062-8f2e-cddf195c2697/oddsapi/{wager}",
+       "name": "Yes",
+       "price": -228,
+       "bet_limit": 69,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "01a19b79-1482-7062-8f2e-cdeb898f9b74",
+       "link": "https://novig.com/events/01a19b79-1482-7062-8f2e-cdeb898f9b74/oddsapi/{wager}",
+       "name": "No",
+       "price": 199,
+       "bet_limit": 6,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "01a19d82-795e-70c3-81f5-eba7a16b17e2",
+       "link": "https://novig.com/events/01a19d82-795e-70c3-81f5-eba7a16b17e2/oddsapi/{wager}",
+       "name": "Yes",
+       "price": 953,
+       "bet_limit": 23,
+       "description": "Austin Hooper"
+      },
+      {
+       "sid": "01a19d82-795e-70c3-81f5-ebb27bdfcfc7",
+       "link": "https://novig.com/events/01a19d82-795e-70c3-81f5-ebb27bdfcfc7/oddsapi/{wager}",
+       "name": "No",
+       "price": -1150,
+       "bet_limit": 209,
+       "description": "Austin Hooper"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:24Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:30Z"
+  },
+  {
+   "key": "polymarket",
+   "sid": "1217410",
+   "link": "https://polymarket.com/event/nfl-cin-atl-2026-11-08",
+   "title": "Polymarket",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "92158265696058586807772875385681317524529997520251063032764057079481653747520",
+       "link": null,
+       "name": "Atlanta Falcons",
+       "price": 156,
+       "bet_limit": 18101
+      },
+      {
+       "sid": "71477801931810152629236327833600899137285592896436321316377016623987471186508",
+       "link": null,
+       "name": "Cincinnati Bengals",
+       "price": -163,
+       "bet_limit": 9400
+      }
+     ],
+     "last_update": "2026-11-07T02:07:16Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "36837675842868318404437587806509257735899236028945335514196526399030813839868",
+       "link": null,
+       "name": "Atlanta Falcons",
+       "point": 3.5,
+       "price": -117,
+       "bet_limit": 50135
+      },
+      {
+       "sid": "50710488783750253388986894238398116557876889325708293654024202293613674395617",
+       "link": null,
+       "name": "Cincinnati Bengals",
+       "point": -3.5,
+       "price": 113,
+       "bet_limit": 4764
+      }
+     ],
+     "last_update": "2026-11-07T02:07:16Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "100829101625507354109939324783204140640855856581539647284755087975865247166661",
+       "link": null,
+       "name": "Over",
+       "point": 52.5,
+       "price": -104,
+       "bet_limit": 41999
+      },
+      {
+       "sid": "63024268212162109251917727887323548556675906682139340669960294917853116875028",
+       "link": null,
+       "name": "Under",
+       "point": 52.5,
+       "price": 100,
+       "bet_limit": 12205
+      }
+     ],
+     "last_update": "2026-11-07T02:07:16Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "56322672494158621260493346587066934428563650294546029243156623796339809576618",
+       "link": null,
+       "name": "Yes",
+       "price": -233,
+       "bet_limit": 3,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "588076552780645725345814454253720417690708836257048696021881642563681247777",
+       "link": null,
+       "name": "No",
+       "price": -9900,
+       "bet_limit": 95,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "64342809935642524328233633715948219465819752257936376368008817297830379869527",
+       "link": null,
+       "name": "Yes",
+       "price": 614,
+       "bet_limit": 0,
+       "description": "Austin Hooper"
+      },
+      {
+       "sid": "106798381545910994749514796883351548214110728756066715935587472166123164293098",
+       "link": null,
+       "name": "No",
+       "price": -9900,
+       "bet_limit": 95,
+       "description": "Austin Hooper"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:17Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:16Z"
+  },
+  {
+   "key": "prophetx",
+   "sid": "1700008927",
+   "link": "https://www.prophetx.co/american-football/nfl/cincinnati-bengals-vs-atlanta-falcons-1700008927?currency=cash",
+   "title": "ProphetX",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "563e4e2dcc30fe7bad73cb281965bee8",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=563e4e2dcc30fe7bad73cb281965bee8&partner_id=theoddsapi&currency=cash",
+       "name": "Atlanta Falcons",
+       "price": 156,
+       "bet_limit": 400
+      },
+      {
+       "sid": "238bb9c43bef9bb2b8e6c963352f783a",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=238bb9c43bef9bb2b8e6c963352f783a&partner_id=theoddsapi&currency=cash",
+       "name": "Cincinnati Bengals",
+       "price": -158,
+       "bet_limit": 2824
+      }
+     ],
+     "last_update": "2026-11-07T02:07:47Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "1639176de9b748ede7f58ef2647fef40",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=1639176de9b748ede7f58ef2647fef40&partner_id=theoddsapi&currency=cash",
+       "name": "Atlanta Falcons",
+       "point": 3,
+       "price": 105,
+       "bet_limit": 735
+      },
+      {
+       "sid": "5c5ef9d4d8079dcb6abf746d32602976",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=5c5ef9d4d8079dcb6abf746d32602976&partner_id=theoddsapi&currency=cash",
+       "name": "Cincinnati Bengals",
+       "point": -3,
+       "price": -109,
+       "bet_limit": 175
+      }
+     ],
+     "last_update": "2026-11-07T02:07:47Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "b93e5534f39c5b770608f92b317a4a95",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=b93e5534f39c5b770608f92b317a4a95&partner_id=theoddsapi&currency=cash",
+       "name": "Over",
+       "point": 52.5,
+       "price": -103,
+       "bet_limit": 143
+      },
+      {
+       "sid": "33a76792e0e77a9032c5d53d6fa2b883",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=33a76792e0e77a9032c5d53d6fa2b883&partner_id=theoddsapi&currency=cash",
+       "name": "Under",
+       "point": 52.5,
+       "price": 102,
+       "bet_limit": 240
+      }
+     ],
+     "last_update": "2026-11-07T02:07:47Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": "0ae1feb99e7ac7c06de2f0ea281ef625",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=0ae1feb99e7ac7c06de2f0ea281ef625&partner_id=theoddsapi&currency=cash",
+       "name": "No",
+       "price": 196,
+       "bet_limit": 16,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "0ae1feb99e7ac7c06de2f0ea281ef625",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=0ae1feb99e7ac7c06de2f0ea281ef625&partner_id=theoddsapi&currency=cash",
+       "name": "No",
+       "price": 192,
+       "bet_limit": 2,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "0ae1feb99e7ac7c06de2f0ea281ef625",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=0ae1feb99e7ac7c06de2f0ea281ef625&partner_id=theoddsapi&currency=cash",
+       "name": "No",
+       "price": 170,
+       "bet_limit": 0,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "b099cf11bc471a8a17e5316045b2bd27",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=b099cf11bc471a8a17e5316045b2bd27&partner_id=theoddsapi&currency=cash",
+       "name": "Yes",
+       "price": -235,
+       "bet_limit": 70,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "b099cf11bc471a8a17e5316045b2bd27",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=b099cf11bc471a8a17e5316045b2bd27&partner_id=theoddsapi&currency=cash",
+       "name": "Yes",
+       "price": -240,
+       "bet_limit": 352,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "b099cf11bc471a8a17e5316045b2bd27",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=b099cf11bc471a8a17e5316045b2bd27&partner_id=theoddsapi&currency=cash",
+       "name": "Yes",
+       "price": -255,
+       "bet_limit": 62,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": "a8fb066d0c6526f2751d01749136dd45",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=a8fb066d0c6526f2751d01749136dd45&partner_id=theoddsapi&currency=cash",
+       "name": "No",
+       "price": -25000,
+       "bet_limit": 397,
+       "description": "Austin Hooper"
+      },
+      {
+       "sid": "3778086ba473c8e0993324d817e8b9d1",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=3778086ba473c8e0993324d817e8b9d1&partner_id=theoddsapi&currency=cash",
+       "name": "Yes",
+       "price": 870,
+       "bet_limit": 2,
+       "description": "Austin Hooper"
+      },
+      {
+       "sid": "3778086ba473c8e0993324d817e8b9d1",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=3778086ba473c8e0993324d817e8b9d1&partner_id=theoddsapi&currency=cash",
+       "name": "Yes",
+       "price": 860,
+       "bet_limit": 11,
+       "description": "Austin Hooper"
+      },
+      {
+       "sid": "3778086ba473c8e0993324d817e8b9d1",
+       "link": "https://www.prophetx.co/?action=addtobetslip&lineID=3778086ba473c8e0993324d817e8b9d1&partner_id=theoddsapi&currency=cash",
+       "name": "Yes",
+       "price": 840,
+       "bet_limit": 53,
+       "description": "Austin Hooper"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:55Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:47Z"
+  },
+  {
+   "key": "pinnacle",
+   "sid": "1639065208",
+   "link": "https://www.pinnacle.com/en/football/nfl/cincinnati-bengals-vs-atlanta-falcons/1639065208/",
+   "title": "Pinnacle",
+   "markets": [
+    {
+     "key": "h2h",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": null,
+       "link": null,
+       "name": "Atlanta Falcons",
+       "price": 147,
+       "bet_limit": 10000
+      },
+      {
+       "sid": null,
+       "link": null,
+       "name": "Cincinnati Bengals",
+       "price": -170,
+       "bet_limit": 10000
+      }
+     ],
+     "last_update": "2026-11-07T02:07:44Z"
+    },
+    {
+     "key": "spreads",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": null,
+       "link": null,
+       "name": "Atlanta Falcons",
+       "point": 3,
+       "price": 100,
+       "bet_limit": 30000
+      },
+      {
+       "sid": null,
+       "link": null,
+       "name": "Cincinnati Bengals",
+       "point": -3,
+       "price": -113,
+       "bet_limit": 30000
+      }
+     ],
+     "last_update": "2026-11-07T02:07:44Z"
+    },
+    {
+     "key": "totals",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": null,
+       "link": null,
+       "name": "Over",
+       "point": 53,
+       "price": -104,
+       "bet_limit": 10000
+      },
+      {
+       "sid": null,
+       "link": null,
+       "name": "Under",
+       "point": 53,
+       "price": -111,
+       "bet_limit": 10000
+      }
+     ],
+     "last_update": "2026-11-07T02:07:44Z"
+    },
+    {
+     "key": "player_anytime_td",
+     "sid": null,
+     "link": null,
+     "outcomes": [
+      {
+       "sid": null,
+       "link": null,
+       "name": "Yes",
+       "price": -271,
+       "bet_limit": 250,
+       "description": "Bijan Robinson"
+      },
+      {
+       "sid": null,
+       "link": null,
+       "name": "No",
+       "price": 195,
+       "bet_limit": 250,
+       "description": "Bijan Robinson"
+      }
+     ],
+     "last_update": "2026-11-07T02:07:31Z"
+    }
+   ],
+   "last_update": "2026-11-07T02:07:44Z"
+  }
+ ],
+ "commence_time": "2026-11-08T14:30:00Z"
+}

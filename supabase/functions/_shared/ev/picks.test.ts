@@ -120,6 +120,8 @@ test("respects the promo's rules", () => {
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ leagues: ["NFL"] }), { league: "NBA" }), [], "wrong league");
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ min_total_odds: 2000 }), { league: "NBA" }), [], "nothing long enough");
   assert.deepEqual(bestBets(legs, nbaParlayBoost({ bet_kinds: ["sgp"] }), { league: "NBA" }), [], "SGPs aren't auto-picked");
+  const rebounds = bestBets(legs, nbaParlayBoost({ markets: ["player_rebounds"], min_total_odds: null, bet_kinds: [] }), { league: "NBA" });
+  assert.ok(rebounds.length && rebounds.every((p) => p.legs.every((l) => l.market.startsWith("player_rebounds"))), "a market-limited promo picks only that market");
   const singles = bestBets(legs, nbaParlayBoost({ bet_kinds: ["single"], min_total_odds: null }), { league: "NBA" });
   assert.ok(singles.every((p) => p.kind === "single" && p.legs.length === 1));
 });
@@ -168,7 +170,10 @@ test("odds client sends the right query and reads the credit headers", async () 
 // MEM @ POR and OKC @ DAL hadn't started and Pinnacle priced both; SAC @ NOP
 // had no Pinnacle line yet; MIA @ ATL was live with BetMGM's market frozen.
 const REAL: OddsEvent[] = JSON.parse(readFileSync(new URL("./samples/nba-2026-10-29.json", import.meta.url), "utf8"));
-const PULLED = new Date("2026-10-29T01:29:30Z");
+const PULLED_AT = new Date("2026-10-29T01:29:30Z");
+// The pull was 10 minutes before OKC @ DAL tipped (01:40), inside the
+// MIN_LEAD_MINUTES cutoff; the tests that need both games run 20 minutes early.
+const PULLED = new Date("2026-10-29T01:20:00Z");
 
 test("real pull: started games are skipped, so frozen live prices aren't picked", () => {
   const legs = priceLegs(REAL, "betmgm", { now: PULLED });
@@ -176,6 +181,8 @@ test("real pull: started games are skipped, so frozen live prices aren't picked"
     "Memphis Grizzlies @ Portland Trail Blazers",
     "Oklahoma City Thunder @ Dallas Mavericks",
   ]);
+  // 10 minutes before OKC @ DAL tips, it's too late: books are about to go live.
+  assert.deepEqual([...new Set(priceLegs(REAL, "betmgm", { now: PULLED_AT }).map((l) => l.game))], ["Memphis Grizzlies @ Portland Trail Blazers"]);
   // After tip-off, nothing from that game is priced.
   assert.equal(priceLegs(REAL, "betmgm", { now: new Date("2026-10-30T03:00:00Z") }).length, 0);
 });
@@ -189,11 +196,17 @@ test("real pull: legs match only where BetMGM and Pinnacle share the line", () =
     "Memphis Grizzlies @ Portland Trail Blazers | Portland Trail Blazers -7.5",
     "Memphis Grizzlies @ Portland Trail Blazers | Portland Trail Blazers ML",
     "Memphis Grizzlies @ Portland Trail Blazers | Under 234.5",
+    "Oklahoma City Thunder @ Dallas Mavericks | Dallas Mavericks +5.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Dallas Mavericks ML",
+    "Oklahoma City Thunder @ Dallas Mavericks | Oklahoma City Thunder -5.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Oklahoma City Thunder ML",
     "Oklahoma City Thunder @ Dallas Mavericks | Over 228.5",
     "Oklahoma City Thunder @ Dallas Mavericks | Under 228.5",
-  ]); // DAL/OKC spreads differ (BetMGM 5.5, Pinnacle 5.0), so they're skipped
+  ]);
+  // DAL/OKC spreads differ (BetMGM 5.5, Pinnacle 5.0): BetMGM's 5.5 is priced
+  // from Pinnacle's 5 (alt-lines.ts), and says so.
+  const dal = priceLegs(REAL, "betmgm", { now: PULLED }).find((l) => l.selection === "Dallas Mavericks +5.5")!;
+  assert.equal(dal.derived, "derived from the sharp +5, normal model");
 });
 
 test("explains an empty pick list", () => {
@@ -232,4 +245,18 @@ test("SGP games are tried best main lines first", () => {
   assert.deepEqual([...order].sort(), ["e1", "e2"], "only games with two priced legs");
   const score = (id: string) => suggestSgpLegs(legs, 2, id)!.legs.reduce((a, l) => a + l.edge, 0);
   assert.ok(score(order[0]) >= score(order[1]));
+});
+
+test("a promo for games on one date covers only that date's games (Eastern)", async () => {
+  const { promoCovers, normalizePromo, summary } = await import("./mod.ts");
+  const promo = normalizePromo({ title: "NBA 30% SGP(x) Boost", bet_kinds: ["sgp"], leagues: ["NBA"], game_date: "2026-11-07", expires_at: "" });
+  assert.equal(promo.game_date, "2026-11-07");
+  const now = new Date("2026-11-08T02:05:00Z"); // 9:05 PM ET on Nov 7
+  assert.equal(promoCovers(promo, "2026-11-08T02:30:00Z", now), true, "9:30 PM ET tonight");
+  assert.equal(promoCovers(promo, "2026-11-08T02:10:00Z", now), false, "9:10 PM ET tips in 5 minutes: too late to bet pregame");
+  assert.equal(promoCovers(promo, "2026-11-08T03:00:00Z", now), true, "10 PM ET tonight is still Nov 7 in Eastern");
+  assert.equal(promoCovers(promo, "2026-11-08T20:40:00Z", now), false, "tomorrow's game");
+  assert.equal(promoCovers(promo, "2026-11-08T01:00:00Z", now), false, "already started");
+  assert.equal(normalizePromo({ title: "x", game_date: "11/7/2026" }).game_date, null, "only YYYY-MM-DD");
+  assert.match(summary(promo), /📅 Games on Sat, Nov 7 only/);
 });

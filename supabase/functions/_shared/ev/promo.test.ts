@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { example, EXAMPLES } from "./examples.test-helper.ts";
 import { readFileSync } from "node:fs";
 import { PROMO_EXAMPLES_MD } from "./promo-examples.ts";
-import { americanToDecimal, breakEvenProb, IMAGE_JSON_SCHEMA, normalizePromo, PROMO_JSON_SCHEMA, promoPrompt, promoStake, promoViolations } from "./mod.ts";
+import { americanToDecimal, breakEvenProb, IMAGE_JSON_SCHEMA, marketAllowed, marketsLabel, normalizePromo, PROMO_JSON_SCHEMA, promoPrompt, promoStake, promoViolations } from "./mod.ts";
 
 const BETMGM_WS_SGP_BOOST = example("BetMGM: MLB World Series 10% SGP Boost Token");
 const MLB_33_SGP_BOOST = example("Unknown book: 33% MLB Same Game Parlay Profit Boost");
@@ -154,4 +154,18 @@ test("a Soccer promo covers each soccer league", () => {
   const soccer = normalizePromo(example("Unknown book: Soccer 20% SGP(x) Boost"));
   assert.deepEqual(promoViolations(soccer, { americanOdds: 600, legs: 4, kind: "sgp", league: "EPL" }), []);
   assert.deepEqual(promoViolations(soccer, { americanOdds: 600, legs: 4, kind: "sgp", league: "NBA" }), ["NBA not eligible (SOCCER only)"]);
+});
+
+test("a TD boost limits the markets: TD scorer legs only", () => {
+  const td = normalizePromo(example("DraftKings: NFL Sunday 30% TD Boost"));
+  assert.deepEqual(td.markets, ["player_anytime_td", "player_1st_td", "player_last_td"]);
+  assert.ok(marketAllowed(td, "player_anytime_td"));
+  assert.ok(!marketAllowed(td, "player_receptions"));
+  assert.ok(!marketAllowed(td, "h2h"));
+  assert.equal(marketsLabel(td), "touchdown scorer");
+  const props = normalizePromo({ title: "Props", markets: ["any_player_prop", "made_up"] });
+  assert.deepEqual(props.markets, ["any_player_prop"]);
+  assert.ok(marketAllowed(props, "player_receptions_alternate"));
+  assert.ok(!marketAllowed(props, "spreads"));
+  assert.ok(marketAllowed(normalizePromo({ title: "Any" }), "h2h"));
 });

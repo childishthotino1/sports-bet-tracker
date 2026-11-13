@@ -21,10 +21,14 @@ serve(async (req) => {
         "Content-Type": "application/json",
         "x-api-key": ANTHROPIC_API_KEY!,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "server-side-fallback-2026-07-01",
       },
       body: JSON.stringify({
-        model: "claude-opus-4-6",
-        max_tokens: 256,
+        model: "claude-opus-5-5",
+        // Thinking is always on and counts toward max_tokens.
+        max_tokens: 16000,
+        output_config: { effort: "low" },
+        fallbacks: "default",
         messages: [{
           role: "user",
           content: [
@@ -66,7 +70,8 @@ Example: SCORE.NBA.LakersML.0.50.??.??+180`,
     });
 
     const data = await res.json();
-    const code = data.content?.[0]?.text?.trim() ?? "";
+    // The first block is a thinking block; the answer is in the text blocks.
+    const code = data.stop_reason === "refusal" ? "" : (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("").trim();
 
     return new Response(JSON.stringify({ code }), {
       headers: { ...CORS, "Content-Type": "application/json" },

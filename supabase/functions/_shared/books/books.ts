@@ -11,18 +11,18 @@ export type Sportsbook = {
   code: string; // the short code the vision prompts answer with
   aliases: string[]; // anything a person or a slip might call it, upper case, no spaces
   oddsApi: string | null; // The Odds API bookmaker key; null if the feed doesn't carry it
-  freeFeed: boolean; // on The Odds API's free plan (Caesars and Fanatics need a paid one)
+  onPlan: boolean; // on our Odds API plan (paid since 2026-11-07, so Caesars and Fanatics are in)
 };
 
 export const SPORTSBOOKS: Sportsbook[] = [
-  { name: "BetMGM", code: "MGM", aliases: ["MGM", "BETMGM"], oddsApi: "betmgm", freeFeed: true },
-  { name: "DraftKings", code: "DK", aliases: ["DK", "DRAFTKINGS"], oddsApi: "draftkings", freeFeed: true },
-  { name: "FanDuel", code: "FD", aliases: ["FD", "FANDUEL"], oddsApi: "fanduel", freeFeed: true },
-  { name: "Caesars", code: "CZR", aliases: ["CZR", "CS", "CAESARS", "CEASARS", "WILLIAMHILL"], oddsApi: "williamhill_us", freeFeed: false },
-  { name: "Fanatics", code: "FAN", aliases: ["FAN", "FANATICS"], oddsApi: "fanatics", freeFeed: false },
-  { name: "Bet365", code: "B365", aliases: ["B365", "BET365"], oddsApi: null, freeFeed: false },
+  { name: "BetMGM", code: "MGM", aliases: ["MGM", "BETMGM"], oddsApi: "betmgm", onPlan: true },
+  { name: "DraftKings", code: "DK", aliases: ["DK", "DRAFTKINGS"], oddsApi: "draftkings", onPlan: true },
+  { name: "FanDuel", code: "FD", aliases: ["FD", "FANDUEL"], oddsApi: "fanduel", onPlan: true },
+  { name: "Caesars", code: "CZR", aliases: ["CZR", "CS", "CAESARS", "CEASARS", "WILLIAMHILL"], oddsApi: "williamhill_us", onPlan: true },
+  { name: "Fanatics", code: "FAN", aliases: ["FAN", "FANATICS"], oddsApi: "fanatics", onPlan: true },
+  { name: "Bet365", code: "B365", aliases: ["B365", "BET365"], oddsApi: null, onPlan: false },
   // Formerly ESPN Bet; the feed still calls it espnbet.
-  { name: "theScore Bet", code: "SCORE", aliases: ["SCORE", "THESCORE", "THESCOREBET", "ESPN", "ESPNBET"], oddsApi: "espnbet", freeFeed: true },
+  { name: "theScore Bet", code: "SCORE", aliases: ["SCORE", "THESCORE", "THESCOREBET", "ESPN", "ESPNBET"], oddsApi: "espnbet", onPlan: true },
 ];
 
 // Alias -> book name, e.g. "DK" -> "DraftKings".

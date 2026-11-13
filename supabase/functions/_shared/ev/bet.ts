@@ -57,15 +57,23 @@ export const BANKROLLS = [500, 1000, 5000, 10000];
 // 1-3% of bankroll (guide.ts). Quarter Kelly on a big boost can ask for more.
 export const MAX_BET_SHARE = 0.03;
 
-export function wagerLine(kelly: number, maxStake: number | null = null): string | null {
+// bankroll: the user's own (/bankroll), for one stake; without it, a stake
+// for each of BANKROLLS.
+export function wagerLine(kelly: number, maxStake: number | null = null, bankroll: number | null = null): string | null {
   if (!(kelly > 0)) return null;
-  const money = (n: number) => (n >= 1000 ? `$${n / 1000}K` : `$${n}`);
+  const money = (n: number) => (n >= 1000 ? `$${Math.round(n / 100) / 10}K` : `$${n}`);
   const capped = kelly / 4 > MAX_BET_SHARE;
-  const stakes = BANKROLLS.map((bank) => {
+  const stakeFor = (bank: number) => {
     const raw = Math.min(bank * Math.min(kelly / 4, MAX_BET_SHARE), maxStake ?? Infinity);
-    const stake = raw < 1 ? "<$1" : `$${raw < 10 ? Math.round(raw * 2) / 2 : Math.round(raw)}`;
-    return `${money(bank)} bank: ${stake}`;
-  });
+    return raw < 1 ? "<$1" : `$${raw < 10 ? Math.round(raw * 2) / 2 : Math.round(raw)}`;
+  };
+  if (bankroll && bankroll > 0) {
+    // Name only the limit that set the stake: the promo's max, or the 3% cap.
+    const uncapped = bankroll * Math.min(kelly / 4, MAX_BET_SHARE);
+    const notes = maxStake && maxStake < uncapped ? `max $${maxStake}` : capped ? `capped at ${MAX_BET_SHARE * 100}%` : "";
+    return `💵 Bet ${stakeFor(bankroll)} (¼ Kelly on your ${money(bankroll)} bankroll${notes ? `, ${notes}` : ""})`;
+  }
+  const stakes = BANKROLLS.map((bank) => `${money(bank)} bank: ${stakeFor(bank)}`);
   return `Wager (¼ Kelly${capped ? `, capped at ${MAX_BET_SHARE * 100}% of bank` : ""}${maxStake ? `, max $${maxStake}` : ""}): ${stakes.join(" · ")}`;
 }
 

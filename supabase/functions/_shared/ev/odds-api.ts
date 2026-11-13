@@ -16,6 +16,8 @@ export const SPORT_KEYS: Record<string, string> = {
   NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
+  // Every MMA promotion on the feed is one sport key; UFC is nearly all of it. Moneylines only.
+  UFC: "mma_mixed_martial_arts",
   EPL: "soccer_epl",
   UCL: "soccer_uefa_champs_league",
   MLS: "soccer_usa_mls",
@@ -32,14 +34,19 @@ export const BOOK_KEYS: Record<string, string> = {
   Pinnacle: "pinnacle",
 };
 
-// Retail books on the free plan, by feed key: where line shopping looks.
+// Retail books on our Odds API plan, by feed key: where line shopping looks.
 export const SHOP_BOOKS: Record<string, string> = Object.fromEntries(
-  SPORTSBOOKS.flatMap((b) => (b.oddsApi && b.freeFeed ? [[b.oddsApi, b.name]] : [])),
+  SPORTSBOOKS.flatMap((b) => (b.oddsApi && b.onPlan ? [[b.oddsApi, b.name]] : [])),
 );
 
-export type Outcome = { name: string; price: number; point?: number; description?: string; bet_limit?: number | null };
-export type Market = { key: string; last_update?: string; outcomes: Outcome[] };
-export type Bookmaker = { key: string; title: string; last_update?: string; markets: Market[] };
+// link / sid come with includeLinks / includeSids: a link that opens the book
+// with this bet in the slip (outcome), or on the game (bookmaker). See links.ts.
+export type Outcome = {
+  name: string; price: number; point?: number; description?: string; bet_limit?: number | null;
+  link?: string | null; sid?: string | null;
+};
+export type Market = { key: string; last_update?: string; outcomes: Outcome[]; link?: string | null };
+export type Bookmaker = { key: string; title: string; last_update?: string; markets: Market[]; link?: string | null; sid?: string | null };
 export type OddsEvent = {
   id: string;
   sport_key: string;
@@ -60,6 +67,8 @@ async function get<T>(path: string, apiKey: string, q: Query): Promise<OddsResul
     bookmakers: q.bookmakers.join(","), // takes priority over regions, and is billed like one region per 10 books
     oddsFormat: "american",
     includeBetLimits: "true", // exchanges: how much each offer takes, to skip stale few-dollar offers
+    includeLinks: "true", // bet-slip links for the 🛒 buttons (links.ts); no extra credits
+    includeSids: "true",
   });
   const res = await fetch(`${BASE}${path}?${params}`);
   if (!res.ok) throw new Error(`The Odds API ${res.status}: ${await res.text()}`);
@@ -87,20 +96,29 @@ export const PROP_MARKETS: Record<string, string[]> = {
 // quarter-goal lines (2.25) where the alternates have the 2.5.
 export const EXTRA_MARKETS: Record<string, string[]> = {
   ...Object.fromEntries(SOCCER.map((l) => [l, ["alternate_totals", "alternate_spreads", "draw_no_bet", "btts", "alternate_totals_corners", "h2h_h1"]])),
+  UFC: [],
 };
+
+// A league's main lines on the feed. A fight has no spread or total there, only
+// who wins, so asking a UFC call for them would waste the request.
+const MAIN_ONLY: Record<string, string[]> = { UFC: ["h2h"] };
+export function mainMarkets(league: string | undefined): string[] {
+  return (league && MAIN_ONLY[league]) || ["h2h", "spreads", "totals"];
+}
 
 // 1st-half moneyline, spread and total: every book you use posts them for
 // football and basketball, and Pinnacle prices all three. Per-game calls only
 // (the sport-wide feed is main lines). Hockey uses periods and baseball the
-// first five innings, so they're left out.
+// first five innings, so they're left out. The books' 1st-half alternate
+// totals (FanDuel's ladder) are priced from Pinnacle's half total (alt-lines.ts).
 export const HALF_MARKETS: Record<string, string[]> = Object.fromEntries(
-  ["NFL", "NCAAF", "NBA", "WNBA", "NCAAB"].map((l) => [l, ["h2h_h1", "spreads_h1", "totals_h1"]]),
+  ["NFL", "NCAAF", "NBA", "WNBA", "NCAAB"].map((l) => [l, ["h2h_h1", "spreads_h1", "totals_h1", "alternate_totals_h1"]]),
 );
 
 // More props for a question about one game, where one call covers them all.
 // Each has a sharp price at Pinnacle or the exchanges (checked on a real NFL pull).
 export const QUESTION_PROP_MARKETS: Record<string, string[]> = {
-  NFL: ["player_pass_tds", "player_pass_completions", "player_pass_attempts", "player_rush_attempts", "player_reception_longest", "player_rush_reception_yds"],
+  NFL: ["player_1st_td", "player_pass_tds", "player_pass_completions", "player_pass_attempts", "player_rush_attempts", "player_reception_longest", "player_rush_reception_yds"],
 };
 
 export type EventInfo = Pick<OddsEvent, "id" | "sport_key" | "commence_time" | "home_team" | "away_team">;

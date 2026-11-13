@@ -85,14 +85,14 @@ test("finds the slip's game and the markets to request", () => {
   assert.deepEqual(legEventIds(slip, [OTHER, GAME], NOW), ["cargb", "cargb", "cargb"]);
   assert.deepEqual(marketsFor(slip), ["spreads", "alternate_spreads", "h2h", "player_anytime_td"]);
   // A promo naming the matchup in its notes points at the same game.
-  assert.equal(findEvent([OTHER, GAME], [fdSgpBoost().notes, fdSgpBoost().title], NOW)?.id, "cargb");
+  assert.equal(findEvent([OTHER, GAME], [fdSgpBoost().game], NOW)?.id, "cargb");
 });
 
-test("prices each leg: Pinnacle where it has the line, the book's own price where not", () => {
+test("prices each leg: Pinnacle where it has the line, carried over from it where not", () => {
   const slip = normalizeSlip(SLIP_JSON)!;
   const priced = priceSlipLegs(slip, [GAME, GAME, GAME], "fanduel");
   assert.deepEqual(priced.map((l) => [l.label, l.bookOdds, l.source]), [
-    ["Carolina Panthers +3.5", -125, "book"], // Pinnacle has only +3
+    ["Carolina Panthers +3.5", -125, "derived"], // Pinnacle has only +3: moved to +3.5 along FanDuel's ladder
     ["Green Bay Packers ML", -175, "sharp"],
     ["Josh Jacobs Anytime TD", -145, "sharp"],
   ]);
@@ -114,7 +114,7 @@ test("SGP: keeps FanDuel's correlation, swaps in fair leg prices, applies the 30
 
   const text = formatSlipCheck(slip, "FanDuel", c, fdSgpBoost());
   assert.match(text, /^🧾 SGP on FanDuel: Carolina Panthers @ Green Bay Packers$/m);
-  assert.match(text, /^1\. Carolina Panthers \+3\.5 -125 -> fair .* \(no sharp line; the book's own price, devigged\)$/m);
+  assert.match(text, /^1\. Carolina Panthers \+3\.5 -125 \| Pinnacle -105\/-105 \(\d\.\d%\) -> fair .* \(derived from the sharp \+3, moved along the book's own ladder\)$/m);
   assert.match(text, /^2\. Green Bay Packers ML -175 \| Pinnacle -165\/\+150 \(\d\.\d%\) -> fair/m);
   assert.match(text, /^Slip: \+990, boosted 30% to \+1287$/m);
   assert.match(text, /work against each other \(×0\.4\d\)/);
@@ -255,4 +255,102 @@ test("a boost on the slip: base and boosted prices, team totals, and the boost t
   assert.ok(Math.abs(c.eval.boostedDecimal - 2.09) < 1e-9); // priced at the +109 the book pays
   const text = formatSlipCheck(slip, "BetMGM", c, null);
   assert.match(text, /^Slip: -105, boosted 15% to \+109 \(the boost on the slip\)$/m);
+});
+
+test("1st TD scorer: priced against Novig's Yes/No, or the book's whole field when no sharp posts it", () => {
+  // Real prices, Ravens @ Bills, pulled 2026-10-31.
+  const slip = normalizeSlip({ book: "MGM", league: "NFL", bet_kind: "single", total_odds: 550, boosted_odds: 0, boost_pct: 0, game: "Baltimore Ravens @ Buffalo Bills",
+    legs: [{ team_or_player: "Derrick Henry", market: "player_1st_td", line: null, side: "Yes", team: "Baltimore Ravens", game: "Baltimore Ravens @ Buffalo Bills" }] })!;
+  assert.equal(legLabel(slip.legs[0]), "Derrick Henry 1st TD");
+  const field = (prices: [string, number][]) => prices.map(([p, price]) => ({ name: "Yes", description: p, price }));
+  const mgm = { key: "betmgm", title: "BetMGM", markets: [{ key: "player_1st_td", outcomes: field([["Derrick Henry", 550], ["James Cook", 150], ["Josh Allen", 200], ["Lamar Jackson", 300], ["Zay Flowers", 400]]) }] };
+  const novig = { key: "novig", title: "Novig", markets: [{ key: "player_1st_td", outcomes: [
+    { name: "Yes", description: "Derrick Henry", price: 488, bet_limit: 667 }, { name: "No", description: "Derrick Henry", price: -641, bet_limit: 1615 },
+  ] }] };
+  const base = { id: "bal-buf", sport_key: "americanfootball_nfl", commence_time: "2026-11-01T18:00:00Z", home_team: "Buffalo Bills", away_team: "Baltimore Ravens" };
+  const [sharp] = priceSlipLegs(slip, [{ ...base, bookmakers: [mgm, novig] }], "betmgm");
+  assert.equal(sharp.source, "sharp");
+  assert.equal(sharp.bookOdds, 550);
+  // Worst-case devig of +488/-641 (a long shot, so the power/Shin methods bite): ~14.6%, about +586.
+  assert.ok(sharp.fair! > 0.14 && sharp.fair! < 0.15, String(sharp.fair));
+  assert.ok(checkSlip(slip, [sharp], null, "BetMGM")!.eval.ev < 0, "+550 is short of the ~+586 fair price");
+
+  // No sharp: the book's field (cut to five players here, priced so it sums past 100% like a real one), devigged together.
+  const [own] = priceSlipLegs(slip, [{ ...base, bookmakers: [mgm] }], "betmgm");
+  assert.equal(own.source, "book-field");
+  const total = [550, 150, 200, 300, 400].reduce((a, p) => a + 100 / (p + 100), 0);
+  assert.ok(Math.abs(own.fair! - (100 / 650) / total) < 1e-12);
+});
+
+test("a boost typed in the chat is labelled as yours", () => {
+  const slip = { ...normalizeSlip({ book: "MGM", league: "NFL", bet_kind: "single", total_odds: -110, boosted_odds: 0, boost_pct: 0, game: "",
+    legs: [{ team_or_player: "Buffalo Bills", market: "h2h", line: null, side: "Buffalo Bills", team: "", game: "" }] })!, boost_pct: 25, boost_entered: true };
+  const priced = [{ label: "Buffalo Bills ML", bookOdds: -110, fair: 0.5, source: "sharp" as const, quotes: [] }];
+  const c = checkSlip(slip, priced, null, "BetMGM")!;
+  assert.equal(c.boostSource, "slip");
+  assert.match(formatSlipCheck(slip, "BetMGM", c, null), /^Slip: -110, boosted 25% to \+114 \(your boost\)$/m);
+});
+
+test("a one-game promo finds its game, not a lookalike", () => {
+  const ev = (id: string, away: string, home: string) => ({ id, away_team: away, home_team: home, commence_time: "2026-11-01T00:00:00Z" });
+  const games = [
+    ev("fsu", "Florida State Seminoles", "Georgia Tech Yellow Jackets"),
+    ev("uga", "Florida Gators", "Georgia Bulldogs"),
+    ev("fau", "Florida Atlantic Owls", "Georgia Southern Eagles"),
+  ];
+  const promo = normalizePromo(example("Unknown book: Florida vs. Georgia 50% Boost (one game, singles or SGP)"));
+  assert.equal(promo.game, "Florida vs Georgia");
+  assert.equal(findEvent(games, [promo.game], new Date("2026-10-31T20:00:00Z"))?.id, "uga");
+  assert.equal(findEvent(games, ["Florida State @ Georgia Tech"], new Date("2026-10-31T20:00:00Z"))?.id, "fsu");
+});
+
+test("a leg from another game doesn't get a one-game promo's boost", () => {
+  const slip = normalizeSlip(SLIP_JSON)!;
+  const priced = priceSlipLegs(slip, [GAME, GAME, GAME], "fanduel");
+  const c = checkSlip(slip, priced, fdSgpBoost(), "FanDuel", true)!;
+  assert.deepEqual(c.promoIssues, ["only Carolina Panthers @ Green Bay Packers qualifies"]);
+  assert.equal(c.boost, 0);
+});
+
+test("a leg outside a market-limited promo's markets doesn't get its boost", () => {
+  const slip = normalizeSlip(SLIP_JSON)!;
+  const priced = priceSlipLegs(slip, [GAME, GAME, GAME], "fanduel");
+  const td = { ...fdSgpBoost(), markets: ["player_anytime_td"] };
+  const c = checkSlip(slip, priced, td, "FanDuel")!;
+  assert.deepEqual(c.promoIssues, ["only touchdown scorer bets qualify"]);
+  assert.equal(c.boost, 0);
+});
+
+test("a caption sent with the screenshot goes to the read as instructions", () => {
+  assert.doesNotMatch(imagePrompt(""), /sent this note/);
+  const p = imagePrompt("", 'Ravens game, "props only"');
+  assert.match(p, /The user sent this note with the screenshot: "Ravens game, 'props only'"/);
+  assert.match(p, /a game it names goes in "game"/);
+});
+
+test("a Caesars slip off the feed: priced from the leg prices it prints, against the sharps", () => {
+  const slip = normalizeSlip({
+    book: "CZR", league: "NFL", bet_kind: "parlay", total_odds: 0, boosted_odds: 0, boost_pct: 30, game: "",
+    legs: [
+      { team_or_player: "Green Bay Packers", market: "h2h", line: null, side: "Green Bay Packers", team: "", game: "", odds: -160 },
+      { team_or_player: "Josh Jacobs", market: "player_anytime_td", line: null, side: "Yes", team: "", game: "", odds: -130 },
+      { team_or_player: "Jordan Love", market: "player_pass_yds", line: 249.5, side: "Over", team: "", game: "", odds: -115 },
+    ],
+  })!;
+  assert.equal(slip.book, "Caesars");
+  assert.deepEqual(slip.legs.map((l) => l.odds), [-160, -130, -115]);
+  const priced = priceSlipLegs(slip, [GAME, GAME, GAME], null);
+  assert.deepEqual(priced.map((l) => [l.bookOdds, l.source]), [[-160, "sharp"], [-130, "sharp"], [-115, "slip-1way"]]);
+  const c = checkSlip(slip, priced, null, "Caesars")!;
+  // No total printed: the legs multiplied.
+  assert.equal(c.totalOdds, Math.round((1 + 100 / 160) * (1 + 100 / 130) * (1 + 100 / 115) * 100 - 100));
+  assert.ok(Math.abs(c.boost - 0.3) < 1e-9);
+  assert.match(formatSlipCheck(slip, "Caesars", c, null), /the slip's price, assumed 6% margin/);
+});
+
+test("a single's printed price fills its leg price, and the other way round", () => {
+  const a = normalizeSlip({ ...SLIP_JSON, bet_kind: "single", total_odds: -125, legs: [SLIP_JSON.legs[0]] })!;
+  assert.equal(a.legs[0].odds, -125);
+  const b = normalizeSlip({ ...SLIP_JSON, bet_kind: "single", total_odds: 0, legs: [{ ...SLIP_JSON.legs[0], odds: -120 }] })!;
+  assert.equal(b.total_odds, -120);
 });

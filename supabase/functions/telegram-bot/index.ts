@@ -100,10 +100,15 @@ async function parseImageWithClaude(base64: string): Promise<ParsedSlip | null> 
       "Content-Type": "application/json",
       "x-api-key": ANTHROPIC_KEY,
       "anthropic-version": "2023-06-01",
+      // A safety-classifier refusal reruns on the default fallback model instead of failing.
+      "anthropic-beta": "server-side-fallback-2026-07-01",
     },
     body: JSON.stringify({
-      model: "claude-opus-4-6",
-      max_tokens: 1024,
+      model: "claude-opus-5-5",
+      // Thinking is always on and counts toward max_tokens, so leave room for it.
+      max_tokens: 16000,
+      output_config: { effort: "low" },
+      fallbacks: "default",
       messages: [{
         role: "user",
         content: [
@@ -143,7 +148,12 @@ Return ONLY valid JSON. No explanation.`,
   });
 
   const data = await res.json();
-  const text = data.content?.[0]?.text?.trim() ?? "";
+  if (!res.ok || data.stop_reason === "refusal") {
+    console.error("Claude read failed:", res.status, data.stop_reason ?? JSON.stringify(data.error ?? {}));
+    return null;
+  }
+  // The first block is a thinking block; the answer is in the text blocks.
+  const text = (data.content ?? []).filter((b: { type: string }) => b.type === "text").map((b: { text: string }) => b.text).join("").trim();
   if (!text) return null;
 
   try {

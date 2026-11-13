@@ -2,27 +2,33 @@
 // devigged lines, then build the singles and parlays that qualify for the promo
 // and rank them by boosted EV.
 
-import { americanToDecimal, decimalToAmerican, formatAmerican, probToAmerican } from "./odds.ts";
+import { americanToDecimal, decimalToAmerican, formatAmerican, formatPct, probToAmerican } from "./odds.ts";
 import { evaluateBet, type BetEval } from "./bet.ts";
-import { promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { marketAllowed, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { consensus, sharpQuotes, SHARP_KEYS, sideLabel, type Quote } from "./sharp.ts";
-import { findRuleBlocks, type SgpRule } from "./sgp-rules.ts";
+import { deriveAlt, derivedNote } from "./alt-lines.ts";
+import { findRuleBlocks, NEAR_IMPLIED, tdCount, TEAM_TOTAL_GIVEN_TDS, type SgpRule } from "./sgp-rules.ts";
 import type { Leg as CardLeg } from "./format.ts";
 import type { OddsEvent, Outcome } from "./odds-api.ts";
 import { blowoutNote, formatWongLeg, isPropOver, WONG_NOTE, wongLegs, type WongLeg } from "./guide.ts";
 
 export type PricedLeg = {
   eventId: string;
+  sportKey: string; // the feed's sport key, for grading the leg later
   game: string; // "DET @ NYK" style, as The Odds API names teams
   start: string; // ISO
   market: string; // "h2h", "totals", "player_points", ...
   selection: string; // "Ja Morant Over 15.5 Points"
   side: string; // the outcome's name: a team, "Over", "Yes"
   point?: number;
+  description?: string; // the player (props) or team (team totals) the outcome is about
   bookOdds: number;
   fair: number; // average of the sharp sources' worst-case devigged probabilities
   quotes: Quote[]; // each sharp source's line
   edge: number; // fair × book decimal − 1, before any promo
+  derived?: string; // how the fair price was worked out when no sharp posts this number (alt-lines.ts)
+  link?: string; // the book's own bet-slip link for this outcome (links.ts)
+  eventLink?: string; // the book's link to the game
 };
 
 function statLabel(market: string): string {
@@ -42,12 +48,23 @@ export function selectionLabel(market: string, o: Outcome): string {
   if (market.includes("spreads") || market.includes("totals")) return sideLabel(market, o);
   // Player props: name is Over/Under (or Yes/No), description is the player.
   if (market === "player_anytime_td") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime TD`;
+  if (market === "player_1st_td") return `${o.description} ${o.name === "No" ? "No " : ""}1st TD`;
+  if (market === "player_last_td") return `${o.description} ${o.name === "No" ? "No " : ""}Last TD`;
   if (market === "player_goal_scorer_anytime") return `${o.description} ${o.name === "No" ? "No " : ""}Anytime Goal`;
   if (market === "btts") return `Both Teams To Score: ${o.name}`;
   return [o.description, o.name, o.point, statLabel(market)].filter((x) => x !== undefined && x !== "").join(" ");
 }
 
 export type PriceOptions = { sharpKeys?: string[]; now?: Date; includeStarted?: boolean };
+
+// Games starting within this many minutes count as started. Books flip a game
+// to live a few minutes before the feed's start time (BetMGM showed Spurs @
+// Blazers live at 10:13 PM for a 10:14 tip), and a pick needs time to be read,
+// tapped and placed, so a leg minutes from tip-off would be a live bet.
+export const MIN_LEAD_MINUTES = 15;
+export function startsTooSoon(commence: string, now = new Date()): boolean {
+  return new Date(commence).getTime() <= now.getTime() + MIN_LEAD_MINUTES * 60_000;
+}
 
 // Every leg the book offers that at least one sharp source prices on the same
 // line. Games that have started are skipped unless asked for: live lines from
@@ -59,29 +76,42 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
   const legs: PricedLeg[] = [];
   const seen = new Set<string>();
   for (const ev of events) {
-    if (!includeStarted && new Date(ev.commence_time).getTime() <= now.getTime()) continue;
+    if (!includeStarted && startsTooSoon(ev.commence_time, now)) continue;
     const book = ev.bookmakers.find((b) => b.key === bookKey);
     if (!book) continue;
     for (const m of book.markets) {
       for (const o of m.outcomes) {
         const selection = selectionLabel(m.key, o);
         if (seen.has(`${ev.id}|${selection}`)) continue; // the same line in a main and an alternate market
-        const quotes = sharpQuotes(ev.bookmakers, m.key, o, sharps);
-        if (!quotes.length) continue;
+        let quotes = sharpQuotes(ev.bookmakers, m.key, o, sharps);
+        let fair: number, derived: string | undefined;
+        if (quotes.length) fair = consensus(quotes);
+        else {
+          // An alternate number no sharp posts: carried over from the nearest sharp number.
+          const d = deriveAlt(ev.bookmakers, ev.sport_key, m.key, o, bookKey, sharps);
+          if (!d) continue;
+          ({ fair, quotes } = d);
+          derived = derivedNote(d, m.key, book.title);
+        }
         seen.add(`${ev.id}|${selection}`);
-        const fair = consensus(quotes);
         legs.push({
           eventId: ev.id,
+          sportKey: ev.sport_key,
           game: `${ev.away_team} @ ${ev.home_team}`,
           start: ev.commence_time,
           market: m.key,
           selection,
           side: o.name,
           point: o.point,
+          description: o.description,
           bookOdds: o.price,
           fair,
           quotes,
           edge: fair * americanToDecimal(o.price) - 1,
+          ...(derived ? { derived } : {}),
+          // The book's links, never a sharp source's.
+          ...(o.link ? { link: o.link } : {}),
+          ...(book.link ? { eventLink: book.link } : {}),
         });
       }
     }
@@ -89,7 +119,9 @@ export function priceLegs(events: OddsEvent[], bookKey: string, opts: PriceOptio
   return legs.sort((a, b) => b.edge - a.edge);
 }
 
-export type Pick = { kind: BetKind; legs: PricedLeg[]; americanOdds: number; eval: BetEval };
+// free: legs that ride along at no price with another leg of the same game
+// (theScore's spread + moneyline pair, sgp-rules.ts).
+export type Pick = { kind: BetKind; legs: PricedLeg[]; americanOdds: number; eval: BetEval; free?: { leg: number; with: number; rule: SgpRule }[] };
 
 // Which markets picks may use: everything (the default), or one of the two
 // toggles. Main lines are healthier for an account: books limit prop bettors
@@ -114,7 +146,9 @@ function* combos<T>(items: T[], size: number, start = 0, acc: T[] = []): Generat
   for (let i = start; i < items.length; i++) yield* combos(items, size, i + 1, [...acc, items[i]]);
 }
 
-export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange };
+// must: every pick includes a leg it accepts ("Be specific"); with one set, the
+// best such picks are returned even when none is +EV, so the card can say so.
+export type PickOptions = { league?: string; top?: number; pool?: number; maxLegs?: number; target?: OddsRange; book?: string; must?: (l: PricedLeg) => boolean };
 
 // Best qualifying bets for a promo. Parlays only combine legs from different
 // games, so independence holds; same-game parlays aren't auto-picked (the
@@ -127,35 +161,54 @@ export function allowsSgpx(promo: Promo): boolean {
   return /\bsgp\s*\(?x\)?|\bsgp\+/i.test(`${promo.title} ${promo.notes ?? ""}`);
 }
 
-export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
-  const { league, top = 3, pool = 15, target } = opts;
+export function bestBets(allLegs: PricedLeg[], promo: Promo, opts: PickOptions = {}): Pick[] {
+  const legs = allLegs.filter((l) => marketAllowed(promo, l.market)); // a TD boost takes TD scorer legs only
+  const { league, top = 3, pool = 15, target, must } = opts;
   const maxLegs = Math.max(opts.maxLegs ?? 4, promo.min_legs ?? 0);
   const boost = (promo.boost_pct ?? 0) / 100;
   const allows = (k: BetKind) => !promo.bet_kinds.length || promo.bet_kinds.includes(k);
   const candidates: Pick[] = [];
 
-  const consider = (kind: BetKind, chosen: PricedLeg[]) => {
-    const decimal = chosen.reduce((d, l) => d * americanToDecimal(l.bookOdds), 1);
+  // A unit is one game's part of a bet: one leg, or a pair whose second leg
+  // rides free (priced and won with the first).
+  type Unit = { legs: PricedLeg[]; rule?: SgpRule };
+  const consider = (kind: BetKind, units: Unit[]) => {
+    const priced = units.map((u) => u.legs[0]);
+    const chosen = units.flatMap((u) => u.legs);
+    const decimal = priced.reduce((d, l) => d * americanToDecimal(l.bookOdds), 1);
     const americanOdds = Math.round(decimalToAmerican(decimal));
     if (promoViolations(promo, { americanOdds, legs: chosen.length, kind, league }).length) return;
     if (target && !inRange(americanOdds, target)) return;
-    const e = evaluateBet(chosen.map((l) => l.fair), chosen.map((l) => l.bookOdds), boost);
-    if (e.ev > 0) candidates.push({ kind, legs: chosen, americanOdds, eval: e });
+    if (must && !chosen.some(must)) return;
+    const e = evaluateBet(priced.map((l) => l.fair), priced.map((l) => l.bookOdds), boost);
+    const free = units.flatMap((u) => (u.rule ? [{ leg: chosen.indexOf(u.legs[1]), with: chosen.indexOf(u.legs[0]), rule: u.rule }] : []));
+    if (e.ev > 0 || must) candidates.push({ kind, legs: chosen, americanOdds, eval: e, ...(free.length ? { free } : {}) });
   };
 
-  if (allows("single")) for (const l of legs) consider("single", [l]);
+  if (allows("single")) for (const l of legs) consider("single", [{ legs: [l] }]);
   // A cross-game parlay, or an SGPx of one leg per game.
   const multi: BetKind | null = allows("parlay") ? "parlay" : allows("sgp") && allowsSgpx(promo) ? "sgp" : null;
   if (multi) {
     // The pool takes the best leg per game first, so every game gets a look.
     const perGame = new Map<string, PricedLeg>();
     for (const l of legs) if (!perGame.has(l.eventId)) perGame.set(l.eventId, l);
-    const best = [...new Set([...perGame.values(), ...legs])].slice(0, pool);
+    // The legs that must be in every pick go in first, whatever their edge.
+    const required = must ? legs.filter(must).slice(0, 5) : [];
+    const best: Unit[] = [...new Set([...required, ...perGame.values(), ...legs])].slice(0, pool + required.length).map((l) => ({ legs: [l] }));
+    // On a book that prices a favorite's spread + its moneyline as one line
+    // (theScore), each such pair is two legs for the price of the spread:
+    // chained across games, they fill a leg minimum with half the games.
+    const pairs = freePairs(legs, opts.book).slice(0, pool);
+    const units = [...best, ...pairs];
     const lo = Math.max(2, promo.min_legs ?? 2);
     const hi = Math.min(maxLegs, promo.max_legs ?? maxLegs);
-    for (let n = lo; n <= hi; n++) {
-      for (const c of combos(best, n)) {
-        if (new Set(c.map((l) => l.eventId)).size === c.length) consider(multi, c);
+    for (let n = 1; n <= hi; n++) {
+      for (const c of combos(units, n)) {
+        const size = c.reduce((a, u) => a + u.legs.length, 0);
+        if (size < lo || size > hi) continue;
+        // One game's pair on its own is a same-game parlay.
+        if (n === 1) { if (size > 1 && allows("sgp")) consider("sgp", c); continue; }
+        if (new Set(c.map((u) => u.legs[0].eventId)).size === c.length) consider(multi, c);
       }
     }
   }
@@ -163,7 +216,7 @@ export function bestBets(legs: PricedLeg[], promo: Promo, opts: PickOptions = {}
 }
 
 // Eastern wall-clock time, "YYYY-MM-DDTHH:MM", the way promo expiries are read.
-function easternStamp(iso: string): string {
+export function easternStamp(iso: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(new Date(iso));
@@ -171,13 +224,15 @@ function easternStamp(iso: string): string {
   return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
-// Whether a game is one the promo can still be used on: it hasn't started, and
+// Whether a game is one the promo can still be used on: it isn't about to start
+// (startsTooSoon), and
 // it starts by the promo's expiry. A date-only expiry ("all NBA games on
 // 10/29") covers that day's games (Eastern), not tomorrow's.
 export function promoCovers(promo: Promo, commence: string, now = new Date()): boolean {
-  if (new Date(commence).getTime() <= now.getTime()) return false;
-  if (!promo.expires_at) return true;
+  if (startsTooSoon(commence, now)) return false;
   const start = easternStamp(commence);
+  if (promo.game_date && start.slice(0, 10) !== promo.game_date) return false;
+  if (!promo.expires_at) return true;
   return promo.expires_at.length === 10 ? start.slice(0, 10) <= promo.expires_at : start <= promo.expires_at;
 }
 
@@ -199,7 +254,42 @@ export function formatStart(iso: string): string {
 
 // A pick's legs in the shape formatBet() prints.
 export function cardLegs(p: Pick): CardLeg[] {
-  return p.legs.map((l) => ({ selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes }));
+  return p.legs.map((l, i) => {
+    const f = p.free?.find((x) => x.leg === i);
+    return {
+      selection: l.selection, bookOdds: l.bookOdds, game: l.game, start: formatStart(l.start), fairProb: l.fair, quotes: l.quotes,
+      ...(f ? { freeWith: f.with } : {}), ...(l.derived ? { derived: l.derived } : {}),
+    };
+  });
+}
+
+// One line on where a pick's value comes from: the book's price against the
+// sharps' (leg by leg for a parlay), and how much of it is the boost.
+export function whyNote(p: Pick, boost: number, book: string): string {
+  const free = new Set((p.free ?? []).map((f) => f.leg));
+  const priced = p.legs.filter((_, i) => !free.has(i));
+  const plain = evaluateBet(priced.map((l) => l.fair), priced.map((l) => l.bookOdds)).ev;
+  const pct = (x: number) => `${x >= 0 ? "+" : ""}${formatPct(x)}`;
+  const parts: string[] = [];
+  if (priced.length === 1) {
+    const l = priced[0];
+    parts.push(`${book} pays ${formatAmerican(l.bookOdds)} on a bet the sharps make ${formatAmerican(probToAmerican(l.fair))}.`);
+  } else {
+    const beat = priced.filter((l) => l.edge > 0).length;
+    const best = priced.reduce((a, l) => (l.edge > a.edge ? l : a));
+    parts.push(`${beat} of ${priced.length} priced legs beat the sharp price (best: ${best.selection}, ${pct(best.edge)}).`);
+  }
+  if (boost) {
+    const b = Math.round(boost * 100);
+    parts.push(plain > 0
+      ? `It's ${pct(plain)} before the boost; the ${b}% boost adds the rest.`
+      : p.eval.ev > 0
+      ? `Without the ${b}% boost it's ${pct(plain)}: the boost is the edge.`
+      : `Even with the ${b}% boost it's ${pct(p.eval.ev)}.`);
+  }
+  const derived = p.legs.flatMap((l, i) => (l.derived ? [i + 1] : []));
+  if (derived.length) parts.push(`Leg${derived.length > 1 ? "s" : ""} ${derived.join(", ")}: no sharp line at that number, so the fair price is derived; treat it as an estimate.`);
+  return `💡 Why: ${parts.join(" ")}`;
 }
 
 // Why bestBets() came back empty, in words the bot can send.
@@ -271,6 +361,17 @@ export function suggestSgpLegs(legs: PricedLeg[], count: number, eventId?: strin
   return best;
 }
 
+// Every favorite's spread with its moneyline, as a unit, on a book with the
+// spread + moneyline rule; none elsewhere. Best spread edge first.
+function freePairs(legs: PricedLeg[], book?: string): { legs: PricedLeg[]; rule: SgpRule }[] {
+  if (!book) return [];
+  return legs.filter((l) => l.market === "spreads" && (l.point ?? 0) < 0).flatMap((spread) => {
+    const ml = legs.find((l) => l.market === "h2h" && l.eventId === spread.eventId && l.side === spread.side);
+    const [block] = ml ? findRuleBlocks([ruleLeg(spread), ruleLeg(ml)], book) : [];
+    return block ? [{ legs: [spread, ml!], rule: block.rule }] : [];
+  }).sort((a, b) => b.legs[0].edge - a.legs[0].edge);
+}
+
 // A favorite's spread the book lets you pair with the same team's moneyline:
 // covering means winning, so the moneyline rides along for free
 // (sgp-rules.ts). An underdog's pair is worth its moneyline, not a free leg.
@@ -286,6 +387,29 @@ function freeLeg(picked: PricedLeg[], evLegs: PricedLeg[], book?: string) {
 
 const ruleLeg = (l: PricedLeg) => ({ market: l.market, side: l.side, line: l.point ?? null, team: null, player: null });
 
+// Forcing legs to fill a leg minimum (sgp-rules.ts): for a scorer or a
+// double-double in the suggestion, the legs it all but guarantees. The feed
+// can't price these (no player's team, no low alternate lines), so they're
+// ideas to add to the slip, which then gets priced with the rule's joint.
+export function forcingIdeas(legs: { market: string; side: string; point?: number; description?: string }[]): string[] {
+  const pct = (p: number) => `${Math.round(p * 100)}%`;
+  return legs.flatMap((l) => {
+    const who = l.description;
+    if (!who) return [];
+    const k = tdCount({ market: l.market, side: l.side, line: l.point ?? null });
+    if (k) {
+      return [`➕ If ${who} scores${k > 1 ? ` ${k}+ TDs` : ""}: his team's total Over ${6 * k - 0.5} can't lose (Over ${6 * k + 1.5}, about ${pct(TEAM_TOTAL_GIVEN_TDS)}), and his own yards over a low line (10+ receiving, 25+ rushing) come with it about ${pct(NEAR_IMPLIED)} of the time.`];
+    }
+    if (l.market === "player_double_double" && l.side === "Yes") {
+      return [`➕ With ${who}'s double-double: his rebounds (or points) Over 9.5 come with it about ${pct(NEAR_IMPLIED)} of the time.`];
+    }
+    if (l.market === "player_triple_double" && l.side === "Yes") {
+      return [`➕ With ${who}'s triple-double: his double-double and points, rebounds and assists Over 9.5 all come with it.`];
+    }
+    return [];
+  });
+}
+
 export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
   const lines = sg.legs.map((l, i) => {
     const f = sg.free.find((x) => x.leg === i);
@@ -293,10 +417,12 @@ export function formatSgpSuggestion(sg: SgpSuggestion, book: string): string {
     return `${i + 1}. ${l.selection} ${formatAmerican(l.bookOdds)} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}% vs sharp)`;
   });
   const why = sg.free.map((f) => `🧩 ${f.rule.why}`);
+  const ideas = forcingIdeas(sg.legs);
   return [
     `🧩 SGP legs to build on ${book}: ${sg.game}`,
     ...lines,
     ...(why.length ? ["", ...why] : []),
+    ...(ideas.length ? ["", "Need more legs? Add ones these legs all but force: the book often charges for them as if they weren't tied, which adds price for little risk.", ...ideas] : []),
     "",
     `These are the best-priced legs in this game against the sharp price (Pinnacle and the exchanges). ${book}'s SGP price depends on how the legs move together, which the odds feed doesn't show, so build the SGP (swap legs if you like) and send me a screenshot of the slip. I'll price the whole thing.`,
   ].join("\n");
@@ -330,19 +456,21 @@ export function guideNotes(event: OddsEvent, legs: { market: string; side: strin
   return notes;
 }
 
-export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6): string {
-  const head = `🔎 ${event.away_team} @ ${event.home_team}, ${formatStart(event.commence_time)}`;
-  if (!legs.length) return `${head}\nThe sharp sources (Pinnacle and the exchanges) don't price this game's lines yet. Try closer to kickoff.`;
+export function formatShop(event: OddsEvent, legs: ShopLeg[], top = 6, label: string | null = null): string {
+  const head = `🔎 ${event.away_team} @ ${event.home_team}, ${formatStart(event.commence_time)}${label ? ` · ${label}` : ""}`;
+  if (!legs.length) return `${head}\nThe sharp sources (Pinnacle and the exchanges) don't price ${label ? "those" : "this game's"} lines yet. Try closer to kickoff${label ? ", or ask for other lines" : ""}.`;
   const lines = legs.slice(0, top).map((l, i) =>
     `${i + 1}. ${l.edge > 0 ? "✅ " : ""}${l.selection} ${formatAmerican(l.bookOdds)} at ${l.book} (fair ${formatAmerican(probToAmerican(l.fair))}, ${l.edge >= 0 ? "+" : ""}${(l.edge * 100).toFixed(1)}%)`);
   const plus = legs.filter((l) => l.edge > 0).length;
   return [
     head,
-    "Best prices across your books against the sharp price (Pinnacle + exchanges):",
+    new Set(legs.map((l) => l.book)).size === 1
+      ? `${legs[0].book}'s prices against the sharp price (Pinnacle + exchanges):`
+      : "Best prices across your books against the sharp price (Pinnacle + exchanges):",
     ...lines,
     "",
     plus
-      ? `✅ ${plus} line${plus === 1 ? " beats" : "s beat"} the fair price as is. Bet those at that book; the rest only make sense with a boost.`
+      ? `✅ ${plus} line${plus === 1 ? " beats" : "s beat"} the fair price as is${plus > top ? ` (the top ${top} are shown)` : ""}. Bet those at that book; the rest only make sense with a boost.`
       : "Nothing beats the fair price as is: every book's margin wins. These are the closest; send a promo screenshot and the boost may flip them +EV.",
     ...guideNotes(event, legs.slice(0, top)).flatMap((n) => ["", n]),
   ].join("\n");

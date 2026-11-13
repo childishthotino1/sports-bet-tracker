@@ -33,6 +33,9 @@ The World Series limit isn't a league, so it goes in `notes`.
   "pregame": true,
   "paid_in": "cash",
   "expires_at": "2026-10-29T08:07",
+  "game": null,
+  "game_date": null,
+  "markets": [],
   "notes": "World Series games only"
 }
 ```
@@ -64,6 +67,9 @@ so `paid_in` is null. Live and pre-game aren't mentioned, so both are true.
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-10-29T03:00",
+  "game": null,
+  "game_date": null,
+  "markets": [],
   "notes": null
 }
 ```
@@ -96,6 +102,9 @@ bet kinds, so it goes in `notes`.
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-10-29T09:29",
+  "game": null,
+  "game_date": null,
+  "markets": [],
   "notes": "Super Parlays also qualify"
 }
 ```
@@ -130,6 +139,9 @@ reading "no minimum". No book name or logo is on screen; the user said BetMGM
   "pregame": true,
   "paid_in": "cash",
   "expires_at": "2026-10-29T09:52",
+  "game": null,
+  "game_date": null,
+  "markets": [],
   "notes": "Screenshot cut off below 'Bet on'; other rules (min odds, SGP) not visible"
 }
 ```
@@ -162,6 +174,9 @@ the same token showed 10/29/26 09:52 AM, so `expires_at` is null here.
   "pregame": true,
   "paid_in": "cash",
   "expires_at": null,
+  "game": null,
+  "game_date": null,
+  "markets": [],
   "notes": null
 }
 ```
@@ -195,6 +210,9 @@ shown for the expiry, so `expires_at` has no time. No book name or logo is shown
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-11-02",
+  "game": null,
+  "game_date": null,
+  "markets": [],
   "notes": null
 }
 ```
@@ -205,7 +223,7 @@ Shows: "Reward Restrictions", "30% Profit Boost", Exp 10/30/2026, "Carolina
 Panthers @ Green Bay Packers", "3+ leg SGP/SGP+", "Pre-game or Live bets", "No
 Min | $10 Max Wager", "+100 Min | +200000 Max Odds", and a "Go to event" button.
 
-Gotcha: the promo is for one game, so the matchup goes in `notes` and the league
+Gotcha: the promo is for one game, so the matchup goes in `game` and the league
 comes from the teams (NFL). "SGP+" is still a same-game parlay, so `bet_kinds` is
 `["sgp"]` with `min_legs` 3. "+100 Min" is the minimum odds; "No Min" is the
 wager. No book name or logo is on screen.
@@ -227,7 +245,10 @@ wager. No book name or logo is on screen.
   "pregame": true,
   "paid_in": null,
   "expires_at": "2026-10-30",
-  "notes": "Carolina Panthers @ Green Bay Packers only; SGP+ also qualifies"
+  "game": "Carolina Panthers @ Green Bay Packers",
+  "game_date": null,
+  "markets": [],
+  "notes": "SGP+ also qualifies"
 }
 ```
 
@@ -262,6 +283,117 @@ are called SGPx.
   "pregame": true,
   "paid_in": null,
   "expires_at": null,
+  "game": null,
+  "game_date": null,
+  "markets": [],
+  "notes": "SGPx (multi-game same-game parlays) also qualifies"
+}
+```
+
+## Unknown book: Florida vs. Georgia 50% Boost (one game, singles or SGP)
+
+Shows: "Reward Claimed", "ID: 427825", "Expires 31m", "Florida vs. Georgia 50%
+Boost", tiles "$20 Max Bet", "-200 Min. Odds", "1 Min. Legs", a "College
+Football" tag, "Eligible Bet Types: Single, SGP", and a "Bet Now" button.
+
+Gotcha: the title names one game, so the promo is for that game only: `game` is
+"Florida vs Georgia", even though no rule line says "only". "College Football"
+is NCAAF. "1 Min. Legs" is no real limit, but it's shown, so `min_legs` is 1.
+"Expires 31m" is relative, so `expires_at` is null. No book is shown (it's
+DraftKings' rewards layout, like the soccer SGPx boost).
+
+```json
+{
+  "book": null,
+  "title": "Florida vs. Georgia 50% Boost",
+  "type": "profit_boost",
+  "boost_pct": 50,
+  "max_stake": 20,
+  "min_total_odds": -200,
+  "min_legs": 1,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["single", "sgp"],
+  "leagues": ["NCAAF"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": null,
+  "game": "Florida vs Georgia",
+  "game_date": null,
+  "markets": [],
+  "notes": null
+}
+```
+
+## DraftKings: NFL Sunday 30% TD Boost
+
+Shows (as the bot read it): "NFL Sunday 30% TD Boost", 30% boost, NFL, minimum
+odds -200, $20 max, eligible bet types Single, Parlay, SGP and SGPx.
+
+Gotcha: "TD Boost" in the title is the market rule: only touchdown scorer bets
+get the boost, so `markets` is the three TD scorer markets and every leg of a
+parlay must be one. It isn't a note, and it isn't "likely": the market a promo is
+named for is the market it requires. "Sunday" limits the games; it goes in
+`notes`.
+
+```json
+{
+  "book": "DraftKings",
+  "title": "NFL Sunday 30% TD Boost",
+  "type": "profit_boost",
+  "boost_pct": 30,
+  "max_stake": 20,
+  "min_total_odds": -200,
+  "min_legs": null,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["single", "parlay", "sgp"],
+  "leagues": ["NFL"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": null,
+  "game": null,
+  "game_date": null,
+  "markets": ["player_anytime_td", "player_1st_td", "player_last_td"],
+  "notes": "Sunday NFL games; SGPx also qualifies"
+}
+```
+
+## DraftKings: NBA 30% SGP(x) Boost (games on one date)
+
+Shows: NBA logo, "Reward Claimed", "ID: 436138", "Expires 6h", "NBA 30% SGP(x)
+Boost", tiles "$50 Max Bet", "+100 Min. Odds", "3 Min. Legs", an "NBA" tag,
+"Eligible Bet Types: SGP, SGPx", and Terms & Conditions: "Boosted up to max $50
+wager. 30% Profit Boost. Offer valid on a 3+ leg NBA SGP or SGPx bet. Min Total
+Odds of +100. The bet can be placed on NBA on 11/7/2026."
+
+Gotcha: "can be placed on NBA on 11/7/2026" limits the games to that date, so
+`game_date` is "2026-11-07": tomorrow's games don't qualify, even though
+"Expires 6h" would let you place the bet before then. It isn't a note. The
+reward layout is DraftKings', and it says SGPx, DraftKings' name for it.
+
+```json
+{
+  "book": "DraftKings",
+  "title": "NBA 30% SGP(x) Boost",
+  "type": "profit_boost",
+  "boost_pct": 30,
+  "max_stake": 50,
+  "min_total_odds": 100,
+  "min_legs": 3,
+  "max_legs": null,
+  "legs_apply_to": [],
+  "bet_kinds": ["sgp"],
+  "leagues": ["NBA"],
+  "live": true,
+  "pregame": true,
+  "paid_in": null,
+  "expires_at": null,
+  "game": null,
+  "game_date": "2026-11-07",
+  "markets": [],
   "notes": "SGPx (multi-game same-game parlays) also qualifies"
 }
 ```

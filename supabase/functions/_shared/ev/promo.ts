@@ -10,6 +10,7 @@ import { canonicalBook } from "../books/books.ts";
 // covers a Premier League slip.
 export const LEAGUE_GROUPS: Record<string, string[]> = {
   SOCCER: ["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"],
+  MMA: ["UFC"],
 };
 
 // A promo's leagues with groups expanded.
@@ -36,8 +37,39 @@ export type Promo = {
   pregame: boolean;
   paid_in: "cash" | "bonus" | null; // how the boosted part of the win is paid
   expires_at: string | null; // as shown, "2026-10-29T08:07" (book's local time)
+  game: string | null; // the one game the promo is limited to, "Florida vs Georgia"; null for any game
+  game_date?: string | null; // "2026-11-07": only games played that day (Eastern) qualify; null for any day
+  markets: string[]; // the only markets that qualify (feed keys, PROMO_MARKETS); empty = any
   notes: string | null;
 };
+
+// Markets a promo can be limited to, as feed keys. any_player_prop means every
+// player prop ("Player Props Boost").
+export const PROMO_MARKETS = [
+  "h2h", "spreads", "totals", "team_totals", "h2h_h1", "spreads_h1", "totals_h1",
+  "player_anytime_td", "player_1st_td", "player_last_td",
+  "player_pass_yds", "player_pass_tds", "player_rush_yds", "player_reception_yds", "player_receptions",
+  "player_points", "player_rebounds", "player_assists", "player_threes",
+  "batter_hits", "batter_home_runs", "batter_total_bases", "pitcher_strikeouts",
+  "player_shots_on_goal", "player_goal_scorer_anytime", "btts", "any_player_prop",
+];
+
+const TD_MARKETS = ["player_anytime_td", "player_1st_td", "player_last_td"];
+
+// Does this feed market (alternate lines included) qualify for the promo?
+export function marketAllowed(promo: Pick<Promo, "markets">, market: string): boolean {
+  const only = promo.markets ?? [];
+  if (!only.length) return true;
+  const base = market.replace(/^alternate_/, "").replace(/_alternate$/, "");
+  return only.includes(base) || (only.includes("any_player_prop") && /^(player|batter|pitcher)_/.test(base));
+}
+
+// "touchdown scorer", "home run", ... for messages.
+export function marketsLabel(promo: Pick<Promo, "markets">): string {
+  const only = promo.markets ?? [];
+  if (only.length && only.every((m) => TD_MARKETS.includes(m))) return "touchdown scorer";
+  return only.map((m) => (m === "any_player_prop" ? "player prop" : m.replace(/^(player|batter|pitcher)_/, "").replace(/_/g, " "))).join(" / ");
+}
 
 // JSON schema for structured outputs. Every field is required (nullable where
 // the screenshot may not say) so the model can't silently drop one.
@@ -46,7 +78,7 @@ export const PROMO_JSON_SCHEMA = {
   additionalProperties: false,
   required: [
     "book", "title", "type", "boost_pct", "max_stake", "min_total_odds", "min_legs",
-    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "notes",
+    "max_legs", "legs_apply_to", "bet_kinds", "leagues", "live", "pregame", "paid_in", "expires_at", "game", "game_date", "markets", "notes",
   ],
   properties: {
     book: { type: "string" },
@@ -64,6 +96,9 @@ export const PROMO_JSON_SCHEMA = {
     pregame: { type: "boolean" },
     paid_in: { type: "string", enum: ["cash", "bonus", "unknown"] },
     expires_at: { type: "string" },
+    game: { type: "string" },
+    game_date: { type: "string" },
+    markets: { type: "array", items: { type: "string", enum: PROMO_MARKETS } },
     notes: { type: "string" },
   },
 } as const;
@@ -78,11 +113,14 @@ export const PROMO_PROMPT = `If it's a sportsbook promotion, read its rules into
 - bet_kinds: "sgp" for same game parlays, "parlay" for regular parlays, "single" for straight bets. Empty if any bet qualifies.
 - min_legs / max_legs: leg-count limits, e.g. "4-25 Leg Parlays" -> 4 and 25.
 - legs_apply_to: the bet_kinds those leg limits cover. "Same Game Parlay, 4-25 Leg Parlays" -> ["parlay"] (the SGP has no leg limit). Empty if the limits cover every eligible bet.
-- leagues: league abbreviations such as "MLB" or "NBA" ("SOCCER" when the promo covers soccer generally; EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA for one league). Empty if any league qualifies.
+- leagues: league abbreviations such as "MLB", "NBA" or "UFC" (UFC for any MMA promo) ("SOCCER" when the promo covers soccer generally; EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA for one league). Empty if any league qualifies.
 - live / pregame: whether live and pre-game bets qualify. If the promo doesn't say, both are true.
 - paid_in: "cash" or "bonus", for how the boosted winnings are paid.
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.
-- notes: any other rule that limits which bets qualify (a specific event, a required market); null if none.
+- game_date: if the rules limit it to games played on one date ("The bet can be placed on NBA on 11/7/2026", "valid on Sunday 11/9 games", "tonight's games"), that date as YYYY-MM-DD; null when games on any date qualify. Don't repeat it in notes.
+- game: if the promo is for one game only (a matchup in its title or rules, like "Florida vs. Georgia 50% Boost" or "Carolina Panthers @ Green Bay Packers"), that matchup with the team names only, as shown: "Florida vs Georgia". Null when any game qualifies. Don't repeat it in notes.
+- markets: if only certain markets qualify, those markets: a "TD Boost" or "Touchdown Boost" is ["player_anytime_td", "player_1st_td", "player_last_td"] (add only the ones it names if it names "Anytime" or "First" TD), a "Home Run Boost" is ["batter_home_runs"], a goalscorer boost ["player_goal_scorer_anytime"], a "Player Props" boost ["any_player_prop"], a moneyline boost ["h2h"]. Read it from the title too: the market a promo is named for is the market it requires. Empty when any market qualifies.
+- notes: any other rule that limits which bets qualify (a specific tournament or round); null if none. Don't repeat the markets here.
 
 For anything the screenshot doesn't state, use "" for text, 0 for numbers and "unknown" for paid_in (the examples below write those as null). Don't guess.`;
 
@@ -131,6 +169,9 @@ export function normalizePromo(raw: unknown): Promo {
     pregame: r.pregame !== false,
     paid_in: r.paid_in === "cash" || r.paid_in === "bonus" ? r.paid_in : null,
     expires_at: str(r.expires_at),
+    game: str(r.game),
+    game_date: typeof r.game_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.game_date.trim()) ? r.game_date.trim() : null,
+    markets: list(r.markets).filter((m) => (PROMO_MARKETS as readonly string[]).includes(m)),
     notes: str(r.notes),
   };
 }

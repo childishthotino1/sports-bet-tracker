@@ -7,9 +7,9 @@
 
 import { americanToDecimal, decimalToAmerican, formatAmerican, impliedProb, probToAmerican } from "./odds.ts";
 import { evaluateBet, wagerLine } from "./bet.ts";
-import { eligibleLeagues, legLimitsApply, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
+import { eligibleLeagues, legLimitsApply, marketsLabel, normalizePromo, promoViolations, type BetKind, type Promo } from "./promo.ts";
 import { SPORT_KEYS } from "./odds-api.ts";
-import type { Slip } from "./slip.ts";
+import type { Slip, SlipOffer } from "./slip.ts";
 import type { OddsRange } from "./picks.ts";
 import { SPORTSBOOKS } from "../books/books.ts";
 
@@ -18,25 +18,67 @@ export type Prompt = { text: string; buttons: Button[][] }; // rows of buttons; 
 
 export type FlowState = {
   promo: Promo;
-  step: "book" | "max_stake" | "action" | "sport" | "target" | "slip" | "fair" | "end";
+  step: "book" | "max_stake" | "action" | "sport" | "range" | "target" | "specific" | "slip" | "fair" | "boost" | "end";
   sport?: string; // league to search for picks, e.g. "NBA", or "ALL" for every one the promo covers
   target?: OddsRange; // odds the picks should land in; unset = any price that qualifies
   bookOdds?: number; // a typed price being checked, pre-boost; cleared after the verdict
   slip?: Slip; // a slip screenshot waiting to be priced (only while asking which book)
   noPromo?: boolean; // a slip sent with no promo in play: priced without a boost
   legs?: number; // legs on the slip whose price is being typed: a single gets single-bet margins
+  autoRun?: boolean; // the promo came with instructions: find the picks as soon as its questions are answered
+  rangeAsked?: boolean; // the odds-range question was answered (or skipped) for this promo
+  bankroll?: number; // the user's bankroll (/bankroll), for the stake on a typed-price verdict; set by the bot
+  slipOffers?: SlipOffer[]; // the last slip checked, at each book that posts it: a "which book?" tap gets that book's link
+  shown?: string[]; // legs already suggested for this promo (legKey), left out by "Try something different"
+  must?: string; // "Be specific": a leg, line or game every pick has to include, as the user typed it
 };
+
+// Odds ranges offered before a search, as [min, max] American odds. The first
+// starts at the promo's minimum.
+const RANGES: [number, number][] = [[100, 250], [250, 500], [500, 1000], [1000, 50000]];
+
+// Before picks: the odds range to search, unless one is set, it was already
+// answered, or the promo came with instructions (it runs straight away).
+function toPicks(s: FlowState): StepResult {
+  if (!s.target && !s.rangeAsked && !s.autoRun) return { state: { ...s, step: "range" } };
+  return { state: { ...s, step: "action" }, action: "picks" };
+}
 
 // BetMGM first: nearly all shared bets are there.
 export const BOOKS = SPORTSBOOKS.map((b) => b.name); // shared with the tracker bot (_shared/books)
 const MARGINS = [15, 20, 25, 30]; // parlays and SGPs
 const SINGLE_MARGINS = [4, 6, 8, 10]; // one leg: a two-way line's usual hold
 const TARGETS = [200, 300, 400, 600, 1000];
+const BOOSTS = [20, 25, 30, 50, 100];
 const KIND_LABELS: Record<BetKind, string> = { sgp: "Same Game Parlay", parlay: "Parlay", single: "Straight bet" };
 
 // State for a slip sent with no promo in play.
 export function slipOnly(slip: Slip): FlowState {
   return { promo: normalizePromo({ title: "No promo" }), step: "action", slip, noPromo: true };
+}
+
+// A slip with no promo in play and no boost on screen: ask which boost (if any)
+// you're putting on it, so the check prices the bet you'll actually place.
+export function askBoost(slip: Slip): FlowState {
+  return { ...slipOnly(slip), step: "boost" };
+}
+
+// "25", "25%", "none", "0" → the boost %, null for none, undefined if unreadable.
+// "/bankroll 4000", "/bankroll $4,000", "/bankroll 4k" -> 4000; "/bankroll off" clears it.
+export function parseBankroll(text: string): number | null | undefined {
+  const v = text.trim().toLowerCase().replace(/[$,\s]/g, "");
+  if (["off", "none", "clear", "0"].includes(v)) return null;
+  const m = v.match(/^(\d+(?:\.\d+)?)(k?)$/);
+  if (!m) return undefined;
+  const n = Number(m[1]) * (m[2] ? 1000 : 1);
+  return n >= 50 && n <= 10_000_000 ? Math.round(n) : undefined;
+}
+
+export function parseBoost(text: string): number | null | undefined {
+  const v = text.trim().toLowerCase().replace(/%$/, "").trim();
+  if (["none", "no", "no boost", "0"].includes(v)) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 && n <= 200 ? n : undefined;
 }
 
 export function startFlow(promo: Promo): FlowState {
@@ -64,9 +106,11 @@ export function prompt(s: FlowState): Prompt {
       };
     case "action":
       return {
-        text: `${summary(s.promo)}${s.target ? `\n🎚 Target ${formatRange(s.target)}` : ""}\n\nWhat do you want to do?`,
+        text: `${summary(s.promo)}${s.target ? `\n🎚 Target ${formatRange(s.target)}` : ""}${s.must ? `\n📌 Must include: ${s.must}` : ""}\n\nWhat do you want to do?`,
         buttons: [
           [{ label: "🎯 Find the best bets", value: "picks" }],
+          ...(s.shown?.length ? [[{ label: "🔄 Try something different", value: "different" }]] : []),
+          [{ label: s.must ? "✍️ Change what to include" : "✍️ Be specific", value: "specific" }],
           [{ label: "🔍 Check a bet I'm building", value: "check" }],
           [{ label: s.target ? "🎚 Change target odds" : "🎚 Set target odds", value: "target" }, { label: "✅ Done", value: "done" }],
         ],
@@ -79,6 +123,21 @@ export function prompt(s: FlowState): Prompt {
       rows.push([{ label: options.length ? "🌐 All of them" : "🌐 All sports", value: "ALL" }]);
       return { text: options.length > 1 ? "Which league should I search?" : "Which sport should I search?", buttons: rows };
     }
+    case "range": {
+      // The promo's minimum (or -200) up to +100, then the fixed ranges above it.
+      const floor = s.promo.min_total_odds ?? -200;
+      const ranges: [number, number][] = [
+        ...(americanToDecimal(floor) < 2 ? [[floor, 100] as [number, number]] : []),
+        ...RANGES.filter(([, hi]) => americanToDecimal(hi) > americanToDecimal(floor)).map(([lo, hi]): [number, number] =>
+          [americanToDecimal(lo) < americanToDecimal(floor) ? floor : lo, hi]),
+      ];
+      const label = ([lo, hi]: [number, number]) => (hi >= 50000 ? `${formatAmerican(lo)} and up` : `${formatAmerican(lo)} to ${formatAmerican(hi)}`);
+      const buttons = ranges.map((r) => ({ label: label(r), value: `${r[0]}..${r[1]}` }));
+      const rows: Button[][] = [];
+      for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2));
+      rows.push([{ label: "Any odds", value: "any" }]);
+      return { text: "What odds range should the bets land in? Tap one, or type a range (e.g. +300-500).", buttons: rows };
+    }
     case "target":
       return {
         text: "What odds should the picks add up to? Tap one, or type a price or a range (e.g. +450, or +400-600).",
@@ -88,11 +147,28 @@ export function prompt(s: FlowState): Prompt {
         ],
       };
     case "slip":
-      return { text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`, buttons: [] };
+      return {
+        text: `Send a screenshot of the bet slip on ${s.promo.book ?? "the book"}. (Or type its total price before the boost, e.g. +350.)`,
+        // After SGP leg ideas: other legs, or legs built around one the user names.
+        buttons: s.shown?.length || s.must ? [[{ label: "🔄 Try something different", value: "different" }], [{ label: s.must ? "✍️ Change what to include" : "✍️ Be specific", value: "specific" }]] : [],
+      };
     case "fair":
       return {
         text: "How should I price it fairly? Pick the book's likely margin on this bet, or type a fair price (e.g. +425).",
         buttons: [(s.legs === 1 ? SINGLE_MARGINS : MARGINS).map((m) => ({ label: `${m}% margin`, value: `m${m}` }))],
+      };
+    case "boost":
+      return {
+        text: "Is a boost going on this bet? Tap it, or type the % (e.g. 33).",
+        buttons: [
+          BOOSTS.slice(0, 3).map((b) => ({ label: `${b}%`, value: String(b) })),
+          [...BOOSTS.slice(3).map((b) => ({ label: `${b}%`, value: String(b) })), { label: "No boost", value: "none" }],
+        ],
+      };
+    case "specific":
+      return {
+        text: "What should every pick include? Type a player, a line or a game, e.g. \"Lamar Jackson anytime TD\", \"Ravens -3.5\", \"over 220.5\" or \"Ravens game\".",
+        buttons: s.must ? [[{ label: "Clear it", value: "clear" }]] : [],
       };
     case "end":
       return { text: "👍 Send another promo or bet slip screenshot anytime.", buttons: [] };
@@ -103,13 +179,16 @@ export function summary(p: Promo): string {
   const rules = [
     p.boost_pct !== null ? `${p.boost_pct}% boost` : null,
     p.bet_kinds.length
-      ? p.bet_kinds.map((k) => (legLimitsApply(p, k) ? `${KIND_LABELS[k]} (${legRange(p)})` : KIND_LABELS[k])).join(" / ")
+      ? p.bet_kinds.map((k) => (legLimitsApply(p, k) && !(p.max_legs === null && (p.min_legs ?? 0) <= 1) ? `${KIND_LABELS[k]} (${legRange(p)})` : KIND_LABELS[k])).join(" / ")
       : null,
     p.leagues.length ? p.leagues.map((l) => (l === "SOCCER" ? "Soccer" : l)).join(", ") : null,
     p.min_total_odds !== null ? `min ${formatAmerican(p.min_total_odds)}` : null,
     p.max_stake !== null ? `max $${p.max_stake}` : "no max wager",
   ].filter(Boolean);
-  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
+  const game = p.game ? `\n🏟 ${p.game} only` : "";
+  const day = p.game_date ? `\n📅 Games on ${new Date(p.game_date + "T12:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" })} only` : "";
+  const markets = p.markets?.length ? `\n🎯 ${marketsLabel(p)[0].toUpperCase()}${marketsLabel(p).slice(1)} bets only` : "";
+  return `📋 ${p.title}${p.book ? ` · ${p.book}` : ""}\n${rules.join(" · ")}${game}${day}${markets}${p.notes ? `\nℹ️ ${p.notes}` : ""}`;
 }
 
 // The leagues a search covers: the one picked, or for "ALL" every league the
@@ -183,19 +262,33 @@ export function step(s: FlowState, input: string): StepResult {
     }
     case "action":
       if (v === "check") return { state: { ...s, step: "slip" } };
+      if (v === "different") {
+        // The same search, leaving out the legs already shown (the bot keeps the list).
+        if (s.sport) return { state: { ...s, step: "action", rangeAsked: true }, action: "picks" };
+        return { state: { ...s, step: "sport" } }; // keeps the shown list, unlike a fresh "picks"
+      }
+      if (v === "specific") return { state: { ...s, step: "specific" } };
       if (v === "picks") {
+        s = { ...s, shown: undefined }; // a fresh search shows the best bets again
         // One searchable league: go. None named ("Any event") or several: ask.
         const leagues = searchable(s.promo);
         if (s.promo.leagues.length && !leagues.length) {
           // A league the odds feed isn't wired up for: say so rather than offer other sports.
           return { state: s, reply: `I don't have odds for ${s.promo.leagues.join(", ")} yet, so I can't search for picks. Build a bet and send me the slip screenshot instead.` };
         }
-        if (leagues.length === 1) return { state: { ...s, sport: leagues[0] }, action: "picks" };
+        if (leagues.length === 1) return toPicks({ ...s, sport: leagues[0] });
         return { state: { ...s, step: "sport" } };
       }
       if (v === "target") return { state: { ...s, step: "target" } };
       if (v === "done") return { state: { ...s, step: "end" } };
       return { state: s, reply: "Pick an option above." };
+    case "specific": {
+      if (["clear", "none", "any", "nothing"].includes(v.toLowerCase())) return { state: { ...s, step: "action", must: undefined } };
+      if (v.length < 2) return { state: s, reply: "Type a player, a line or a game, e.g. \"Ravens game\"." };
+      const next: FlowState = { ...s, step: "action", must: v.slice(0, 80), shown: undefined };
+      if (next.sport) return { state: { ...next, rangeAsked: true }, action: "picks" };
+      return step(next, "picks");
+    }
     case "target": {
       if (v.toLowerCase() === "any") return { state: { ...s, step: "action", target: undefined } };
       const target = parseTarget(v);
@@ -204,12 +297,22 @@ export function step(s: FlowState, input: string): StepResult {
     }
     case "sport": {
       const sport = v.toUpperCase();
-      if (sport === "ALL" || sport === "ANY") return { state: { ...s, step: "action", sport: "ALL" }, action: "picks" };
+      if (sport === "ALL" || sport === "ANY") return toPicks({ ...s, sport: "ALL" });
       const options = searchable(s.promo);
       if (!SPORT_KEYS[sport] || (options.length && !options.includes(sport))) return { state: s, reply: "Pick a sport above." };
-      return { state: { ...s, step: "action", sport }, action: "picks" };
+      return toPicks({ ...s, sport });
+    }
+    case "range": {
+      const done = (target: OddsRange | undefined): StepResult =>
+        ({ state: { ...s, step: "action", target, rangeAsked: true }, action: "picks" });
+      if (v.toLowerCase() === "any") return done(undefined);
+      const tapped = v.match(/^(-?\d+)\.\.(-?\d+)$/);
+      const target = tapped ? { min: Number(tapped[1]), max: Number(tapped[2]) } : parseTarget(v);
+      if (!target) return { state: s, reply: "Tap a range, type one like +300-500, or tap Any odds." };
+      return done(target);
     }
     case "slip": {
+      if (v === "different" || v === "specific") return step({ ...s, step: "action" }, v);
       const odds = parseAmerican(v);
       if (odds === null) return { state: s, reply: "Send a bet slip screenshot, or a price like +350." };
       // Only the price is known here, so check the rules that don't need the legs.
@@ -227,14 +330,19 @@ export function step(s: FlowState, input: string): StepResult {
       const basis = margin !== null ? `assumes a ${margin}% book margin` : "your price";
       // No promo menu to return to: stay on this price, so a typed fair price re-checks it.
       const next: FlowState = s.noPromo ? s : { ...s, step: "action", bookOdds: undefined, legs: undefined };
-      return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis) };
+      return { state: next, reply: verdict(s.promo, bookOdds, fairP, basis, s.bankroll ?? null) };
+    }
+    case "boost": {
+      const boost = parseBoost(v);
+      if (boost === undefined) return { state: s, reply: "Tap a boost, type a % like 33, or tap No boost." };
+      return { state: { ...s, step: "action", slip: { ...s.slip!, boost_pct: boost, boost_entered: boost !== null } }, action: "slip" };
     }
     case "end":
       return { state: s };
   }
 }
 
-export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string): string {
+export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string, bankroll: number | null = null): string {
   const e = evaluateBet([fairP], [bookOdds], (p.boost_pct ?? 0) / 100);
   const units = (f: number) => `${(f * 100).toFixed(2)}u`;
   const boosted = p.boost_pct ? `, boosted to ${formatAmerican(decimalToAmerican(e.boostedDecimal))}` : "";
@@ -245,7 +353,7 @@ export function verdict(p: Promo, bookOdds: number, fairP: number, basis: string
   ];
   if (e.kelly > 0) {
     lines.push(`Kelly: Full ${units(e.kelly)} | 1/2 ${units(e.kelly / 2)} | 1/4 ${units(e.kelly / 4)} (1u = 1% bankroll)`);
-    lines.push(wagerLine(e.kelly, p.max_stake)!);
+    lines.push(wagerLine(e.kelly, p.max_stake, bankroll)!);
   }
   lines.push(e.ev > 0 ? "✅ +EV — worth it at this price." : "❌ -EV — skip it, or find a better price.");
   // With no boost, an assumed margin makes any bet -EV by that margin; the useful number is the break-even.
