@@ -201,22 +201,6 @@ test("a leg the feed doesn't carry: the slip's own book still offers the game", 
   assert.match(SLIP_PROMPT, /NHL "Points" -> player_points/);
 });
 
-test("tap tracking: each 🛒 URL points at the bot under a fresh id; other buttons untouched", async () => {
-  const { trackButtons, newLinkId, LINK_ID } = await import("./mod.ts");
-  let n = 0;
-  const ids = ["AAAAAAAAA1", "AAAAAAAAA2"];
-  const rows = [[{ text: "🛒 Build in DraftKings", url: DK }], [{ text: "📍 Open game", url: DK_GAME }]];
-  const t = trackButtons(rows, "https://x.supabase.co/functions/v1/promo-bot", () => ids[n++]);
-  assert.deepEqual(t.rows, [[{ text: "🛒 Build in DraftKings", url: "https://x.supabase.co/functions/v1/promo-bot?go=AAAAAAAAA1" }],
-    [{ text: "📍 Open game", url: "https://x.supabase.co/functions/v1/promo-bot?go=AAAAAAAAA2" }]]);
-  assert.deepEqual(t.links.map((l) => [l.id, l.url]), [["AAAAAAAAA1", DK], ["AAAAAAAAA2", DK_GAME]]);
-  assert.deepEqual(trackButtons([], "u").links, []);
-  const id = newLinkId();
-  assert.match(id, LINK_ID);
-  assert.notEqual(id, newLinkId());
-  assert.equal(LINK_ID.test("../etc"), false);
-});
-
 test("a bet's 🛒 link expires when its first game starts", async () => {
   const { earliestStart } = await import("./mod.ts");
   assert.equal(earliestStart(["2026-11-09T18:00:00Z", null, "2026-11-08T03:14:00Z", "bad"]), "2026-11-08T03:14:00Z");

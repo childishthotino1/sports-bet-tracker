@@ -65,3 +65,29 @@ test("soccer: the club named, not one sharing its last word", async () => {
   assert.equal(q("coventry"), "cov");
   assert.equal(q("any city game?"), null, "'city' alone names no club");
 });
+
+test("UFC: league words, fighter names, moneyline-only markets", async () => {
+  const { mainMarkets, eligibleLeagues, normalizePromo, priceLegs, SPORT_KEYS, questionRest, questionFilter } = await import("./mod.ts");
+  assert.equal(SPORT_KEYS.UFC, "mma_mixed_martial_arts");
+  assert.deepEqual(questionLeagues("best ufc lines tonight"), ["UFC"]);
+  assert.deepEqual(questionLeagues("any MMA plays"), ["UFC"]);
+  assert.deepEqual(eligibleLeagues(normalizePromo({ title: "MMA 25% boost", leagues: ["MMA"] })), ["UFC"]);
+  assert.deepEqual(mainMarkets("UFC"), ["h2h"]);
+  assert.deepEqual(mainMarkets("NFL"), ["h2h", "spreads", "totals"]);
+  assert.equal(questionRest("best ufc fight plays"), "", "fight words are filler, so a league answer comes back");
+  assert.equal(questionFilter("Pereira fight").mode, null);
+
+  const fight = {
+    id: "f1", sport_key: "mma_mixed_martial_arts", commence_time: "2026-11-15T03:00:00Z",
+    home_team: "Alex Pereira", away_team: "Magomed Ankalaev",
+    bookmakers: [
+      { key: "draftkings", title: "DraftKings", markets: [{ key: "h2h", outcomes: [{ name: "Alex Pereira", price: 130 }, { name: "Magomed Ankalaev", price: -155 }] }] },
+      { key: "pinnacle", title: "Pinnacle", markets: [{ key: "h2h", outcomes: [{ name: "Alex Pereira", price: 140 }, { name: "Magomed Ankalaev", price: -150 }] }] },
+    ],
+  };
+  const NOWF = new Date("2026-11-14T15:00:00Z");
+  assert.equal(findEvent([fight], ["Pereira fight"], NOWF)?.id, "f1", "a fighter's last name finds the fight");
+  assert.equal(findEvent([fight], ["Magomed Ankalaev vs Alex Pereira"], NOWF)?.id, "f1");
+  const legs = priceLegs([fight as never], "draftkings", { now: NOWF });
+  assert.deepEqual(legs.map((l) => l.selection).sort(), ["Alex Pereira ML", "Magomed Ankalaev ML"]);
+});

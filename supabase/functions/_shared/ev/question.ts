@@ -13,6 +13,7 @@ const LEAGUE_WORDS: [RegExp, string[]][] = [
   [/\bnfl\b/, ["NFL"]],
   [/\b(mlb|baseball)\b/, ["MLB"]],
   [/\b(nhl|hockey)\b/, ["NHL"]],
+  [/\b(ufc|mma)\b/, ["UFC"]],
   [/\b(epl|premier league)\b/, ["EPL"]],
   [/\b(ucl|champions league)\b/, ["UCL"]],
   [/\bmls\b/, ["MLS"]],

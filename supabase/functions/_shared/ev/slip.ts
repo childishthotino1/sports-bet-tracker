@@ -105,7 +105,7 @@ export const SLIP_JSON_SCHEMA = {
 export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already placed), fill "slip". Use "" for unknown text and 0 for unknown numbers:
 - book: the sportsbook's code (MGM, DK, FD, CZR, FAN, B365, SCORE). ${BOOK_ID_RULES}
   If none of these rules fits, "".
-- league: NFL, NCAAF, NBA, WNBA, NCAAB, MLB or NHL, or for soccer EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA, from the teams and competition.
+- league: NFL, NCAAF, NBA, WNBA, NCAAB, MLB, NHL or UFC (any MMA fight), or for soccer EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA, from the teams and competition.
 - bet_kind: "sgp" if the slip says SGP / Same Game Parlay; "parlay" for legs from different games; "single" for one leg.
 - total_odds: the slip's total odds before any boost (the struck-through price when boosted), as American odds (+990 -> 990).
 - boosted_odds: the boosted total odds if the slip shows a boost, else 0.
@@ -113,6 +113,7 @@ export const SLIP_PROMPT = `If it's a bet slip (a bet being built or already pla
 - game: "Away Team @ Home Team" as the slip shows it, for a single-game bet; else "".
 - legs: one per selection.
   - team_or_player: the team (spreads, moneylines) or player (props), full name as shown; "" for game totals.
+  - For a UFC / MMA fight: game is "Fighter A vs Fighter B", a fighter to win is h2h with side and team_or_player the fighter's full name; method of victory, round and "goes the distance" bets are "other".
   - market: h2h for moneylines, spreads, totals for the game total, team_totals for one team's total (team_or_player is that team), h2h_h1 / spreads_h1 / totals_h1 for 1st-half lines and h2h_q1 / spreads_q1 / totals_q1 for 1st-quarter lines, or the player prop's key (player_anytime_td for "Any Time Touchdown Scorer", player_1st_td for "First Touchdown Scorer", player_last_td for "Last Touchdown Scorer", player_reception_longest for "Longest Reception", player_rush_reception_yds for "Rush + Rec Yards", player_points, ... from the list; for soccer, h2h for the match result (side "Draw" for a draw), btts for Both Teams To Score, player_goal_scorer_anytime for Anytime Goalscorer); "other" if none fits.
   - Prop names by sport: NHL "Points" -> player_points, "Assists" -> player_assists, "Shots on Goal" -> player_shots_on_goal, "Goals" over/under -> player_goals, "Anytime Goalscorer" -> player_goal_scorer_anytime, "Power Play Points" -> player_power_play_points, "Blocked Shots" -> player_blocked_shots, "Saves" -> player_total_saves; NBA "Pts + Reb + Ast" -> player_points_rebounds_assists; MLB "Hits" -> batter_hits, "Total Bases" -> batter_total_bases, a pitcher's "Strikeouts" -> pitcher_strikeouts. BetMGM writes a prop as "Over 1.5 - Jimmy Snuggerud Points": side Over, line 1.5, team_or_player Jimmy Snuggerud, market from the stat word at the end (player_points). Use "other" only when no key fits.
   - line: the number with its sign for spreads (Panthers +3.5 -> 3.5), the total or prop line, null for moneylines and anytime TDs.

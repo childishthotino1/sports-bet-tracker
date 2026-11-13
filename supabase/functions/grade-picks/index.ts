@@ -37,11 +37,12 @@ async function research(prompt: string): Promise<GradeReply | null> {
   for (let turn = 0; turn < 3; turn++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01" },
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "anthropic-beta": "server-side-fallback-2026-07-01" },
       body: JSON.stringify({
         model: "claude-opus-5-5",
         max_tokens: 8000,
         output_config: { effort: "medium" },
+        fallbacks: "default",
         tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6 }],
         messages,
       }),

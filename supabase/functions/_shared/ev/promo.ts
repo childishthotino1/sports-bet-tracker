@@ -10,6 +10,7 @@ import { canonicalBook } from "../books/books.ts";
 // covers a Premier League slip.
 export const LEAGUE_GROUPS: Record<string, string[]> = {
   SOCCER: ["EPL", "UCL", "MLS", "LALIGA", "SERIEA", "BUNDESLIGA"],
+  MMA: ["UFC"],
 };
 
 // A promo's leagues with groups expanded.
@@ -112,7 +113,7 @@ export const PROMO_PROMPT = `If it's a sportsbook promotion, read its rules into
 - bet_kinds: "sgp" for same game parlays, "parlay" for regular parlays, "single" for straight bets. Empty if any bet qualifies.
 - min_legs / max_legs: leg-count limits, e.g. "4-25 Leg Parlays" -> 4 and 25.
 - legs_apply_to: the bet_kinds those leg limits cover. "Same Game Parlay, 4-25 Leg Parlays" -> ["parlay"] (the SGP has no leg limit). Empty if the limits cover every eligible bet.
-- leagues: league abbreviations such as "MLB" or "NBA" ("SOCCER" when the promo covers soccer generally; EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA for one league). Empty if any league qualifies.
+- leagues: league abbreviations such as "MLB", "NBA" or "UFC" (UFC for any MMA promo) ("SOCCER" when the promo covers soccer generally; EPL, UCL, MLS, LALIGA, SERIEA or BUNDESLIGA for one league). Empty if any league qualifies.
 - live / pregame: whether live and pre-game bets qualify. If the promo doesn't say, both are true.
 - paid_in: "cash" or "bonus", for how the boosted winnings are paid.
 - expires_at: the expiry as YYYY-MM-DDTHH:MM in the time shown, or YYYY-MM-DD if only a date is shown; null if none is shown.

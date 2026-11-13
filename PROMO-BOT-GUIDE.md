@@ -70,9 +70,10 @@ Just type, for example:
   - **Main lines or props:** *"Knicks game plays, not player props"*, *"Knicks props"*, *"main lines only"*.
   - **A market:** *"Knicks spread"*, *"Knicks moneyline"*, *"Ravens team total"*, *"Ravens 1st half total"*.
   - **A player or a stat:** *"Brunson points"*, *"Falcons Bijan TD"*, *"Ravens pass yards"*. Name the team or league with the player, so the bot knows which game.
-  - **A whole league:** *"nba spreads tonight"*, *"nfl TD props"*, *"nhl moneylines"*. Main lines cover every upcoming game; props, 1st half lines and team totals cover the next 4 games.
+  - **A whole league:** *"nba spreads tonight"*, *"nfl TD props"*, *"nhl moneylines"*, *"ufc fights"*. Main lines cover every upcoming game; props, 1st half lines and team totals cover the next 4 games.
   - **A book:** *"on fanduel"* prices only that book.
 - *"teasers"* gives this week's NFL Wong teaser legs.
+- **UFC:** name a fighter (*"Pereira fight"*) or ask for *"ufc lines"*. Only who-wins lines are on the odds feed; method of victory and round bets get an estimated price.
 - *"give me the bet link"* after a slip check re-sends the buttons for building that bet. If the bet isn't on the odds feed, the button opens the game on your book instead.
 
 ### Using it in a group chat

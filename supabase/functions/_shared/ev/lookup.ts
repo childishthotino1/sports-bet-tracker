@@ -138,6 +138,7 @@ const FILLER = new Set([
   "how", "about", "there", "some", "i", "want", "like", "should", "can", "you", "do", "sides", "markets", "market", "events",
   "nfl", "nba", "wnba", "ncaaf", "ncaab", "cfb", "cbb", "mlb", "nhl", "epl", "ucl", "mls", "soccer", "football", "basketball", "baseball", "hockey", "college",
   "laliga", "liga", "serie", "bundesliga", "premier", "league", "champions",
+  "ufc", "mma", "fight", "fights", "card", "fighter", "fighters", "bout",
 ]);
 export function questionRest(text: string): string {
   const books = new Set(Object.keys(BOOK_ALIASES).map((k) => k.toLowerCase()));

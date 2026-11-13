@@ -16,6 +16,8 @@ export const SPORT_KEYS: Record<string, string> = {
   NCAAB: "basketball_ncaab",
   MLB: "baseball_mlb",
   NHL: "icehockey_nhl",
+  // Every MMA promotion on the feed is one sport key; UFC is nearly all of it. Moneylines only.
+  UFC: "mma_mixed_martial_arts",
   EPL: "soccer_epl",
   UCL: "soccer_uefa_champs_league",
   MLS: "soccer_usa_mls",
@@ -94,7 +96,15 @@ export const PROP_MARKETS: Record<string, string[]> = {
 // quarter-goal lines (2.25) where the alternates have the 2.5.
 export const EXTRA_MARKETS: Record<string, string[]> = {
   ...Object.fromEntries(SOCCER.map((l) => [l, ["alternate_totals", "alternate_spreads", "draw_no_bet", "btts", "alternate_totals_corners", "h2h_h1"]])),
+  UFC: [],
 };
+
+// A league's main lines on the feed. A fight has no spread or total there, only
+// who wins, so asking a UFC call for them would waste the request.
+const MAIN_ONLY: Record<string, string[]> = { UFC: ["h2h"] };
+export function mainMarkets(league: string | undefined): string[] {
+  return (league && MAIN_ONLY[league]) || ["h2h", "spreads", "totals"];
+}
 
 // 1st-half moneyline, spread and total: every book you use posts them for
 // football and basketball, and Pinnacle prices all three. Per-game calls only

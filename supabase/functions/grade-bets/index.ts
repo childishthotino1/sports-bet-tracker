@@ -106,30 +106,37 @@ If you cannot find a confident result (game not found, ambiguous description, po
 Respond with ONLY a JSON object, no other text:
 {"verdict": "won" | "lost" | "push" | "void" | "unknown", "confidence": "high" | "medium" | "low", "explanation": "one sentence citing the specific result you found"}`;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-8",
-      max_tokens: 4096,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "medium" },
-      tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
+  // Web search can pause a long turn (stop_reason pause_turn); send it back to continue.
+  const messages: { role: string; content: unknown }[] = [{ role: "user", content: prompt }];
+  let data: any = null;
+  for (let turn = 0; turn < 3; turn++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "server-side-fallback-2026-07-01",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-5-5",
+        max_tokens: 16000,
+        output_config: { effort: "medium" },
+        fallbacks: "default",
+        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 5 }],
+        messages,
+      }),
+    });
 
-  if (!res.ok) {
-    console.error("Claude request failed:", res.status, await res.text());
-    return null;
+    if (!res.ok) {
+      console.error("Claude request failed:", res.status, await res.text());
+      return null;
+    }
+    data = await res.json();
+    if (data.stop_reason !== "pause_turn") break;
+    messages.push({ role: "assistant", content: data.content });
   }
-
-  const data = await res.json();
-  if (data.stop_reason === "refusal") return null;
+  if (!data || data.stop_reason === "refusal" || data.stop_reason === "pause_turn") return null;
 
   const textBlocks = (data.content ?? []).filter((b: any) => b.type === "text").map((b: any) => b.text);
   const text = textBlocks.join("\n").trim();

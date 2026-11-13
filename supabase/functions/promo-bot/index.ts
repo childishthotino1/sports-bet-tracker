@@ -13,12 +13,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { readImage } from "../_shared/ev/vision.ts";
 import { PROMO_EXAMPLES_MD } from "../_shared/ev/promo-examples.ts";
 import {
-  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, LINK_ID, earliestStart, startsTooSoon, legKey, matchMust, type MustMatch, type PricedLeg, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
+  allowsSgpx, easternStamp, exposureNote, whyNote, parseBankroll, questionLeagues, questionBook, expandTeamAliases, mentionsBot, stripMention, looksLikeAnswer, slipButtons, shopButtons, earliestStart, startsTooSoon, legKey, matchMust, type MustMatch, type PricedLeg, BOOK_STATE, type LinkButton, americanToDecimal, parseBoost, marketAllowed, marketsLabel, askBoost, HALF_MARKETS, QUESTION_PROP_MARKETS, bestBets, betterPrices, blowoutNote, formatAmerican, formatBetterPrices, formatShop, formatWongSlate, isPropOver, shopLegs, SHOP_BOOKS, BOOK_KEYS, cardLegs, EXTRA_MARKETS, leaguesToSearch, checkSlip, filterMode, findEvent, formatBet, formatRange, formatSgpSuggestion,
   formatSlipCheck, formatStart, legLabel, getEventOdds, getEvents, getOdds, legEventIds, marketsFor, noPicksReason, priceLegs, MIN_LEAD_MINUTES,
   priceSlipLegs, promoCovers, prompt, PROP_MARKETS, rankSgpGames, SHARP_KEYS, slipOnly, slipOffers, type SlipOffer, SPORT_KEYS, startFlow, step, suggestSgpLegs, type FlowState, type MarketMode,
   type OddsEvent, type EventInfo, type Promo, type Prompt,
   questionFilter, questionMarkets, questionNames, questionRest, wantLeg, filterLabel, formatSlate, type QuestionFilter, type ShopLeg,
-  formatStats, parseStatsArgs, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
+  mainMarkets, formatStats, parseStatsArgs, pickRow, trackedLeg, type PickRow, type StoredPick, type TrackedLeg,
 } from "../_shared/ev/mod.ts";
 
 const TOKEN = Deno.env.get("PROMO_BOT_TOKEN")!;
@@ -63,26 +63,6 @@ function send(chatId: number, text: string) {
 const BOOK_STATE_ENV = Deno.env.get("PROMO_BOOK_STATE")?.trim().toLowerCase() || BOOK_STATE;
 
 type LinkSource = "pick" | "sgp_legs" | "slip_offer" | "better_price" | "question";
-
-// Buttons sent 2026-11-08 pointed here (?go=<id>) to count taps; they're direct
-// links again (the redirect brought up Telegram's "Open link?" and kept the
-// phone out of the book's app), but the old buttons still work.
-// A tap on a 🛒 button: log it and send the phone on to the book's link. Once
-// the bet's first game has started the link stops: the bet would be live, and
-// the bot never suggests live bets.
-async function followLink(id: string): Promise<Response> {
-  if (!LINK_ID.test(id)) return new Response("Not found", { status: 404 });
-  const { data } = await db.from("promo_bot_links").select("url, starts_at").eq("id", id).maybeSingle();
-  if (!data?.url) return new Response("This link has expired. Ask the bot again.", { status: 404 });
-  if (data.starts_at && new Date(data.starts_at).getTime() <= Date.now()) {
-    const at = new Date(data.starts_at).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", hour: "numeric", minute: "2-digit" });
-    const page = `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Game started</title><body style="font:17px/1.5 system-ui,sans-serif;margin:2rem;max-width:30rem">⏱ This bet's game started (${at} ET), so it would be a live bet now. The bot only prices bets before the game. Ask it for fresh picks.</body>`;
-    return new Response(page, { status: 410, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
-  }
-  const { error } = await db.from("promo_bot_link_taps").insert({ link_id: id });
-  if (error) console.error("promo_bot_link_taps", error.message);
-  return new Response(null, { status: 302, headers: { Location: data.url, "Cache-Control": "no-store" } });
-}
 
 // A message with 🛒 URL buttons (links.ts): the book's own links, so one tap
 // opens the book's app. No buttons: sent exactly as before. If Telegram turns
@@ -453,7 +433,7 @@ async function sendGamePicks(chatId: number, s: FlowState, bookKey: string, game
   const props = mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])];
   const markets = promo.markets?.length
     ? [...promo.markets.filter((m) => MAIN_MARKETS.includes(m)), ...gameMarkets(league, promo, mode)]
-    : [...MAIN_MARKETS, ...lines, ...props];
+    : [...mainMarkets(league), ...lines, ...props];
   const { data, remaining } = await eventOdds(game.sport_key, game.id, markets, bookKey);
   const narrowed = narrowLegs(s, filterMode(priceLegs([data], bookKey), s.must ? "all" : mode).filter((l) => marketAllowed(promo, l.market)));
   if (narrowed === "nomatch") {
@@ -501,7 +481,7 @@ async function mainLines(promo: Promo, bookKey: string, leagues: string[]) {
   const events: OddsEvent[] = [];
   let remaining: number | null = null;
   for (const league of leagues) {
-    const r = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], { markets: MAIN_MARKETS, bookmakers: withSharps(bookKey) });
+    const r = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], { markets: mainMarkets(league), bookmakers: withSharps(bookKey) });
     events.push(...r.data.filter((e) => promoCovers(promo, e.commence_time)));
     remaining = r.remaining;
   }
@@ -549,7 +529,7 @@ async function sendSgpLegs(chatId: number, s: FlowState, bookKey: string, league
     const league = LEAGUE_OF[game.sport_key];
     const markets = promo.markets?.length
       ? [...promo.markets.filter((m) => MAIN_MARKETS.includes(m)), ...gameMarkets(league, promo, "all")]
-      : [...MAIN_MARKETS, ...(EXTRA_MARKETS[league] ?? []), ...(PROP_MARKETS[league] ?? [])];
+      : [...mainMarkets(league), ...(EXTRA_MARKETS[league] ?? []), ...(PROP_MARKETS[league] ?? [])];
     const odds = await eventOdds(game.sport_key, game.id, markets, bookKey);
     remaining = odds.remaining;
     const narrowed = narrowLegs(s, filterMode(priceLegs([odds.data], bookKey), promo.markets?.length ? "all" : mode).filter((l) => marketAllowed(promo, l.market)));
@@ -805,10 +785,10 @@ async function answerQuestion(chatId: number, text: string): Promise<boolean> {
   const extra = EXTRA_MARKETS[league] ?? ["team_totals"];
   const props = f.mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])];
   const markets = questionMarkets(asked, game.sport_key)
-    ?? [...MAIN_MARKETS, ...(f.mode === "props" ? [] : [...extra, ...(HALF_MARKETS[league] ?? [])]), ...props];
+    ?? [...mainMarkets(league), ...(f.mode === "props" ? [] : [...extra, ...(HALF_MARKETS[league] ?? [])]), ...props];
   // If the feed rejects a market for this league, ask again for the main lines alone.
   const { data, remaining } = await getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets, bookmakers })
-    .catch(() => getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets: MAIN_MARKETS, bookmakers }));
+    .catch(() => getEventOdds(ODDS_API_KEY, game.sport_key, game.id, { markets: mainMarkets(league), bookmakers }));
   let shopped = shopLegs(data, books).filter((l) => wantLeg(f, l));
   // What's left of the question: a player ("Brunson") or a team's side ("Knicks spread").
   const must = matchMust(shopped, rest);
@@ -848,14 +828,16 @@ async function answerSlate(
     for (const g of upcoming.slice(0, SLATE_GAMES)) {
       const league = LEAGUE_OF[g.sport_key];
       const markets = questionMarkets(f, g.sport_key)
-        ?? [...MAIN_MARKETS, ...(f.mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])])];
+        ?? [...mainMarkets(league), ...(f.mode === "main" ? [] : [...(PROP_MARKETS[league] ?? []), ...(QUESTION_PROP_MARKETS[league] ?? [])])];
       const r = await getEventOdds(ODDS_API_KEY, g.sport_key, g.id, { markets, bookmakers }).catch(() => null);
       if (r) { priced.push(r.data); remaining = r.remaining; }
     }
   } else {
-    const markets = f.main.length ? MAIN_MARKETS.filter((m) => f.main.includes(m)) : MAIN_MARKETS;
     const ids = new Set(upcoming.map((e) => e.id));
     for (const league of leagues) {
+      const main = mainMarkets(league);
+      const markets = f.main.length ? main.filter((m) => f.main.includes(m)) : main;
+      if (!markets.length) continue;
       const r = await getOdds(ODDS_API_KEY, SPORT_KEYS[league], { markets, bookmakers }).catch(() => null);
       if (r) { priced.push(...r.data.filter((e) => ids.has(e.id))); remaining = r.remaining; }
     }
@@ -1033,8 +1015,6 @@ async function advance(chatId: number, input: string, typed = false) {
 Deno.serve(async (req) => {
   // A tap on a 🛒 button (a GET from the phone, no secret): log and redirect.
   const params = new URL(req.url).searchParams;
-  const go = req.method === "GET" ? params.get("go") : null;
-  if (go !== null) return followLink(go);
   // pg_cron's sweep (no secret: it only takes buttons off games already under way).
   if (params.get("sweep") === "1") return sweepButtons();
   if (req.headers.get("x-telegram-bot-api-secret-token") !== WEBHOOK_SECRET) return new Response("forbidden", { status: 403 });
